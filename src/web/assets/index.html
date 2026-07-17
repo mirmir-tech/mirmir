@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0D1117">
+    <title>MiRMiR · Runtime dashboard</title>
+    <link rel="icon" href="/ui/assets/brand/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/ui/app.css">
+    <script src="/ui/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to dashboard</a>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="/ui/" aria-label="MiRMiR runtime dashboard">
+          <img src="/ui/assets/brand/lockup.svg" alt="MiRMiR">
+        </a>
+
+        <p class="rail-label">Workspace</p>
+        <nav class="workspace-nav" aria-label="Dashboard views">
+          <button class="tab active" data-view="overview" data-label="Overview" type="button" aria-current="page">
+            <span class="nav-dot" aria-hidden="true"></span><span>Overview</span>
+          </button>
+          <button class="tab" data-view="models" data-label="Models" type="button">
+            <span class="nav-dot" aria-hidden="true"></span><span>Models</span>
+          </button>
+          <button class="tab" data-view="chat" data-label="Chat" type="button">
+            <span class="nav-dot" aria-hidden="true"></span><span>Chat</span>
+          </button>
+          <button class="tab" data-view="configuration" data-label="Settings" type="button">
+            <span class="nav-dot" aria-hidden="true"></span><span>Settings</span>
+          </button>
+          <button class="tab" data-view="activity" data-label="Activity" type="button">
+            <span class="nav-dot" aria-hidden="true"></span><span>Activity</span>
+          </button>
+        </nav>
+
+        <div class="rail-spacer"></div>
+        <section class="runtime-card" aria-label="Runtime connection">
+          <p class="status" id="status">Connecting</p>
+          <span>LOCAL SESSION</span>
+        </section>
+        <button class="quiet logout" id="logout" type="button">End session</button>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="topbar-context">LOCAL RUNTIME / WEB</p>
+            <h1 id="page-title">Overview</h1>
+          </div>
+          <div class="topbar-meta">
+            <span>SERVER <b id="server-version">—</b></span>
+            <span>PROTOCOL <b id="protocol-version">—</b></span>
+          </div>
+        </header>
+
+        <main class="content" id="main-content">
+          <p class="notice" id="notice" hidden></p>
+
+          <section class="view active" id="overview" aria-labelledby="overview-title">
+            <header class="page-heading">
+              <p class="eyebrow">Runtime overview</p>
+              <div><h2 id="overview-title">Local intelligence, in view.</h2><span class="stage" id="stage">idle</span></div>
+              <p>Live inference telemetry from the MiRMiR server on this machine.</p>
+            </header>
+            <div class="cards">
+              <article><p>Throughput</p><strong id="throughput">—</strong><small>tok/s</small></article>
+              <article><p>Prefill</p><strong id="prefill">—</strong><small>tok/s</small></article>
+              <article><p>Decode</p><strong id="decode">—</strong><small>tok/s</small></article>
+              <article><p>Time to first token</p><strong id="ttft">—</strong><small>ms</small></article>
+            </div>
+            <div class="grid">
+              <article class="panel">
+                <div class="panel-heading"><h3>Runtime</h3><span>SESSION</span></div>
+                <dl>
+                  <div><dt>Loaded models</dt><dd id="loaded-models">—</dd></div>
+                  <div><dt>Active requests</dt><dd id="active-requests">—</dd></div>
+                  <div><dt>Total requests</dt><dd id="total-requests">—</dd></div>
+                  <div><dt>Failed requests</dt><dd id="failed-requests">—</dd></div>
+                  <div><dt>Tokens</dt><dd id="tokens">—</dd></div>
+                  <div><dt>Uptime</dt><dd id="uptime">—</dd></div>
+                </dl>
+              </article>
+              <article class="panel">
+                <div class="panel-heading"><h3>Capacity</h3><span>HOST</span></div>
+                <label for="memory">Memory <span id="memory-label">—</span></label>
+                <progress id="memory" max="100" value="0"></progress>
+                <label for="kv">KV blocks <span id="kv-label">—</span></label>
+                <progress id="kv" max="100" value="0"></progress>
+                <p class="muted" id="memory-source">Waiting for telemetry</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="view" id="models" aria-labelledby="models-title">
+            <header class="page-heading compact">
+              <p class="eyebrow">Model workspace</p>
+              <div><h2 id="models-title">Models</h2><span class="stage" id="model-count">0 local</span></div>
+              <p>Inspect local checkpoints or search Hugging Face for models compatible with this machine.</p>
+            </header>
+            <form class="search" id="model-search">
+              <label for="model-query">Search Hugging Face</label>
+              <div><input id="model-query" name="query" autocomplete="off" placeholder="owner/model"><button id="search-models" type="submit">Search</button><button class="quiet" id="more-models" type="button" hidden>More</button><button class="quiet" id="clear-search" type="button">Local</button></div>
+              <label class="search-toggle"><input id="show-incompatible" type="checkbox">Show incompatible models</label>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Model</th><th>State / fit</th><th>Revision / architecture</th><th>Source</th><th>Action</th></tr></thead>
+                <tbody id="model-rows"></tbody>
+              </table>
+              <p class="empty" id="models-empty">No local models found.</p>
+            </div>
+          </section>
+
+          <section class="view" id="chat" aria-labelledby="chat-title">
+            <header class="page-heading compact">
+              <p class="eyebrow">Model test bench</p>
+              <div><h2 id="chat-title">Chat</h2><span class="stage" id="chat-state">idle</span></div>
+              <p>Stream a conversation through a loaded model and inspect server-side performance.</p>
+            </header>
+            <div class="chat-toolbar">
+              <label for="chat-model">Loaded model<select id="chat-model"></select></label>
+              <details>
+                <summary>Generation parameters</summary>
+                <div class="chat-parameters">
+                  <label>Max tokens<input id="chat-max-tokens" type="number" min="1" placeholder="model default"></label>
+                  <label>Temperature<input id="chat-temperature" type="number" min="0" step="0.01" placeholder="default"></label>
+                  <label>Top P<input id="chat-top-p" type="number" min="0" max="1" step="0.01" placeholder="default"></label>
+                  <label>Top K<input id="chat-top-k" type="number" min="1" placeholder="default"></label>
+                  <label>Repetition<input id="chat-repetition" type="number" min="0" step="0.01" placeholder="default"></label>
+                  <label>Seed<input id="chat-seed" type="number" min="0" placeholder="random"></label>
+                </div>
+              </details>
+            </div>
+            <div class="chat-metrics">
+              <span>TTFT <b id="chat-ttft">—</b> ms</span>
+              <span>PREFILL <b id="chat-prefill">—</b> tok/s</span>
+              <span>DECODE <b id="chat-decode">—</b> tok/s</span>
+              <span>E2E <b id="chat-throughput">—</b> tok/s</span>
+            </div>
+            <div class="chat-log" id="chat-log">
+              <p class="empty" id="chat-empty">Choose a loaded model and send a test prompt.</p>
+            </div>
+            <form class="chat-composer" id="chat-form">
+              <label for="chat-input">Message</label>
+              <textarea id="chat-input" rows="3" placeholder="Ask MiRMiR to test this model…"></textarea>
+              <div><span id="chat-hint">Enter sends · Shift+Enter adds a line</span><button class="danger" id="cancel-chat" type="button" disabled>Cancel</button><button id="send-chat" type="submit">Send</button></div>
+            </form>
+          </section>
+
+          <section class="view" id="configuration" aria-labelledby="configuration-title">
+            <header class="page-heading compact">
+              <p class="eyebrow">Runtime configuration</p>
+              <div><h2 id="configuration-title">Settings</h2><span class="stage">TOML</span></div>
+              <p>Effective MiRMiR values, their source, and write-only local secrets.</p>
+            </header>
+            <div class="secret-grid">
+              <form class="secret-card" id="hf-token-form">
+                <div class="panel-heading"><h3>Hugging Face token</h3><span id="hf-token-state">NOT SET</span></div>
+                <p id="hf-token-source">No effective token.</p>
+                <label for="hf-token">Replace stored token</label>
+                <input id="hf-token" type="password" autocomplete="off" placeholder="hf_…">
+                <div class="form-actions"><button type="submit">Save</button><button class="quiet" id="test-hf-token" type="button">Test</button><button class="danger" id="remove-hf-token" type="button">Remove</button></div>
+              </form>
+              <form class="secret-card" id="http-key-form">
+                <div class="panel-heading"><h3>HTTP API key</h3><span id="http-key-state">NOT SET</span></div>
+                <p id="http-key-source">No effective key.</p>
+                <label for="http-key">Replace stored key</label>
+                <input id="http-key" type="password" autocomplete="off" placeholder="local API key">
+                <div class="form-actions"><button type="submit">Save</button><button class="danger" id="remove-http-key" type="button">Remove</button></div>
+              </form>
+            </div>
+            <div class="table-wrap configuration-table">
+              <table>
+                <thead><tr><th>Setting</th><th>Effective value</th><th>Source</th><th>Restart</th><th>Action</th></tr></thead>
+                <tbody id="configuration-rows"></tbody>
+              </table>
+            </div>
+            <details class="raw-config">
+              <summary>Raw config.toml</summary>
+              <div class="config-paths"><span id="config-path">—</span><span id="secrets-path">—</span></div>
+              <pre id="raw-config"></pre>
+            </details>
+          </section>
+
+          <section class="view" id="activity" aria-labelledby="activity-title">
+            <header class="page-heading compact">
+              <p class="eyebrow">Server timeline</p>
+              <div><h2 id="activity-title">Activity</h2><span class="stage" id="activity-count">0</span></div>
+              <p>Model lifecycle and generation events streamed directly from the MiRMiR runtime.</p>
+            </header>
+            <div class="activity-list" id="activity-list">
+              <p class="empty" id="activity-empty">No operations recorded in this server session.</p>
+            </div>
+          </section>
+        </main>
+
+        <footer>
+          <span class="footer-brand">MiRMiR</span>
+          <span>THE COGNITIVE RUNTIME.</span>
+          <span id="updated">not sampled</span>
+        </footer>
+
+        <dialog class="modal" id="load-dialog">
+          <form id="load-model-form">
+            <p class="eyebrow">Model defaults</p>
+            <h2>Load model</h2>
+            <p class="modal-target" id="load-target">—</p>
+            <p class="modal-note" id="load-memory">Inspecting model and memory…</p>
+            <div class="field-grid">
+              <label>Max tokens<input id="load-max-tokens" type="number" min="1" required></label>
+              <label>Temperature<input id="load-temperature" type="number" min="0" step="0.01" required></label>
+              <label>Top P<input id="load-top-p" type="number" min="0" max="1" step="0.01" required></label>
+              <label>Top K<input id="load-top-k" type="number" min="1" required></label>
+              <label>Repetition penalty<input id="load-repetition" type="number" min="0" step="0.01" required></label>
+            </div>
+            <label class="check"><input id="load-force" type="checkbox"> Allow load despite memory-fit rejection</label>
+            <p class="modal-note">These values become the MiRMiR defaults for this model.</p>
+            <div class="dialog-actions"><button class="quiet" id="cancel-load" type="button">Cancel</button><button id="confirm-load" type="submit">Load model</button></div>
+          </form>
+        </dialog>
+
+        <dialog class="modal confirm-modal" id="remove-dialog">
+          <form id="remove-model-form">
+            <p class="eyebrow">Destructive action</p>
+            <h2>Remove model?</h2>
+            <p class="modal-target" id="remove-target">—</p>
+            <p class="modal-note">The local Hugging Face cache and MiRMiR model record will be removed.</p>
+            <div class="dialog-actions"><button class="quiet" id="cancel-remove" type="button">Keep model</button><button class="danger" type="submit">Remove model</button></div>
+          </form>
+        </dialog>
+      </div>
+    </div>
+  </body>
+</html>

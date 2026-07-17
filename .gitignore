@@ -1,0 +1,10 @@
+/target
+/.idea
+/.vscode
+/.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+/bench-results/
+/web/dist/

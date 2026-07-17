@@ -1,0 +1,22 @@
+[package]
+name = "config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+dotenvy.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libmir = { workspace = true, features = ["metal"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libmir = { workspace = true, features = ["cuda"] }
+
+[target.'cfg(not(any(target_os = "macos", target_os = "linux")))'.dependencies]
+libmir.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,390 @@
+syntax = "proto3";
+
+package mirmir.v1;
+
+service Runtime {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  rpc ListActiveModels(ListActiveModelsRequest) returns (ListActiveModelsResponse);
+  rpc ListLocalModels(ListLocalModelsRequest) returns (ListLocalModelsResponse);
+  rpc InspectModel(InspectModelRequest) returns (InspectModelResponse);
+  rpc UpdateModelGeneration(UpdateModelGenerationRequest) returns (UpdateModelGenerationResponse);
+  rpc LoadModel(LoadModelRequest) returns (stream ModelLifecycleEvent);
+  rpc UnloadModel(UnloadModelRequest) returns (UnloadModelResponse);
+  rpc SearchModels(SearchModelsRequest) returns (SearchModelsResponse);
+  rpc PullModel(PullModelRequest) returns (stream ModelTransferEvent);
+  rpc RemoveModel(RemoveModelRequest) returns (RemoveModelResponse);
+  rpc Generate(GenerateRequest) returns (stream GenerateEvent);
+  rpc Telemetry(TelemetryRequest) returns (TelemetrySnapshot);
+  rpc TelemetryHistory(TelemetryHistoryRequest) returns (TelemetryHistoryResponse);
+  rpc GetConfiguration(GetConfigurationRequest) returns (ConfigurationSnapshot);
+  rpc UpdateConfiguration(UpdateConfigurationRequest) returns (UpdateConfigurationResponse);
+  rpc WatchActivity(WatchActivityRequest) returns (stream ActivityEvent);
+  rpc CancelOperation(CancelOperationRequest) returns (CancelOperationResponse);
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string protocol_version = 1;
+  string server_version = 2;
+}
+
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  repeated ModelInfo models = 1;
+}
+
+message ListActiveModelsRequest {}
+
+message ListActiveModelsResponse {
+  repeated string selectors = 1;
+}
+
+message ModelInfo {
+  string id = 1;
+  string path = 2;
+}
+
+message ListLocalModelsRequest {}
+
+message ListLocalModelsResponse {
+  repeated LocalModelInfo models = 1;
+}
+
+message LocalModelInfo {
+  string id = 1;
+  string repo_id = 2;
+  string revision = 3;
+  string commit = 4;
+  string path = 5;
+  string state = 6;
+  optional uint32 recent_rank = 7;
+  string selector = 8;
+  bool managed = 9;
+}
+
+message InspectModelRequest {
+  string selector = 1;
+}
+
+message GenerationSettings {
+  uint64 max_tokens = 1;
+  float temperature = 2;
+  float top_p = 3;
+  uint64 top_k = 4;
+  float repetition_penalty = 5;
+}
+
+message InspectModelResponse {
+  GenerationSettings settings = 1;
+  bool has_mirmir_overrides = 2;
+  ModelMemoryEstimate memory = 3;
+}
+
+message UpdateModelGenerationRequest {
+  string selector = 1;
+  GenerationSettings settings = 2;
+}
+
+message UpdateModelGenerationResponse {
+  string model_id = 1;
+}
+
+message ModelMemoryEstimate {
+  uint64 weight_bytes = 1;
+  uint64 kv_cache_bytes = 2;
+  uint64 workspace_bytes = 3;
+  uint64 required_bytes = 4;
+  optional uint64 available_bytes = 5;
+  optional uint64 budget_bytes = 6;
+  string memory_source = 7;
+  string fit = 8;
+  optional uint64 max_safe_context_tokens = 9;
+  uint64 configured_cache_tokens = 10;
+}
+
+message LoadModelRequest {
+  string selector = 1;
+  GenerationSettings settings = 2;
+  string config_id = 3;
+  string repo_id = 4;
+  string revision = 5;
+  string commit = 6;
+  bool force = 7;
+}
+
+message ModelLifecycleEvent {
+  string selector = 1;
+  string phase = 2;
+  uint64 current = 3;
+  optional uint64 total = 4;
+  string unit = 5;
+  string detail = 6;
+  optional ModelInfo model = 7;
+  string operation_id = 8;
+}
+
+message UnloadModelRequest {
+  string selector = 1;
+}
+
+message UnloadModelResponse {
+  bool unloaded = 1;
+}
+
+message SearchModelsRequest {
+  string query = 1;
+  uint32 limit = 2;
+  optional string cursor = 3;
+}
+
+message SearchModelsResponse {
+  repeated CatalogModel models = 1;
+  optional uint64 total_memory_bytes = 2;
+  optional uint64 available_memory_bytes = 3;
+  string memory_source = 4;
+  optional string next_cursor = 5;
+}
+
+message CatalogModel {
+  string id = 1;
+  uint64 downloads = 2;
+  uint64 likes = 3;
+  bool gated = 4;
+  string architecture = 5;
+  string compatibility = 6;
+  string memory_fit = 7;
+  optional uint64 estimated_weight_bytes = 8;
+  optional uint64 estimated_required_bytes = 9;
+  optional uint64 budget_bytes = 10;
+  string confidence = 11;
+  string reason = 12;
+  bool downloaded = 13;
+  string local_source = 14;
+}
+
+message PullModelRequest {
+  string repo_id = 1;
+  optional string revision = 2;
+}
+
+message ModelTransferEvent {
+  string repo_id = 1;
+  string phase = 2;
+  uint64 downloaded_bytes = 3;
+  optional uint64 total_bytes = 4;
+  optional string path = 5;
+  string message = 6;
+  string operation_id = 7;
+}
+
+message RemoveModelRequest {
+  string repo_id = 1;
+}
+
+message RemoveModelResponse {
+  bool removed = 1;
+  uint64 freed_bytes = 2;
+}
+
+message GenerateRequest {
+  string model = 1;
+  string prompt = 2;
+  optional uint64 max_tokens = 3;
+  optional float temperature = 4;
+  optional float top_p = 5;
+  optional uint64 top_k = 6;
+  optional float repetition_penalty = 7;
+  optional uint64 seed = 8;
+  repeated ChatMessageInput messages = 9;
+}
+
+message ChatMessageInput {
+  string role = 1;
+  string content = 2;
+  optional string reasoning_content = 3;
+}
+
+message GenerateEvent {
+  oneof event {
+    Token token = 1;
+    Completion completion = 2;
+    OperationStarted started = 3;
+  }
+}
+
+message OperationStarted {
+  string operation_id = 1;
+}
+
+message Token {
+  uint32 id = 1;
+  string text = 2;
+  bool reasoning = 3;
+}
+
+message Completion {
+  string text = 1;
+  uint64 prompt_tokens = 2;
+  uint64 completion_tokens = 3;
+  string finish_reason = 4;
+  double elapsed_ms = 5;
+  optional double tokens_per_second = 6;
+  optional double ttft_ms = 7;
+  optional double prefill_tokens_per_second = 8;
+  optional double decode_tokens_per_second = 9;
+  optional double prefill_ms = 10;
+  optional double decode_ms = 11;
+  string reasoning = 12;
+}
+
+message TelemetryRequest {}
+
+message TelemetrySnapshot {
+  uint64 sampled_at_unix_ms = 1;
+  uint64 uptime_ms = 2;
+  uint64 loaded_models = 3;
+  uint64 active_requests = 4;
+  uint64 total_requests = 5;
+  uint64 completed_requests = 6;
+  uint64 failed_requests = 7;
+  uint64 prompt_tokens = 8;
+  uint64 completion_tokens = 9;
+  optional double last_tokens_per_second = 10;
+  optional double mean_tokens_per_second = 11;
+  optional double last_ttft_ms = 12;
+  optional double mean_ttft_ms = 13;
+  optional uint64 host_total_memory_bytes = 14;
+  optional uint64 host_available_memory_bytes = 15;
+  string memory_source = 16;
+  uint64 kv_total_blocks = 17;
+  uint64 kv_used_blocks = 18;
+  uint64 kv_cached_prefixes = 19;
+  uint64 kv_hit_tokens = 20;
+  uint64 kv_miss_tokens = 21;
+  optional double current_tokens_per_second = 22;
+  optional double current_prefill_tokens_per_second = 23;
+  optional double current_decode_tokens_per_second = 24;
+  optional double current_ttft_ms = 25;
+  double active_elapsed_ms = 26;
+  uint64 active_prompt_tokens = 27;
+  uint64 active_completion_tokens = 28;
+  string active_stage = 29;
+}
+
+message TelemetryHistoryRequest {
+  uint32 limit = 1;
+}
+
+message TelemetryHistoryResponse {
+  repeated TelemetryHistorySample samples = 1;
+  uint32 retention_limit = 2;
+  uint64 sampling_interval_ms = 3;
+}
+
+message TelemetryHistorySample {
+  uint64 sampled_at_unix_ms = 1;
+  uint64 loaded_models = 2;
+  uint64 active_requests = 3;
+  optional double e2e_tokens_per_second = 4;
+  optional double prefill_tokens_per_second = 5;
+  optional double decode_tokens_per_second = 6;
+  optional double ttft_ms = 7;
+  optional uint64 memory_total_bytes = 8;
+  optional uint64 memory_available_bytes = 9;
+  string memory_source = 10;
+  uint64 kv_total_blocks = 11;
+  uint64 kv_used_blocks = 12;
+  uint64 total_requests = 13;
+  uint64 failed_requests = 14;
+}
+
+message GetConfigurationRequest {}
+
+message ConfigurationValue {
+  string key = 1;
+  string value = 2;
+  string source = 3;
+  bool editable = 4;
+  bool restart_required = 5;
+}
+
+message SecretState {
+  bool configured = 1;
+  string source = 2;
+}
+
+message ConfigurationSnapshot {
+  repeated ConfigurationValue values = 1;
+  SecretState hugging_face_token = 2;
+  SecretState http_api_key = 3;
+  string config_path = 4;
+  string secrets_path = 5;
+  string raw_toml = 6;
+}
+
+message SetConfigurationValue {
+  string key = 1;
+  string value = 2;
+}
+
+message SetHfToken {
+  string token = 1;
+}
+
+message RemoveHfToken {}
+
+message TestHfToken {}
+
+message SetHttpApiKey {
+  string key = 1;
+}
+
+message RemoveHttpApiKey {}
+
+message UpdateConfigurationRequest {
+  oneof operation {
+    SetConfigurationValue set_value = 1;
+    SetHfToken set_hf_token = 2;
+    RemoveHfToken remove_hf_token = 3;
+    TestHfToken test_hf_token = 4;
+    SetHttpApiKey set_http_api_key = 5;
+    RemoveHttpApiKey remove_http_api_key = 6;
+  }
+}
+
+message UpdateConfigurationResponse {
+  ConfigurationSnapshot configuration = 1;
+  string message = 2;
+  bool restart_required = 3;
+}
+
+message WatchActivityRequest {
+  bool include_history = 1;
+}
+
+message ActivityEvent {
+  string operation_id = 1;
+  string kind = 2;
+  string target = 3;
+  string state = 4;
+  string stage = 5;
+  string detail = 6;
+  uint64 started_at_unix_ms = 7;
+  uint64 updated_at_unix_ms = 8;
+  bool cancellable = 9;
+  optional uint64 current = 10;
+  optional uint64 total = 11;
+}
+
+message CancelOperationRequest {
+  string operation_id = 1;
+}
+
+message CancelOperationResponse {
+  bool found = 1;
+  bool accepted = 2;
+  string state = 3;
+}

@@ -1,0 +1,55 @@
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #101214;
+  color: #f4f7f8;
+}
+
+.shell {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 20px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid #2b3338;
+  margin-bottom: 24px;
+}
+
+.panel {
+  display: grid;
+  gap: 16px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+}
+
+input,
+textarea,
+button,
+pre {
+  border: 1px solid #344047;
+  background: #171b1f;
+  color: inherit;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+textarea {
+  min-height: 180px;
+  resize: vertical;
+}
+
+button {
+  justify-self: start;
+  cursor: pointer;
+}
+
+.output {
+  margin-top: 24px;
+}

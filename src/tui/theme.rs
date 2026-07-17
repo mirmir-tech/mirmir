@@ -1,0 +1,13 @@
+use ratatui::style::Color;
+
+pub const CANVAS: Color = Color::Rgb(0x0D, 0x11, 0x17);
+pub const SURFACE: Color = Color::Rgb(0x14, 0x1A, 0x22);
+pub const RAISED: Color = Color::Rgb(0x20, 0x25, 0x2D);
+pub const BORDER: Color = Color::Rgb(0x2A, 0x37, 0x45);
+pub const INK: Color = Color::Rgb(0xE7, 0xEC, 0xEF);
+pub const MUTED: Color = Color::Rgb(0x98, 0xA7, 0xB5);
+pub const THOUGHT: Color = Color::Rgb(0x5E, 0x6D, 0x7B);
+pub const GLACIER: Color = Color::Rgb(0x79, 0xD7, 0xFF);
+pub const SIGNAL: Color = Color::Rgb(0x4F, 0x8E, 0xF7);
+pub const SUCCESS: Color = Color::Rgb(0x61, 0xD6, 0xA3);
+pub const DANGER: Color = Color::Rgb(0xF0, 0x71, 0x78);

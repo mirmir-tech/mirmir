@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" role="img" aria-labelledby="title desc">
+  <title id="title">MiRMiR topographic field</title>
+  <desc id="desc">Layered contour lines in signal blue with rare brass paths and glowing nodes.</desc>
+  <defs>
+    <radialGradient id="glow-blue"><stop stop-color="#79D7FF"/><stop offset="1" stop-color="#4F8EF7" stop-opacity="0"/></radialGradient>
+    <radialGradient id="glow-brass"><stop stop-color="#F1C27A"/><stop offset="1" stop-color="#C48B3A" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="960" height="480" fill="#0D1117"/>
+  <g fill="none" stroke="#4F8EF7" stroke-width="1" opacity=".28">
+    <path d="M-40 392C94 338 100 220 238 248S390 426 528 332 665 104 1000 122"/>
+    <path d="M-36 414C108 360 118 242 248 270S398 452 546 352 686 128 1004 145"/>
+    <path d="M-30 370C82 318 90 194 225 222S384 396 510 310 650 78 994 96"/>
+    <path d="M-22 346C65 294 78 170 210 196S374 370 492 284 636 52 985 70"/>
+    <path d="M-12 320C52 270 69 146 194 168S362 344 474 258 619 28 972 44"/>
+    <path d="M18 290C52 238 61 120 174 140S342 316 454 230 595 4 948 20"/>
+    <path d="M48 256C62 210 58 94 152 112S320 286 432 202 567-20 916 0"/>
+    <path d="M82 222C80 182 56 72 130 84S294 254 410 176 534-40 878-18"/>
+    <path d="M120 188C94 150 60 56 108 58S266 222 388 150 496-56 836-30"/>
+    <path d="M160 156C112 114 72 38 92 34S238 190 366 124 458-62 796-42"/>
+    <path d="M206 126C136 78 92 22 84 10S212 156 344 98 422-68 750-50"/>
+    <path d="M250 98C164 48 116 4 102-22S192 126 326 72 394-72 704-56"/>
+  </g>
+  <g fill="none" stroke="#7AD7FF" stroke-width="1.2" opacity=".7">
+    <path d="M-34 382C92 330 101 210 232 238S389 412 520 322 658 94 998 112"/>
+    <path d="M8 306C59 256 70 134 188 158S354 332 468 248 612 18 965 34"/>
+    <path d="M105 206C88 166 60 64 118 72S282 238 400 160 518-48 856-24"/>
+  </g>
+  <g fill="none" stroke="#C48B3A" stroke-width="1.1" opacity=".65">
+    <path d="M-10 334C58 282 72 158 202 182S368 356 482 270 626 40 978 58"/>
+    <path d="M184 142C124 98 80 30 88 22S224 174 352 110 438-66 774-46"/>
+  </g>
+  <g>
+    <circle cx="232" cy="238" r="28" fill="url(#glow-blue)"/><circle cx="232" cy="238" r="3" fill="#79D7FF"/>
+    <circle cx="520" cy="322" r="34" fill="url(#glow-blue)"/><circle cx="520" cy="322" r="3" fill="#79D7FF"/>
+    <circle cx="658" cy="94" r="30" fill="url(#glow-brass)"/><circle cx="658" cy="94" r="3" fill="#F1C27A"/>
+    <circle cx="482" cy="270" r="24" fill="url(#glow-brass)"/><circle cx="482" cy="270" r="2.5" fill="#F1C27A"/>
+  </g>
+</svg>
