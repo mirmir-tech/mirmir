@@ -144,9 +144,15 @@
               <p class="empty" id="chat-empty">Choose a loaded model and send a test prompt.</p>
             </div>
             <form class="chat-composer" id="chat-form">
+              <input id="chat-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+              <div class="chat-attachment" id="chat-attachment" hidden>
+                <img id="chat-image-preview" alt="Attached image preview">
+                <div><strong id="chat-image-name"></strong><span id="chat-image-meta"></span></div>
+                <button class="quiet" id="remove-chat-image" type="button" aria-label="Remove attached image">Remove</button>
+              </div>
               <label for="chat-input">Message</label>
               <textarea id="chat-input" rows="3" placeholder="Ask MiRMiR to test this model…"></textarea>
-              <div><span id="chat-hint">Enter sends · Shift+Enter adds a line</span><button class="danger" id="cancel-chat" type="button" disabled>Cancel</button><button id="send-chat" type="submit">Send</button></div>
+              <div class="chat-actions"><span id="chat-hint">Drop an image here · Enter sends · Shift+Enter adds a line</span><button class="quiet" id="attach-chat-image" type="button">Attach image</button><button class="danger" id="cancel-chat" type="button" disabled>Cancel</button><button id="send-chat" type="submit">Send</button></div>
             </form>
           </section>
 

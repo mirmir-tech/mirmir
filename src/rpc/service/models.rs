@@ -5,9 +5,13 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::rpc::proto;
 
+mod capability;
 mod events;
 
-use self::events::{LifecycleState, checking_memory, event};
+use self::{
+    capability::model_info,
+    events::{LifecycleState, checking_memory, event},
+};
 
 pub struct ModelEntry {
     pub model: Model,
@@ -59,8 +63,8 @@ impl RuntimeService {
         drop(loading);
         let loaded = loaded.map_err(|error| Status::internal(error.to_string()))?;
         let entry = ModelEntry {
+            info: model_info(resolved.key.clone(), path, &loaded),
             model: loaded,
-            info: proto::ModelInfo { id: resolved.key.clone(), path },
         };
         let mut models = self
             .models

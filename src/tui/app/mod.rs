@@ -31,7 +31,7 @@ pub use removal::RemoveDialog;
 use tokio::sync::mpsc;
 pub use viewport::ListView;
 
-use crate::rpc::proto;
+use crate::{media::AttachedImage, rpc::proto};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -80,6 +80,7 @@ pub struct App {
     pub remove_dialog: Option<RemoveDialog>,
     pub load_dialog: Option<LoadDialog>,
     pub chat_input: String,
+    pub chat_image: Option<AttachedImage>,
     pub chat_scroll: usize,
     pub chat_model_index: usize,
     pub chat_messages: Vec<Message>,
@@ -148,6 +149,7 @@ impl App {
             remove_dialog: None,
             load_dialog: None,
             chat_input: String::new(),
+            chat_image: None,
             chat_scroll: 0,
             chat_model_index: 0,
             chat_messages: Vec::new(),

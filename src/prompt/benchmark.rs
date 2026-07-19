@@ -92,6 +92,7 @@ fn request(args: &PromptArgs, model: String, prompt: String) -> Result<proto::Ge
         repetition_penalty: args.repetition_penalty,
         seed: args.seed,
         messages: Vec::new(),
+        image: None,
     })
 }
 

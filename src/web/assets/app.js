@@ -10,9 +10,16 @@ let removeRepoId = null;
 let chatRunning = false;
 let chatOperationId = null;
 let chatMessages = [];
+let chatImage = null;
 let searching = false;
 let catalogResults = null;
 const activities = new Map();
+const maxImageBytes = 20 * 1024 * 1024;
+const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const imageTypeByExtension = new Map([
+  ["png", "image/png"], ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"],
+  ["webp", "image/webp"], ["gif", "image/gif"],
+]);
 
 const byId = (id) => document.getElementById(id);
 const text = (id, value) => { byId(id).textContent = value; };
@@ -156,11 +163,10 @@ const renderChatModels = (models) => {
   ready.forEach((model) => {
     const option = document.createElement("option");
     option.value = model.selector;
-    option.textContent = model.id || model.repo_id;
+    option.textContent = `${model.id || model.repo_id} · ${model.image_input ? "image ready" : "no image"}`;
     select.appendChild(option);
   });
   if (ready.some((model) => model.selector === selected)) select.value = selected;
-  byId("send-chat").disabled = chatRunning || ready.length === 0;
   if (ready.length === 0) {
     const option = document.createElement("option");
     option.textContent = "No loaded models";
@@ -168,6 +174,7 @@ const renderChatModels = (models) => {
     option.selected = true;
     select.appendChild(option);
   }
+  renderImageCapability();
 };
 
 const renderLocalModels = (data) => {
@@ -390,9 +397,68 @@ const consumeSse = async (response, handler) => {
 
 const optionalNumber = (id) => byId(id).value === "" ? null : Number(byId(id).value);
 
+const selectedChatModel = () => localModels.find((model) =>
+  model.state === "ready" && model.selector === byId("chat-model").value);
+
+const renderImageCapability = () => {
+  const model = selectedChatModel();
+  const imageReady = Boolean(model?.image_input);
+  const blockedAttachment = Boolean(chatImage && model && !imageReady);
+  byId("attach-chat-image").disabled = chatRunning || !imageReady;
+  byId("send-chat").disabled = chatRunning || !model || blockedAttachment;
+  if (!model) {
+    text("chat-hint", "Load a model to start chatting");
+  } else if (!imageReady) {
+    const reason = model.image_unavailable_reason || "image input is unavailable";
+    text("chat-hint", chatImage ? `Cannot send image · ${reason}` : `Text only · ${reason}`);
+  } else {
+    text("chat-hint", "Drop an image here · Enter sends · Shift+Enter adds a line");
+  }
+};
+
+const renderChatImage = () => {
+  const attachment = byId("chat-attachment");
+  attachment.hidden = !chatImage;
+  if (!chatImage) {
+    byId("chat-image-preview").removeAttribute("src");
+    byId("chat-image-input").value = "";
+    return;
+  }
+  byId("chat-image-preview").src = chatImage.dataUrl;
+  text("chat-image-name", chatImage.name);
+  text("chat-image-meta", `${bytes(chatImage.size)} · attached to each prompt`);
+};
+
+const readImage = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.addEventListener("load", () => resolve(reader.result));
+  reader.addEventListener("error", () => reject(new Error(`Could not read ${file.name}`)));
+  reader.readAsDataURL(file);
+});
+
+const attachChatImage = async (file) => {
+  if (!file || chatRunning) return;
+  const model = selectedChatModel();
+  if (!model?.image_input) {
+    throw new Error(model?.image_unavailable_reason || "Selected model cannot accept images");
+  }
+  const extension = file.name.split(".").pop().toLowerCase();
+  const mime = imageTypes.has(file.type) ? file.type : imageTypeByExtension.get(extension);
+  if (!mime) throw new Error("Choose a PNG, JPEG, WebP, or GIF image");
+  if (file.size > maxImageBytes) throw new Error("Image exceeds the 20 MiB limit");
+  const dataUrl = String(await readImage(file)).replace(/^data:[^;]*;/, `data:${mime};`);
+  chatImage = { name: file.name, size: file.size, dataUrl };
+  renderChatImage();
+  renderImageCapability();
+};
+
 const runChat = async (prompt) => {
   const model = byId("chat-model").value;
   if (!model || chatRunning) return;
+  const selected = selectedChatModel();
+  if (chatImage && !selected?.image_input) {
+    throw new Error(selected?.image_unavailable_reason || "Selected model cannot accept images");
+  }
   const requestMessages = [...chatMessages, { role: "user", content: prompt }];
   chatMessages.push({ role: "user", content: prompt });
   chatNode("user", prompt);
@@ -401,6 +467,8 @@ const runChat = async (prompt) => {
   chatOperationId = null;
   text("chat-state", "starting");
   byId("chat-input").disabled = true;
+  byId("attach-chat-image").disabled = true;
+  byId("remove-chat-image").disabled = true;
   byId("send-chat").disabled = true;
   byId("cancel-chat").disabled = false;
   const response = await fetch(`${base}/chat`, {
@@ -416,6 +484,7 @@ const runChat = async (prompt) => {
       top_k: optionalNumber("chat-top-k"),
       repetition_penalty: optionalNumber("chat-repetition"),
       seed: optionalNumber("chat-seed"),
+      image: chatImage?.dataUrl ?? null,
     }),
   });
   if (!response.ok) {
@@ -460,6 +529,7 @@ const finishChat = () => {
   chatRunning = false;
   chatOperationId = null;
   byId("chat-input").disabled = false;
+  byId("remove-chat-image").disabled = false;
   byId("cancel-chat").disabled = true;
   renderChatModels(localModels);
   byId("chat-input").focus();
@@ -621,6 +691,35 @@ byId("chat-form").addEventListener("submit", async (event) => {
     text("chat-state", "failed");
   }
   finally { finishChat(); }
+});
+
+byId("attach-chat-image").addEventListener("click", () => byId("chat-image-input").click());
+byId("chat-image-input").addEventListener("change", async (event) => {
+  try { await attachChatImage(event.target.files[0]); }
+  catch (error) { showNotice(error.message, true); }
+  finally { event.target.value = ""; }
+});
+byId("remove-chat-image").addEventListener("click", () => {
+  chatImage = null;
+  renderChatImage();
+  renderImageCapability();
+});
+byId("chat-model").addEventListener("change", renderImageCapability);
+
+const chatForm = byId("chat-form");
+["dragenter", "dragover"].forEach((name) => chatForm.addEventListener(name, (event) => {
+  event.preventDefault();
+  if (!chatRunning && selectedChatModel()?.image_input) chatForm.classList.add("drag-active");
+}));
+["dragleave", "drop"].forEach((name) => chatForm.addEventListener(name, (event) => {
+  event.preventDefault();
+  chatForm.classList.remove("drag-active");
+}));
+chatForm.addEventListener("drop", async (event) => {
+  try {
+    if (event.dataTransfer.files.length !== 1) throw new Error("Drop exactly one image");
+    await attachChatImage(event.dataTransfer.files[0]);
+  } catch (error) { showNotice(error.message, true); }
 });
 
 byId("chat-input").addEventListener("keydown", (event) => {

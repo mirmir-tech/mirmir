@@ -157,6 +157,7 @@ impl App {
             repetition_penalty: None,
             seed: Some(42),
             messages: Vec::new(),
+            image: None,
         };
         let (sender, receiver) = mpsc::channel(64);
         let mut client = client.clone();

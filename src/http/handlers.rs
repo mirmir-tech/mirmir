@@ -99,7 +99,7 @@ pub async fn chat(
         .map_err(ApiError::from_status)?
         .into_inner();
     if streaming {
-        return Ok(stream::response(events, id, created, model, include_usage));
+        return Ok(stream::response(events, id, created, model, include_usage, state.shutdown()));
     }
     while let Some(event) = events.next().await {
         let event = event.map_err(ApiError::from_status)?;

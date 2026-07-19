@@ -83,7 +83,7 @@ fn secret(
 }
 
 fn values(config: &AppConfig, document: &toml::Value) -> Vec<PresentedValue> {
-    let mut values = Vec::with_capacity(13);
+    let mut values = Vec::with_capacity(16);
     push(
         &mut values,
         document,
@@ -190,6 +190,30 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
         document,
         "runtime.max_batch_tokens",
         &optional(config.runtime.max_batch_tokens),
+        true,
+        true,
+    );
+    push(
+        values,
+        document,
+        "runtime.vision_max_pixels",
+        &optional(config.runtime.vision_max_pixels),
+        true,
+        true,
+    );
+    push(
+        values,
+        document,
+        "runtime.vision_attention_budget_bytes",
+        &optional(config.runtime.vision_attention_budget_bytes),
+        true,
+        true,
+    );
+    push(
+        values,
+        document,
+        "runtime.vision_memory_percent",
+        &optional(config.runtime.vision_memory_percent),
         true,
         true,
     );

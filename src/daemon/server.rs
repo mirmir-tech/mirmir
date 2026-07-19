@@ -1,6 +1,6 @@
-use std::fs;
+use std::{fs, time::Duration};
 
-use tokio::{net::UnixListener, sync::oneshot, task::JoinHandle};
+use tokio::{net::UnixListener, sync::oneshot, task::JoinHandle, time::timeout};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
@@ -18,6 +18,8 @@ pub struct Owner {
     sampler: Sampler,
     _guard: InstanceGuard,
 }
+
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn start(paths: Paths, config: &AppConfig) -> Result<Owner> {
     start_service(paths.clone(), RuntimeService::new(config, Store::new(paths)))
@@ -56,7 +58,17 @@ impl Owner {
         if let Some(shutdown) = self.shutdown.take() {
             let _shutdown_result = shutdown.send(());
         }
-        self.task.await??;
+        if let Ok(result) = timeout(SHUTDOWN_TIMEOUT, &mut self.task).await {
+            result??;
+        } else {
+            tracing::warn!("gRPC graceful shutdown timed out; closing active connections");
+            self.task.abort();
+            match self.task.await {
+                Ok(result) => result?,
+                Err(error) if error.is_cancelled() => {},
+                Err(error) => return Err(error.into()),
+            }
+        }
         self.sampler.shutdown().await?;
         if self.paths.socket_file.exists() {
             fs::remove_file(&self.paths.socket_file)?;

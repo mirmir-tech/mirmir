@@ -52,7 +52,7 @@ fn percentile(sorted: &[f64], percentile: usize) -> f64 {
     sorted[rank.saturating_sub(1).min(sorted.len() - 1)]
 }
 
-fn median(sorted: &[f64]) -> f64 {
+const fn median(sorted: &[f64]) -> f64 {
     let middle = sorted.len() / 2;
     match sorted.len() {
         0 => 0.0,

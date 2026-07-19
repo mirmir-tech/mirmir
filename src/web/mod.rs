@@ -130,7 +130,7 @@ fn security_headers() -> HeaderMap {
     headers.insert(
         "content-security-policy",
         HeaderValue::from_static(
-            "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            "default-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
     );
     headers

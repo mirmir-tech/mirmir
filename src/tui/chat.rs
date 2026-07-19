@@ -19,7 +19,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Constraint::Length(3),
         Constraint::Min(8),
         Constraint::Length(3),
-        Constraint::Length(3),
+        Constraint::Length(if app.chat_image.is_some() {
+            4
+        } else {
+            3
+        }),
     ])
     .split(area);
     model(frame, rows[0], app);
@@ -45,11 +49,19 @@ fn model(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .selected_chat_model()
         .filter(|model| app.chat_parameters.as_ref().is_some_and(|value| value.model == model.id))
         .map_or("", |_| "  ONE-OFF PARAMETERS");
+    let image_status = app.selected_chat_model().map_or("", |model| {
+        if model.image_input {
+            "  IMAGE READY"
+        } else {
+            "  TEXT ONLY"
+        }
+    });
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(selected, Style::new().fg(theme::INK).add_modifier(Modifier::BOLD)),
             Span::raw("  "),
             Span::styled(status, Style::new().fg(status_color).add_modifier(Modifier::BOLD)),
+            Span::styled(image_status, Style::new().fg(theme::GLACIER)),
             Span::styled(overrides, Style::new().fg(theme::GLACIER)),
         ]))
         .block(Block::bordered().title(" MODEL ").border_style(Style::new().fg(theme::BORDER)))
@@ -139,8 +151,23 @@ fn input(frame: &mut Frame<'_>, area: Rect, app: &App) {
     } else {
         &app.chat_input
     };
+    let mut lines = Vec::new();
+    if let Some(image) = &app.chat_image {
+        lines.push(Line::from(vec![
+            Span::styled("IMAGE  ", Style::new().fg(theme::SUCCESS).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!(
+                    "{} · {} KiB · Ctrl+D removes",
+                    image.name,
+                    image.bytes.len().div_ceil(1024)
+                ),
+                Style::new().fg(theme::MUTED),
+            ),
+        ]));
+    }
+    lines.push(Line::from(format!("{placeholder}{cursor}")));
     frame.render_widget(
-        Paragraph::new(format!("{placeholder}{cursor}"))
+        Paragraph::new(lines)
             .block(Block::bordered().title(" MESSAGE ").border_style(Style::new().fg(if locked {
                 theme::MUTED
             } else {
@@ -158,13 +185,15 @@ fn input(frame: &mut Frame<'_>, area: Rect, app: &App) {
         area,
     );
 }
-
 #[cfg(test)]
 mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     use super::*;
-    use crate::tui::app::{Message, Screen};
+    use crate::{
+        media::AttachedImage,
+        tui::app::{Message, Screen},
+    };
 
     #[test]
     fn conversation_can_scroll_from_bottom_to_top() -> Result<(), std::convert::Infallible> {
@@ -184,6 +213,26 @@ mod tests {
         app.chat_scroll = usize::MAX;
         let top = rendered_conversation(&app)?;
         assert!(top.contains("line-0"));
+        Ok(())
+    }
+
+    #[test]
+    fn input_shows_the_attached_image() -> Result<(), std::convert::Infallible> {
+        let mut app = App::new(true);
+        app.chat_image = Some(AttachedImage {
+            name: "sample.png".to_owned(),
+            bytes: vec![0; 2048],
+        });
+        let mut terminal = Terminal::new(TestBackend::new(60, 4))?;
+        terminal.draw(|frame| input(frame, frame.area(), &app))?;
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect();
+        assert!(rendered.contains("sample.png · 2 KiB"));
         Ok(())
     }
 

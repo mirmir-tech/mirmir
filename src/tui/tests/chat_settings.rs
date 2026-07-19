@@ -8,6 +8,7 @@ fn renders_chat_parameter_editor_and_active_indicator() -> Result<(), std::conve
     app.models.push(crate::rpc::proto::ModelInfo {
         id: "Qwen--Test".to_owned(),
         path: "/models/qwen".to_owned(),
+        ..Default::default()
     });
     app.chat_parameters = Some(parameters());
     app.chat_settings_dialog = Some(ChatSettingsDialog {

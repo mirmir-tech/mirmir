@@ -220,11 +220,19 @@ td.path { max-width: 350px; overflow: hidden; color: var(--mir-color-thought); f
 .chat-message .content:empty::after { color: var(--mir-color-muted); content: "Thinking…"; }
 .chat-message.streaming .content:empty::after { content: ""; }
 .chat-composer { margin-top: 10px; padding: 14px; border: 1px solid var(--mir-color-border); border-radius: var(--mir-radius-panel); background: #121922; }
+.chat-composer.drag-active { border-color: var(--mir-color-glacier); box-shadow: inset 0 0 0 1px var(--mir-color-glacier), var(--mir-focus-ring); }
 .chat-composer > label { margin: 0 0 7px; font-weight: 600; }
 .chat-composer textarea { display: block; width: 100%; resize: vertical; font: 13px/1.5 var(--mir-font-body); }
-.chat-composer > div { display: flex; margin-top: 10px; align-items: center; justify-content: flex-end; gap: 8px; }
-.chat-composer > div span { margin-right: auto; color: var(--mir-color-thought); font-size: 10px; }
+.chat-actions { display: flex; margin-top: 10px; align-items: center; justify-content: flex-end; gap: 8px; }
+.chat-actions > span { margin-right: auto; color: var(--mir-color-thought); font-size: 10px; }
+.chat-attachment { display: flex; margin-bottom: 12px; padding: 9px; align-items: center; gap: 11px; border: 1px solid rgb(121 215 255 / 35%); border-radius: var(--mir-radius-control); background: rgb(121 215 255 / 6%); }
+.chat-attachment[hidden] { display: none; }
+.chat-attachment img { width: 52px; height: 52px; border-radius: 5px; object-fit: cover; }
+.chat-attachment > div { display: grid; min-width: 0; margin-right: auto; gap: 3px; }
+.chat-attachment strong { overflow: hidden; color: var(--mir-color-ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-attachment span { color: var(--mir-color-thought); font: 9px var(--mir-font-mono); }
 .chat-composer button { min-height: 38px; padding: 0 15px; border: 1px solid transparent; border-radius: var(--mir-radius-control); background: var(--mir-color-signal); color: #fff; cursor: pointer; font-weight: 600; }
+.chat-composer button.quiet { border-color: var(--mir-color-border); background: transparent; color: var(--mir-color-muted); }
 .chat-composer button:disabled { border-color: var(--mir-color-border); background: var(--mir-color-raised); color: var(--mir-color-thought); cursor: not-allowed; }
 
 .secret-grid { display: grid; margin-bottom: 14px; grid-template-columns: 1fr 1fr; gap: 14px; }

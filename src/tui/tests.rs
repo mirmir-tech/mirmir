@@ -71,6 +71,7 @@ fn renders_streamed_chat_and_metrics() -> Result<(), std::convert::Infallible> {
     app.models.push(crate::rpc::proto::ModelInfo {
         id: "Qwen--Test".to_owned(),
         path: "/models/qwen".to_owned(),
+        ..Default::default()
     });
     app.chat_messages.push(Message {
         role: "user".to_owned(),

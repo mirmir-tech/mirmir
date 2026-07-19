@@ -40,6 +40,8 @@ pub struct Model {
     pub state: String,
     pub selector: String,
     pub managed: bool,
+    pub image_input: bool,
+    pub image_unavailable_reason: String,
 }
 
 #[derive(Serialize)]
@@ -119,6 +121,8 @@ impl From<proto::LocalModelInfo> for Model {
             state: model.state,
             selector: model.selector,
             managed: model.managed,
+            image_input: model.image_input,
+            image_unavailable_reason: model.image_unavailable_reason,
         }
     }
 }

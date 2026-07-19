@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::error::ApiError;
+use super::{
+    error::ApiError,
+    media::{MessageContent, messages},
+};
 use crate::rpc::proto;
 
 #[derive(Debug, Deserialize)]
@@ -23,7 +26,7 @@ pub struct ChatRequest {
 #[derive(Debug, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
     #[serde(default, alias = "reasoning")]
     pub reasoning_content: Option<String>,
 }
@@ -107,6 +110,7 @@ impl ChatRequest {
             },
             (left, right) => left.or(right),
         };
+        let (messages, image) = messages(self.messages)?;
         Ok(proto::GenerateRequest {
             model: self.model,
             prompt: String::new(),
@@ -116,15 +120,8 @@ impl ChatRequest {
             top_k: self.top_k,
             repetition_penalty: self.repetition_penalty,
             seed: self.seed,
-            messages: self
-                .messages
-                .into_iter()
-                .map(|message| proto::ChatMessageInput {
-                    role: message.role,
-                    content: message.content,
-                    reasoning_content: message.reasoning_content,
-                })
-                .collect(),
+            messages,
+            image,
         })
     }
 }
@@ -181,5 +178,28 @@ mod tests {
         let value = serde_json::to_value(response).expect("serializable response");
         assert_eq!(value["choices"][0]["message"]["content"], "answer");
         assert_eq!(value["choices"][0]["message"]["reasoning_content"], "draft");
+    }
+
+    #[test]
+    fn accepts_openai_image_url_content_parts() {
+        let request: ChatRequest = serde_json::from_value(serde_json::json!({
+            "model": "vision-model",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="}},
+                    {"type": "text", "text": "What is shown?"}
+                ]
+            }]
+        }))
+        .expect("OpenAI-compatible request");
+
+        let request = request.into_proto().expect("valid vision request");
+
+        assert!(request.image.is_some_and(|image| image.starts_with(b"\x89PNG")));
+        assert_eq!(
+            request.messages[0].content,
+            format!("{}What is shown?", libmir::IMAGE_PLACEHOLDER)
+        );
     }
 }

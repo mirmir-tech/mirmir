@@ -11,6 +11,7 @@ fn renders_benchmark_distributions_and_prompt() -> Result<(), std::convert::Infa
     app.models.push(ModelInfo {
         id: "Qwen--Test".to_owned(),
         path: "/models/test".to_owned(),
+        ..Default::default()
     });
     app.benchmark.prompt = "Explain local inference.".to_owned();
     app.benchmark.results = vec![sample(20.0, 40.0), sample(30.0, 60.0)];

@@ -30,7 +30,7 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert_eq!(index.headers()["x-frame-options"], "DENY");
     assert_eq!(
         index.headers()["content-security-policy"],
-        "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "default-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
     );
     let index = index.text().await?;
     assert!(index.contains("MiRMiR · Runtime dashboard"));

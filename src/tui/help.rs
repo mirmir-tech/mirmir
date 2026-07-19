@@ -50,10 +50,12 @@ fn screen_help(screen: Screen) -> Vec<Line<'static>> {
         ],
         Screen::Chat => vec![
             shortcut("Enter", "send message"),
+            shortcut("drop image file", "attach image to each prompt"),
             shortcut("↑/↓ · PgUp/PgDn", "scroll conversation"),
             shortcut("Home / End", "top / bottom of conversation"),
             shortcut("Ctrl+←/→", "previous / next loaded model"),
             shortcut("Ctrl+K", "clear conversation"),
+            shortcut("Ctrl+D", "remove attached image"),
             shortcut("Ctrl+P", "edit one-off generation parameters"),
             shortcut("X", "cancel active generation"),
         ],

@@ -22,6 +22,7 @@ pub async fn activity(
     headers: HeaderMap,
 ) -> Result<Response, WebError> {
     state.sessions().authenticate(&headers)?;
+    let mut shutdown = state.shutdown();
     let events = state
         .service()
         .watch_activity(Request::new(proto::WatchActivityRequest { include_history: true }))
@@ -38,6 +39,9 @@ pub async fn activity(
                 Err(error) => ("error", error_event(error.message())),
             };
             Ok::<_, Infallible>(Event::default().event(kind).data(data))
+        })
+        .take_until(async move {
+            drop(shutdown.changed().await);
         });
     let mut response = Sse::new(events)
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("keep-alive"))

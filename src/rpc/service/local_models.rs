@@ -59,6 +59,8 @@ impl RuntimeService {
                 recent_rank: None,
                 selector,
                 managed: false,
+                image_input: false,
+                image_unavailable_reason: String::new(),
             });
         }
         drop(loading);
@@ -91,6 +93,11 @@ fn configured(
         selector: config.id.clone(),
         managed: config.hub.is_some()
             && config.path.starts_with(&service.store.paths().hub_cache_dir),
+        image_input: models.get(&config.id).is_some_and(|entry| entry.info.image_input),
+        image_unavailable_reason: models
+            .get(&config.id)
+            .map(|entry| entry.info.image_unavailable_reason.clone())
+            .unwrap_or_default(),
     }
 }
 

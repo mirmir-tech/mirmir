@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use axum::{
     Router,
@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderValue, Method, StatusCode, header},
     routing::{get, post},
 };
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio::{net::TcpListener, sync::watch, task::JoinHandle, time::timeout};
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::CorsLayer,
@@ -24,9 +24,11 @@ use crate::{
 
 pub struct Owner {
     address: SocketAddr,
-    shutdown: Option<oneshot::Sender<()>>,
+    shutdown: watch::Sender<bool>,
     task: JoinHandle<std::io::Result<()>>,
 }
+
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub async fn start(
     service: RuntimeService,
@@ -36,22 +38,23 @@ pub async fn start(
     settings.validate()?;
     let listener = TcpListener::bind(settings.address()?).await?;
     let address = listener.local_addr()?;
-    let router = router(service, settings, api_key)?;
-    let (shutdown, receiver) = oneshot::channel();
+    let (shutdown, mut receiver) = watch::channel(false);
+    let router = router(service, settings, api_key, receiver.clone())?;
     let task = tokio::spawn(async move {
         axum::serve(listener, router)
-            .with_graceful_shutdown(async {
-                drop(receiver.await);
+            .with_graceful_shutdown(async move {
+                drop(receiver.changed().await);
             })
             .await
     });
-    Ok(Owner { address, shutdown: Some(shutdown), task })
+    Ok(Owner { address, shutdown, task })
 }
 
 fn router(
     service: RuntimeService,
     settings: &ServerSettings,
     api_key: Option<String>,
+    shutdown: watch::Receiver<bool>,
 ) -> Result<Router> {
     let router = Router::new()
         .route("/health", get(handlers::health))
@@ -86,7 +89,7 @@ fn router(
     };
     Ok(router
         .fallback(handlers::not_found)
-        .with_state(ApiState::new(service, api_key))
+        .with_state(ApiState::new(service, api_key, shutdown))
         .layer(DefaultBodyLimit::max(settings.body_limit_bytes))
         .layer(ConcurrencyLimitLayer::new(settings.max_concurrency))
         .layer(TimeoutLayer::with_status_code(
@@ -129,10 +132,18 @@ impl Owner {
     }
 
     pub async fn shutdown(mut self) -> Result<()> {
-        if let Some(shutdown) = self.shutdown.take() {
-            let _shutdown_result = shutdown.send(());
+        let _shutdown_result = self.shutdown.send(true);
+        if let Ok(result) = timeout(SHUTDOWN_TIMEOUT, &mut self.task).await {
+            result??;
+        } else {
+            tracing::warn!("HTTP graceful shutdown timed out; closing active connections");
+            self.task.abort();
+            match self.task.await {
+                Ok(result) => result?,
+                Err(error) if error.is_cancelled() => {},
+                Err(error) => return Err(error.into()),
+            }
         }
-        self.task.await??;
         Ok(())
     }
 }

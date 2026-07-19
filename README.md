@@ -53,13 +53,19 @@ kv_blocks = 4096
 kv_cache_dtype = "auto"
 max_batch_requests = 16
 max_batch_tokens = 8192
+# Optional hard cap on the resized image area.
+vision_max_pixels = 1048576
+# Optional fixed attention workspace cap. Omit for the automatic RAM-based limit.
+# vision_attention_budget_bytes = 1073741824
+# Automatic mode uses this percentage of memory available after model loading.
+vision_memory_percent = 80
 
 [server]
 http_bind = "127.0.0.1:8080"
 allow_remote = false
 web_enabled = false
 cors_origins = []
-body_limit_bytes = 1048576
+body_limit_bytes = 29360128
 request_timeout_seconds = 300
 max_concurrency = 16
 ```
@@ -170,6 +176,9 @@ Otherwise the input is always active. Reasoning enclosed by `<think>` markers is
 rendered with a dimmed style. Scroll the conversation with the mouse wheel,
 `Up`/`Down`, `PageUp`/`PageDown`, `Home`, or `End`; use `Ctrl+Left` and
 `Ctrl+Right` to switch loaded models and `Ctrl+K` to clear the conversation.
+Dropping one PNG, JPEG, WebP, or GIF file into Chat attaches it to the prompt;
+some terminals paste the path first, in which case `Enter` confirms the
+attachment. `Ctrl+D` removes it. Images are limited to 20 MiB.
 `Ctrl+P` opens parameters for the selected model: max tokens, temperature,
 top-p, top-k, repetition penalty, and an optional one-off seed. Press `s` before
 applying to persist all parameters except the seed as that model's Mirmir defaults;
@@ -224,6 +233,12 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -H "Authorization: Bearer $MIRMIR_HTTP_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"model":"qwen","messages":[{"role":"user","content":"Hello"}],"stream":true}'
+
+IMAGE_DATA=$(base64 < image.jpg | tr -d '\n')
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H "Authorization: Bearer $MIRMIR_HTTP_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/jpeg;base64,$IMAGE_DATA\"}},{\"type\":\"text\",\"text\":\"Describe this image\"}]}]}"
 ```
 
 Bearer authentication is optional on loopback. A non-loopback bind requires
@@ -239,7 +254,8 @@ discovered local snapshots, can search Hugging Face with the same compatibility
 and memory-fit ranking as TUI, and exposes load, unload, and download actions.
 Models also exposes removal confirmation and editable generation defaults before
 load. Chat streams content and reasoning separately, shows live and final
-TTFT/prefill/decode/E2E metrics, and supports cancellation. Settings presents
+TTFT/prefill/decode/E2E metrics, supports cancellation, and accepts an image by
+drag-and-drop or file picker with a local preview. Settings presents
 effective TOML sources and write-only secret management. Activity consumes a
 server-sent event stream shared with TUI and displays the real lifecycle stage
 and byte/weight progress. Versioned APIs live under

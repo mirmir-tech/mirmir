@@ -13,6 +13,7 @@ use crate::{
 mod foundation;
 mod session;
 mod settings;
+mod shutdown;
 
 static NEXT_HTTP: AtomicU64 = AtomicU64::new(0);
 

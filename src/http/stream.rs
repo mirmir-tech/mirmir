@@ -6,7 +6,7 @@ use axum::response::{
 };
 use futures_util::StreamExt;
 use serde_json::json;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::{error::ApiError, types::Usage};
@@ -18,6 +18,7 @@ pub fn response(
     created: u64,
     model: String,
     include_usage: bool,
+    mut shutdown: watch::Receiver<bool>,
 ) -> Response {
     let (sender, receiver) = mpsc::channel(32);
     drop(tokio::spawn(async move {
@@ -29,7 +30,14 @@ pub fn response(
         {
             return;
         }
-        while let Some(event) = source.next().await {
+        loop {
+            let event = tokio::select! {
+                _result = shutdown.changed() => return,
+                event = source.next() => event,
+            };
+            let Some(event) = event else {
+                break;
+            };
             match event {
                 Ok(event) => {
                     if !handle_event(&sender, event, &id, created, &model, include_usage).await {

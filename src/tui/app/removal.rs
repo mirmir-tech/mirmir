@@ -155,6 +155,7 @@ mod tests {
             recent_rank: None,
             selector: "/hf/models--Qwen--External/snapshots/abc123".to_owned(),
             managed: false,
+            ..Default::default()
         });
 
         app.open_remove_dialog();

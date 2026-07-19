@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-use libmir::{
-    CancellationToken, ChatCompletionRequest, ChatMessage, GenerationChannel, ProgressStage,
-};
+use libmir::{CancellationToken, GenerationChannel, ProgressStage};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
@@ -11,6 +9,9 @@ use super::{
     RuntimeService, activity::Operation, models::log_progress, telemetry::GenerationTelemetry,
 };
 use crate::rpc::proto;
+
+#[path = "generation/request.rs"]
+mod request_conversion;
 
 pub fn stream(
     service: RuntimeService,
@@ -56,7 +57,7 @@ fn run(
             return;
         },
     };
-    let chat = match chat_request(request) {
+    let chat = match request_conversion::chat_request(request) {
         Ok(chat) => chat,
         Err(status) => {
             telemetry.fail();
@@ -70,42 +71,46 @@ fn run(
     telemetry.stage("prefill");
     operation.progress("prefill", "prefilling prompt", None, None);
     let progress_operation = operation.clone();
-    let output = model.generate_cancellable(
+    let progress = &mut |event| {
+        telemetry.progress(&event);
+        let stage = match event.stage {
+            ProgressStage::LoadWeights => "loading",
+            ProgressStage::PrefillTokens => "prefill",
+            ProgressStage::DecodeTokens => "decode",
+        };
+        if event.stage != ProgressStage::DecodeTokens
+            || event.current == 0
+            || event.current == event.total
+            || event.current % 16 == 0
+        {
+            progress_operation.progress(
+                stage,
+                &event.detail,
+                Some(event.current),
+                Some(event.total),
+            );
+        }
+    };
+    let emit_token = &mut |token: libmir::GenerationToken| {
+        telemetry.token_emitted();
+        ttft_ms.get_or_insert_with(|| started.elapsed().as_secs_f64() * 1_000.0);
+        let event = proto::GenerateEvent {
+            event: Some(proto::generate_event::Event::Token(proto::Token {
+                id: token.id,
+                text: token.text,
+                reasoning: token.channel == GenerationChannel::Reasoning,
+            })),
+        };
+        if sender.blocking_send(Ok(event)).is_err() {
+            cancellation.cancel();
+        }
+    };
+    let output = request_conversion::generate(
+        &model,
         &chat,
-        &mut |event| {
-            telemetry.progress(&event);
-            let stage = match event.stage {
-                ProgressStage::LoadWeights => "loading",
-                ProgressStage::PrefillTokens => "prefill",
-                ProgressStage::DecodeTokens => "decode",
-            };
-            if event.stage != ProgressStage::DecodeTokens
-                || event.current == 0
-                || event.current == event.total
-                || event.current % 16 == 0
-            {
-                progress_operation.progress(
-                    stage,
-                    &event.detail,
-                    Some(event.current),
-                    Some(event.total),
-                );
-            }
-        },
-        &mut |token| {
-            telemetry.token_emitted();
-            ttft_ms.get_or_insert_with(|| started.elapsed().as_secs_f64() * 1_000.0);
-            let event = proto::GenerateEvent {
-                event: Some(proto::generate_event::Event::Token(proto::Token {
-                    id: token.id,
-                    text: token.text,
-                    reasoning: token.channel == GenerationChannel::Reasoning,
-                })),
-            };
-            if sender.blocking_send(Ok(event)).is_err() {
-                cancellation.cancel();
-            }
-        },
+        request.image.as_deref(),
+        &mut *progress,
+        &mut *emit_token,
         cancellation,
     );
     match output {
@@ -119,6 +124,12 @@ fn run(
             operation.finish("cancelled", "generation cancelled");
             tracing::info!(operation = operation.id(), model = %request.model, "generation cancelled");
             drop(sender.blocking_send(Err(Status::cancelled("generation cancelled"))));
+        },
+        Err(error @ libmir::Error::VisionResourceLimit { .. }) => {
+            telemetry.fail();
+            operation.finish("rejected", &error.to_string());
+            tracing::warn!(operation = operation.id(), model = %request.model, %error, "generation exceeded vision resource limits");
+            drop(sender.blocking_send(Err(Status::resource_exhausted(error.to_string()))));
         },
         Err(error) => {
             telemetry.fail();
@@ -198,42 +209,4 @@ fn send_completion(
     drop(sender.blocking_send(Ok(proto::GenerateEvent {
         event: Some(proto::generate_event::Event::Completion(completion)),
     })));
-}
-
-fn chat_request(request: &proto::GenerateRequest) -> Result<ChatCompletionRequest, Status> {
-    Ok(ChatCompletionRequest {
-        model: request.model.clone(),
-        messages: messages(request),
-        stream: true,
-        max_tokens: request.max_tokens.map(usize::try_from).transpose().map_err(integer_status)?,
-        temperature: request.temperature,
-        top_p: request.top_p,
-        top_k: request.top_k.map(usize::try_from).transpose().map_err(integer_status)?,
-        repetition_penalty: request.repetition_penalty,
-        seed: request.seed,
-    })
-}
-
-fn messages(request: &proto::GenerateRequest) -> Vec<ChatMessage> {
-    if request.messages.is_empty() {
-        vec![ChatMessage {
-            role: "user".to_owned(),
-            content: request.prompt.clone(),
-            reasoning_content: None,
-        }]
-    } else {
-        request
-            .messages
-            .iter()
-            .map(|message| ChatMessage {
-                role: message.role.clone(),
-                content: message.content.clone(),
-                reasoning_content: message.reasoning_content.clone(),
-            })
-            .collect()
-    }
-}
-
-fn integer_status(error: std::num::TryFromIntError) -> Status {
-    Status::invalid_argument(error.to_string())
 }

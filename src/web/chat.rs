@@ -18,8 +18,12 @@ use tonic::Request;
 use super::{security_headers, session::WebError};
 use crate::{
     http::ApiState,
+    media::decode_data_url,
     rpc::{proto, proto::runtime_server::Runtime},
 };
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Deserialize)]
 pub struct ChatRequest {
@@ -31,6 +35,7 @@ pub struct ChatRequest {
     top_k: Option<u64>,
     repetition_penalty: Option<f32>,
     seed: Option<u64>,
+    image: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -84,15 +89,24 @@ pub async fn chat(
             "model and at least one message are required",
         )));
     }
+    let request = proto::GenerateRequest::try_from(chat)?;
     let mut source = state
         .service()
-        .generate(Request::new(chat.into()))
+        .generate(Request::new(request))
         .await
         .map_err(WebError::from_status)?
         .into_inner();
+    let mut shutdown = state.shutdown();
     let (sender, receiver) = mpsc::channel::<Result<Event, Infallible>>(32);
     drop(tokio::spawn(async move {
-        while let Some(event) = source.next().await {
+        loop {
+            let event = tokio::select! {
+                _result = shutdown.changed() => break,
+                event = source.next() => event,
+            };
+            let Some(event) = event else {
+                break;
+            };
             let (event, terminal) = match event {
                 Ok(event) => {
                     let terminal =
@@ -149,9 +163,32 @@ fn json_event(name: &'static str, value: impl Serialize) -> Event {
     )
 }
 
-impl From<ChatRequest> for proto::GenerateRequest {
-    fn from(chat: ChatRequest) -> Self {
-        Self {
+impl TryFrom<ChatRequest> for proto::GenerateRequest {
+    type Error = WebError;
+
+    fn try_from(chat: ChatRequest) -> Result<Self, Self::Error> {
+        let mut messages: Vec<proto::ChatMessageInput> =
+            chat.messages.into_iter().map(Into::into).collect();
+        let image = chat
+            .image
+            .map(|value| {
+                decode_data_url(&value).map_err(|error| {
+                    WebError::from_status(tonic::Status::invalid_argument(error.to_string()))
+                })
+            })
+            .transpose()?;
+        if image.is_some() {
+            let message =
+                messages.iter_mut().rev().find(|message| message.role == "user").ok_or_else(
+                    || {
+                        WebError::from_status(tonic::Status::invalid_argument(
+                            "an image requires a user message",
+                        ))
+                    },
+                )?;
+            message.content = format!("{}\n{}", libmir::IMAGE_PLACEHOLDER, message.content);
+        }
+        Ok(Self {
             model: chat.model,
             prompt: String::new(),
             max_tokens: chat.max_tokens,
@@ -160,8 +197,9 @@ impl From<ChatRequest> for proto::GenerateRequest {
             top_k: chat.top_k,
             repetition_penalty: chat.repetition_penalty,
             seed: chat.seed,
-            messages: chat.messages.into_iter().map(Into::into).collect(),
-        }
+            messages,
+            image,
+        })
     }
 }
 

@@ -45,6 +45,8 @@ message ListActiveModelsResponse {
 message ModelInfo {
   string id = 1;
   string path = 2;
+  bool image_input = 3;
+  string image_unavailable_reason = 4;
 }
 
 message ListLocalModelsRequest {}
@@ -63,6 +65,8 @@ message LocalModelInfo {
   optional uint32 recent_rank = 7;
   string selector = 8;
   bool managed = 9;
+  bool image_input = 10;
+  string image_unavailable_reason = 11;
 }
 
 message InspectModelRequest {
@@ -199,6 +203,7 @@ message GenerateRequest {
   optional float repetition_penalty = 7;
   optional uint64 seed = 8;
   repeated ChatMessageInput messages = 9;
+  optional bytes image = 10;
 }
 
 message ChatMessageInput {

@@ -50,6 +50,15 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
             optional_integer(document, "max_batch_requests", key, input)?;
         },
         "runtime.max_batch_tokens" => optional_integer(document, "max_batch_tokens", key, input)?,
+        "runtime.vision_max_pixels" => {
+            optional_integer(document, "vision_max_pixels", key, input)?;
+        },
+        "runtime.vision_attention_budget_bytes" => {
+            optional_integer(document, "vision_attention_budget_bytes", key, input)?;
+        },
+        "runtime.vision_memory_percent" => {
+            optional_integer(document, "vision_memory_percent", key, input)?;
+        },
         "runtime.kv_cache_dtype" => {
             return Err(Error::Config("runtime.kv_cache_dtype is read-only for now".to_owned()));
         },

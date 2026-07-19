@@ -29,6 +29,12 @@ impl App {
             self.handle_content_mouse(*mouse, client).await;
             return false;
         }
+        if let Event::Paste(value) = event {
+            if self.screen == Screen::Chat {
+                self.handle_chat_paste(value);
+            }
+            return false;
+        }
         let Event::Key(key) = event else {
             return false;
         };

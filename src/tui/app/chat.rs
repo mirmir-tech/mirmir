@@ -5,6 +5,8 @@ use tokio::sync::mpsc;
 use super::App;
 use crate::rpc::{Client, proto};
 
+mod image;
+
 #[derive(Debug, Clone)]
 pub struct Message {
     pub role: String,
@@ -40,6 +42,7 @@ impl App {
                 KeyCode::Left => self.previous_chat_model(),
                 KeyCode::Right => self.next_chat_model(),
                 KeyCode::Char('k' | 'K') => self.clear_chat(),
+                KeyCode::Char('d' | 'D') => self.chat_image = None,
                 KeyCode::Char('p' | 'P') => self.open_chat_settings(client),
                 _ => {},
             }
@@ -97,6 +100,7 @@ impl App {
     pub(super) fn clear_chat(&mut self) {
         if self.chat_status == ChatStatus::Idle {
             self.chat_messages.clear();
+            self.chat_image = None;
             self.chat_scroll = 0;
             self.chat_metrics = None;
             self.chat_live_metrics = None;
@@ -106,52 +110,6 @@ impl App {
 
     pub fn selected_chat_model(&self) -> Option<&proto::ModelInfo> {
         self.models.get(self.chat_model_index)
-    }
-
-    fn start_chat(&mut self, client: &Client) {
-        if self.chat_status == ChatStatus::Generating || self.chat_input.trim().is_empty() {
-            return;
-        }
-        let Some(model) = self.selected_chat_model() else {
-            self.chat_error = Some("load a model before starting chat".to_owned());
-            return;
-        };
-        let model = model.id.clone();
-        let content = self.chat_input.trim().to_owned();
-        self.chat_input.clear();
-        self.chat_scroll = 0;
-        self.chat_messages.push(Message {
-            role: "user".to_owned(),
-            content,
-            thought: String::new(),
-        });
-        let messages = self
-            .chat_messages
-            .iter()
-            .map(|message| proto::ChatMessageInput {
-                role: message.role.clone(),
-                content: message.content.clone(),
-                reasoning_content: (!message.thought.is_empty()).then(|| message.thought.clone()),
-            })
-            .collect();
-        self.chat_messages.push(Message {
-            role: "assistant".to_owned(),
-            content: String::new(),
-            thought: String::new(),
-        });
-        let mut request = proto::GenerateRequest {
-            model,
-            prompt: String::new(),
-            max_tokens: None,
-            temperature: None,
-            top_p: None,
-            top_k: None,
-            repetition_penalty: None,
-            seed: None,
-            messages,
-        };
-        self.apply_chat_parameters(&mut request);
-        self.spawn_chat(client, request);
     }
 
     fn spawn_chat(&mut self, client: &Client, request: proto::GenerateRequest) {

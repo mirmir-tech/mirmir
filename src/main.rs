@@ -5,6 +5,7 @@ mod config_command;
 mod daemon;
 mod error;
 mod http;
+mod media;
 mod model;
 mod output;
 mod prompt;

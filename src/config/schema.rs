@@ -36,6 +36,9 @@ pub struct RuntimeSettings {
     pub kv_cache_dtype: Option<KvCacheDType>,
     pub max_batch_requests: Option<usize>,
     pub max_batch_tokens: Option<usize>,
+    pub vision_max_pixels: Option<usize>,
+    pub vision_attention_budget_bytes: Option<u64>,
+    pub vision_memory_percent: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,7 +119,7 @@ impl Default for ServerSettings {
             allow_remote: false,
             web_enabled: false,
             cors_origins: Vec::new(),
-            body_limit_bytes: 1_048_576,
+            body_limit_bytes: crate::media::DEFAULT_IMAGE_REQUEST_BYTES,
             request_timeout_seconds: 300,
             max_concurrency: 16,
         }
@@ -131,6 +134,23 @@ impl AppConfig {
         }
         if matches!(self.runtime.kv_blocks, Some(0)) {
             return Err(Error::Config("runtime.kv_blocks must be positive".to_owned()));
+        }
+        if matches!(self.runtime.vision_max_pixels, Some(0)) {
+            return Err(Error::Config("runtime.vision_max_pixels must be positive".to_owned()));
+        }
+        if matches!(self.runtime.vision_attention_budget_bytes, Some(0)) {
+            return Err(Error::Config(
+                "runtime.vision_attention_budget_bytes must be positive".to_owned(),
+            ));
+        }
+        if self
+            .runtime
+            .vision_memory_percent
+            .is_some_and(|percent| !(1..=100).contains(&percent))
+        {
+            return Err(Error::Config(
+                "runtime.vision_memory_percent must be between 1 and 100".to_owned(),
+            ));
         }
         self.server.validate()?;
         Ok(())
@@ -195,29 +215,6 @@ impl GenerationConfig {
             || self.top_p.is_some()
             || self.top_k.is_some()
             || self.repetition_penalty.is_some()
-    }
-}
-
-impl RuntimeSettings {
-    #[must_use]
-    pub fn to_libmir(&self) -> libmir::RuntimeConfig {
-        let mut config = libmir::RuntimeConfig::default();
-        if let Some(value) = self.kv_block_size {
-            config.kv_cache.block_size = value;
-        }
-        if let Some(value) = self.kv_blocks {
-            config.kv_cache.block_count = value;
-        }
-        if let Some(value) = self.kv_cache_dtype {
-            config.kv_cache.dtype = value;
-        }
-        if let Some(value) = self.max_batch_requests {
-            config.scheduler.max_batch_requests = value;
-        }
-        if let Some(value) = self.max_batch_tokens {
-            config.scheduler.max_batch_tokens = value;
-        }
-        config
     }
 }
 

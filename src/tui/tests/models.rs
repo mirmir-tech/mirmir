@@ -113,6 +113,7 @@ fn local_model(id: &str, repo_id: &str) -> LocalModelInfo {
         recent_rank: Some(0),
         selector: id.to_owned(),
         managed: true,
+        ..Default::default()
     }
 }
 

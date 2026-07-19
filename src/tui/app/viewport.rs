@@ -141,6 +141,7 @@ mod tests {
             recent_rank: None,
             selector: format!("model-{index}"),
             managed: true,
+            ..Default::default()
         }
     }
 }
