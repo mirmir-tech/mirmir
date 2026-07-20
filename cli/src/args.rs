@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "mirmir")]
-#[command(about = "Native Rust local LLM runtime CLI")]
+#[command(about = "High-performance native Rust LLM runtime CLI")]
 pub struct Cli {
     #[command(flatten)]
     pub runtime: config::RuntimeArgs,

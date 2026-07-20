@@ -9,7 +9,7 @@ use ratatui::{
 use super::{
     activity,
     app::{App, Screen, WORKSPACE_PREFIX, WORKSPACE_TABS},
-    benchmarks, chat, chat_settings, configuration, confirm, help, load, models, overview, theme,
+    benchmarks, chat, configuration, confirm, help, load, models, overview, theme,
 };
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -45,7 +45,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
         load::draw(frame, app);
     }
     if app.chat_settings_dialog.is_some() {
-        chat_settings::draw(frame, app);
+        chat::settings::draw(frame, app);
     }
     if let Some(dialog) = app.remove_dialog.as_ref() {
         confirm::draw_remove(frame, dialog);

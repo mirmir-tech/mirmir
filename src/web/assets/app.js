@@ -1,8 +1,10 @@
 const base = "/api/mirmir/v1";
+const dashboardSchemaVersion = 2;
 let csrf = null;
-let overviewTimer = null;
-let modelsTimer = null;
-let activitySource = null;
+let updatesSocket = null;
+let reconnectTimer = null;
+let connectedOnce = false;
+let runtimeReady = false;
 let localModels = [];
 let currentConfiguration = null;
 let loadSelector = null;
@@ -14,12 +16,17 @@ let chatImage = null;
 let searching = false;
 let catalogResults = null;
 const activities = new Map();
+const pendingModelOperations = new Map();
 const maxImageBytes = 20 * 1024 * 1024;
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const imageTypeByExtension = new Map([
   ["png", "image/png"], ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"],
   ["webp", "image/webp"], ["gif", "image/gif"],
 ]);
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/ui/sw.js?v=3", { scope: "/ui/" }).catch(() => {});
+}
 
 const byId = (id) => document.getElementById(id);
 const text = (id, value) => { byId(id).textContent = value; };
@@ -28,7 +35,13 @@ const number = (value, digits = 1) => value == null ? "—" : Number(value).toFi
 const request = async (path, options = {}) => {
   const response = await fetch(`${base}${path}`, { credentials: "same-origin", ...options });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error?.message || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const missingEndpoint = response.status === 404 && !body.error;
+    const message = missingEndpoint
+      ? `Dashboard API endpoint ${path.split("?")[0]} is unavailable. Restart MiRMiR from the current build and reload the dashboard.`
+      : body.error?.message || `HTTP ${response.status}`;
+    throw new Error(message);
+  }
   return body;
 };
 
@@ -60,6 +73,50 @@ const duration = (milliseconds) => {
 };
 
 const percent = (used, total) => total ? Math.min(100, Math.max(0, used / total * 100)) : 0;
+
+const renderConnection = (state, detail = null, phase = "reconnecting") => {
+  const indicator = byId("connection-state");
+  indicator.dataset.state = state;
+  indicator.textContent = state === "connected" ? "CONNECTED"
+    : state === "connecting" ? "CONNECTING" : "DISCONNECTED";
+  if (state !== "disconnected") return;
+  runtimeReady = false;
+  const banner = byId("startup-banner");
+  banner.hidden = false;
+  banner.classList.add("connection-lost");
+  text("startup-title", "Connection lost");
+  text("startup-detail", detail || "The dashboard is no longer receiving updates from the MiRMiR server.");
+  text("startup-phase", phase);
+  byId("startup-progress").hidden = true;
+};
+
+const renderWaitingForServer = () => {
+  renderConnection("connecting");
+  runtimeReady = false;
+  const banner = byId("startup-banner");
+  banner.hidden = false;
+  banner.classList.remove("connection-lost");
+  text("startup-title", "Starting runtime");
+  text("startup-detail", "Waiting for the MiRMiR server to become available…");
+  text("startup-phase", "connecting");
+  byId("startup-progress").hidden = true;
+};
+
+const renderStartup = (startup) => {
+  runtimeReady = startup.ready;
+  const banner = byId("startup-banner");
+  banner.classList.remove("connection-lost");
+  banner.hidden = startup.ready;
+  text("startup-title", startup.ready ? "Runtime ready" : `Waiting for ${startup.target}`);
+  text("startup-detail", startup.detail);
+  text("startup-phase", startup.phase);
+  const progress = byId("startup-progress");
+  progress.hidden = startup.total == null || startup.total === 0;
+  progress.max = startup.total || 1;
+  progress.value = startup.current || 0;
+  if (startup.phase === "failed") showNotice(startup.detail, true);
+  if (!searching && localModels.length > 0) renderLocalModels({ models: localModels });
+};
 
 const renderOverview = (data) => {
   text("throughput", number(data.current_tokens_per_second ?? data.last_tokens_per_second));
@@ -113,15 +170,36 @@ const action = (label, handler, disabled = false) => {
   button.disabled = disabled;
   button.addEventListener("click", async () => {
     button.disabled = true;
-    try { await handler(); } catch (error) { showNotice(error.message, true); button.disabled = false; }
+    try { await handler(); }
+    catch (error) { showNotice(error.message, true); }
+    finally { if (button.isConnected) button.disabled = disabled; }
   });
   return button;
 };
 
 const runModelAction = async (path, payload, message) => {
-  await mutate(path, payload);
-  showNotice(message);
-  window.setTimeout(() => refreshModels().catch((error) => showNotice(error.message, true)), 300);
+  const target = payload.selector || payload.repo_id;
+  const kind = path.split("/").at(-1);
+  pendingModelOperations.set(target, {
+    operation_id: `pending-${target}`,
+    kind,
+    target,
+    state: "running",
+    stage: "queued",
+    detail: `${kind} request queued`,
+    current: null,
+    total: null,
+    updated_at_unix_ms: Date.now(),
+  });
+  renderOperationTarget(target);
+  try {
+    await mutate(path, payload);
+    showNotice(message);
+  } catch (error) {
+    pendingModelOperations.delete(target);
+    renderOperationTarget(target);
+    throw error;
+  }
 };
 
 const openLoadDialog = async (selector) => {
@@ -177,29 +255,107 @@ const renderChatModels = (models) => {
   renderImageCapability();
 };
 
+const operationFor = (...targets) => {
+  const targetSet = new Set(targets.filter(Boolean));
+  const live = [...activities.values()]
+    .filter((event) => targetSet.has(event.target) && ["running", "cancelling"].includes(event.state))
+    .sort((left, right) => right.updated_at_unix_ms - left.updated_at_unix_ms)[0];
+  if (live) return live;
+  return targets.map((target) => pendingModelOperations.get(target)).find(Boolean) || null;
+};
+
+const pullOperations = () => {
+  const operations = new Map();
+  [...pendingModelOperations.values()]
+    .filter((operation) => operation.kind === "pull")
+    .forEach((operation) => operations.set(operation.target, operation));
+  [...activities.values()]
+    .filter((event) => event.kind === "pull" && ["running", "cancelling"].includes(event.state))
+    .sort((left, right) => left.updated_at_unix_ms - right.updated_at_unix_ms)
+    .forEach((event) => operations.set(event.target, event));
+  return [...operations.values()];
+};
+
+const operationProgress = (container, operation) => {
+  if (!operation) return;
+  const progress = document.createElement("progress");
+  progress.className = "model-progress";
+  if (operation.total) {
+    progress.max = operation.total;
+    progress.value = operation.current || 0;
+  }
+  container.appendChild(progress);
+};
+
+const renderOperationTarget = (target) => {
+  if (searching && catalogResults?.models.some((model) => model.id === target)) {
+    renderCatalog(catalogResults);
+  } else if (!searching) {
+    renderLocalModels({ models: localModels });
+  }
+};
+
+const appendPullRow = (rows, operation) => {
+  const row = document.createElement("tr");
+  row.className = "busy";
+  cell(row, operation.target);
+  const state = cell(row, "");
+  const stateBadge = badge("loading");
+  stateBadge.textContent = operation.stage || operation.state;
+  state.appendChild(stateBadge);
+  operationProgress(state, operation);
+  cell(row, "pending");
+  cell(row, operation.detail || "Downloading from Hugging Face", "path");
+  const controls = cell(row, "");
+  controls.appendChild(action("pull…", () => {}, true));
+  rows.appendChild(row);
+};
+
 const renderLocalModels = (data) => {
   localModels = data.models;
   renderChatModels(data.models);
   const rows = byId("model-rows");
   rows.replaceChildren();
+  const downloads = pullOperations();
+  const knownTargets = new Set(data.models.flatMap((model) =>
+    [model.selector, model.id, model.repo_id, model.path].filter(Boolean)));
+  downloads.filter((operation) => !knownTargets.has(operation.target))
+    .forEach((operation) => appendPullRow(rows, operation));
   data.models.forEach((model) => {
     const row = document.createElement("tr");
     cell(row, model.id || model.repo_id);
     const state = cell(row, "");
-    state.appendChild(badge(model.state));
+    const operation = operationFor(model.selector, model.id, model.repo_id, model.path);
+    if (operation) {
+      row.classList.add("busy");
+      const stateBadge = badge("loading");
+      stateBadge.textContent = operation.stage || operation.state;
+      state.appendChild(stateBadge);
+      operationProgress(state, operation);
+    } else {
+      state.appendChild(badge(model.state));
+    }
     cell(row, model.revision || "local");
     cell(row, model.repo_id || model.path, "path").title = model.path;
     const controls = cell(row, "");
-    if (model.state === "ready") {
+    if (operation) {
+      controls.appendChild(action(`${operation.kind}…`, () => {}, true));
+    } else if (model.state === "ready") {
       controls.appendChild(action("Unload", () => runModelAction("/models/unload", { selector: model.selector }, "Unload requested")));
+    } else if (model.state === "missing") {
+      if (model.repo_id) controls.appendChild(action("Remove", () => openRemoveDialog(model.repo_id)));
     } else {
-      controls.appendChild(action("Load", () => openLoadDialog(model.selector), model.state !== "available"));
+      controls.appendChild(action("Load", () => openLoadDialog(model.selector), model.state !== "available" || !runtimeReady));
       controls.appendChild(action("Remove", () => openRemoveDialog(model.repo_id), model.state !== "available"));
     }
     rows.appendChild(row);
   });
-  text("model-count", `${data.models.length} local`);
-  byId("models-empty").hidden = data.models.length > 0;
+  const missing = data.models.filter((model) => model.state === "missing").length;
+  const summary = [`${data.models.length - missing} local`];
+  if (downloads.length > 0) summary.push(`${downloads.length} downloading`);
+  if (missing > 0) summary.push(`${missing} missing`);
+  text("model-count", summary.join(" · "));
+  byId("models-empty").hidden = rows.children.length > 0;
 };
 
 const renderCatalog = (data) => {
@@ -214,7 +370,16 @@ const renderCatalog = (data) => {
     const row = document.createElement("tr");
     cell(row, model.id);
     const fit = cell(row, "");
-    fit.appendChild(badge(model.downloaded ? "downloaded" : model.memory_fit));
+    const operation = operationFor(model.id);
+    if (operation) {
+      row.classList.add("busy");
+      const stateBadge = badge("loading");
+      stateBadge.textContent = operation.stage || operation.state;
+      fit.appendChild(stateBadge);
+      operationProgress(fit, operation);
+    } else {
+      fit.appendChild(badge(model.downloaded ? "downloaded" : model.memory_fit));
+    }
     if (model.gated) fit.appendChild(badge("gated"));
     cell(row, model.architecture || "unknown");
     const popularity = `${model.downloads.toLocaleString()} downloads · ${model.likes.toLocaleString()} likes`;
@@ -222,7 +387,9 @@ const renderCatalog = (data) => {
     const controls = cell(row, "");
     const local = model.downloaded || model.local_source === "hf_cache";
     const blocked = model.compatibility !== "supported" || model.memory_fit === "does_not_fit";
-    if (local) {
+    if (operation) {
+      controls.appendChild(action(`${operation.kind}…`, () => {}, true));
+    } else if (local) {
       controls.appendChild(action("Remove", () => openRemoveDialog(model.id)));
     } else {
       controls.appendChild(action("Download", () =>
@@ -344,16 +511,9 @@ const renderActivity = () => {
 
 const applyActivity = (event) => {
   activities.set(event.operation_id, event);
+  pendingModelOperations.delete(event.target);
   renderActivity();
-  if (["completed", "failed", "cancelled"].includes(event.state)) {
-    refreshModels().catch((error) => showNotice(error.message, true));
-  }
-};
-
-const connectActivity = () => {
-  activitySource = new EventSource(`${base}/activity`);
-  activitySource.addEventListener("activity", (message) => applyActivity(JSON.parse(message.data)));
-  activitySource.addEventListener("error", () => showNotice("Activity stream reconnecting", true));
+  renderOperationTarget(event.target);
 };
 
 const chatNode = (role, content = "") => {
@@ -535,36 +695,114 @@ const finishChat = () => {
   byId("chat-input").focus();
 };
 
-const refreshOverview = () => request("/overview").then(renderOverview);
-const refreshConfiguration = () => request("/configuration").then(renderConfiguration);
-const refreshModels = () => request("/models").then((data) => {
+const applyModels = (data) => {
   localModels = data.models;
   renderChatModels(data.models);
-  if (!searching) renderLocalModels(data);
-});
-
-const connect = async () => {
-  const bootstrap = await request("/bootstrap");
-  text("server-version", bootstrap.server_version);
-  text("protocol-version", bootstrap.protocol_version);
-  const session = await request("/session", { method: "POST" });
-  csrf = session.csrf_token;
-  await Promise.all([refreshOverview(), refreshModels(), refreshConfiguration()]);
-  connectActivity();
-  const status = byId("status");
-  status.textContent = "Local session active";
-  status.className = "status ready";
-  overviewTimer = window.setInterval(() => refreshOverview().catch(disconnect), 1000);
-  modelsTimer = window.setInterval(() => refreshModels().catch(disconnect), 5000);
+  if (!searching) {
+    renderLocalModels(data);
+    return;
+  }
+  if (catalogResults) {
+    const downloaded = new Set(data.models.map((model) => model.repo_id));
+    catalogResults = {
+      ...catalogResults,
+      models: catalogResults.models.map((model) => ({
+        ...model,
+        downloaded: model.downloaded || downloaded.has(model.id),
+      })),
+    };
+    renderCatalog(catalogResults);
+  }
 };
 
-const disconnect = (error) => {
-  if (overviewTimer) window.clearInterval(overviewTimer);
-  if (modelsTimer) window.clearInterval(modelsTimer);
-  if (activitySource) activitySource.close();
-  const status = byId("status");
-  status.textContent = error ? `Unavailable: ${error.message}` : "Session ended";
-  status.className = error ? "status error" : "status";
+const applyUpdate = (message) => {
+  if (message.type === "startup") renderStartup(message.startup);
+  if (message.type === "overview") renderOverview(message.overview);
+  if (message.type === "models") applyModels(message.models);
+  if (message.type === "configuration") renderConfiguration(message.configuration);
+  if (message.type === "activity") applyActivity(message.activity);
+  if (message.type === "error") showNotice(message.message, true);
+};
+
+const connectUpdates = () => {
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+  updatesSocket = new WebSocket(`${scheme}://${window.location.host}${base}/ws`);
+  updatesSocket.addEventListener("open", () => {
+    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    connectedOnce = true;
+    renderConnection("connected");
+  });
+  updatesSocket.addEventListener("message", (event) => {
+    try { applyUpdate(JSON.parse(event.data)); }
+    catch (error) { showNotice(`Invalid runtime update: ${error.message}`, true); }
+  });
+  const connectionLost = () => {
+    if (connectedOnce) renderConnection("disconnected");
+    else renderWaitingForServer();
+    scheduleReconnect();
+  };
+  updatesSocket.addEventListener("error", connectionLost);
+  updatesSocket.addEventListener("close", connectionLost);
+};
+
+const sessionRequest = async (path, options = {}) => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 1500);
+  try {
+    return await request(path, { ...options, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+};
+
+const establishSession = async () => {
+  const bootstrap = await sessionRequest("/bootstrap");
+  text("server-version", bootstrap.server_version);
+  text("protocol-version", bootstrap.protocol_version);
+  if (bootstrap.schema_version !== dashboardSchemaVersion) {
+    const error = new Error(
+      `Dashboard/server mismatch: UI schema ${dashboardSchemaVersion}, server schema ${bootstrap.schema_version ?? "unknown"}. Restart MiRMiR from the current build and reload the dashboard.`,
+    );
+    error.name = "DashboardCompatibilityError";
+    throw error;
+  }
+  const session = await sessionRequest("/session", { method: "POST" });
+  csrf = session.csrf_token;
+};
+
+const renderConnectionFailure = (error) => {
+  if (error?.name === "DashboardCompatibilityError") {
+    renderConnection("disconnected", error.message, "incompatible");
+  } else if (connectedOnce) {
+    renderConnection("disconnected");
+  } else {
+    renderWaitingForServer();
+  }
+};
+
+const scheduleReconnect = () => {
+  if (reconnectTimer) return;
+  reconnectTimer = window.setTimeout(async () => {
+    reconnectTimer = null;
+    try {
+      await establishSession();
+      connectUpdates();
+    } catch (error) {
+      renderConnectionFailure(error);
+      scheduleReconnect();
+    }
+  }, 1000);
+};
+
+const connect = async () => {
+  await establishSession();
+  connectUpdates();
+};
+
+const waitForServer = (error) => {
+  renderConnectionFailure(error);
+  scheduleReconnect();
 };
 
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
@@ -575,9 +813,6 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
   byId(tab.dataset.view).classList.add("active");
   text("page-title", tab.dataset.label);
   document.title = `MiRMiR · ${tab.dataset.label}`;
-  if (tab.dataset.view === "configuration") {
-    refreshConfiguration().catch((error) => showNotice(error.message, true));
-  }
 }));
 
 byId("hf-token-form").addEventListener("submit", async (event) => {
@@ -669,7 +904,6 @@ byId("remove-model-form").addEventListener("submit", async (event) => {
     showNotice(response.removed ? `Removed ${removeRepoId}; freed ${bytes(response.freed_bytes)}` : `${removeRepoId} was not found`);
     byId("remove-dialog").close();
     searching = false;
-    await refreshModels();
   } catch (error) { showNotice(error.message, true); }
 });
 
@@ -737,11 +971,4 @@ byId("cancel-chat").addEventListener("click", async () => {
   } catch (error) { showNotice(error.message, true); }
 });
 
-byId("logout").addEventListener("click", async () => {
-  try {
-    await request("/session", { method: "DELETE", headers: { "x-mirmir-csrf": csrf } });
-    disconnect();
-  } catch (error) { disconnect(error); }
-});
-
-connect().catch(disconnect);
+connect().catch(waitForServer);

@@ -5,10 +5,10 @@ use dialog::{CHAT_FIELD_COUNT, settings_fields};
 pub use dialog::{ChatParameters, ChatSettingsDialog, ChatSettingsStatus};
 use tokio::sync::mpsc;
 
-use super::App;
+use super::super::App;
 use crate::rpc::{Client, proto};
 
-pub(super) enum ChatSettingsEvent {
+pub(in crate::tui::app) enum ChatSettingsEvent {
     Inspected(proto::InspectModelResponse),
     Saved(proto::UpdateModelGenerationResponse),
 }
@@ -40,7 +40,7 @@ impl App {
         self.chat_settings_rx = Some(receiver);
     }
 
-    pub(super) fn handle_chat_settings_key(&mut self, key: KeyEvent, client: &Client) {
+    pub(in crate::tui::app) fn handle_chat_settings_key(&mut self, key: KeyEvent, client: &Client) {
         let Some(status) = self.chat_settings_dialog.as_ref().map(|dialog| dialog.status) else {
             return;
         };

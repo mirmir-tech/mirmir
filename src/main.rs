@@ -1,7 +1,6 @@
 mod catalog;
 mod cli;
 mod config;
-mod config_command;
 mod daemon;
 mod error;
 mod http;
@@ -31,7 +30,7 @@ async fn main() -> Result<()> {
         Some(Command::Status) => status::run(&paths).await,
         Some(Command::Prompt(args)) => prompt::run(paths, store.load()?, args).await,
         Some(Command::Model { command }) => model::run(paths, store.load()?, command).await,
-        Some(Command::Config { command }) => config_command::run(&paths, &store, command).await,
+        Some(Command::Config { command }) => config::command::run(&paths, &store, command).await,
         None => tui::run(paths, store.load()?).await,
     }
 }

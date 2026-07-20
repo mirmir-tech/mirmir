@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0D1117">
     <title>MiRMiR · Runtime dashboard</title>
-    <link rel="icon" href="/ui/assets/brand/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/ui/app.css">
-    <script src="/ui/app.js" defer></script>
+    <link rel="icon" href="/ui/assets/brand/favicon.svg?v=2" type="image/svg+xml">
+    <link rel="stylesheet" href="/ui/app.css?v=2">
+    <script src="/ui/app.js?v=3" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -36,33 +36,35 @@
           </button>
         </nav>
 
-        <div class="rail-spacer"></div>
-        <section class="runtime-card" aria-label="Runtime connection">
-          <p class="status" id="status">Connecting</p>
-          <span>LOCAL SESSION</span>
-        </section>
-        <button class="quiet logout" id="logout" type="button">End session</button>
       </aside>
 
       <div class="workspace">
         <header class="topbar">
           <div>
-            <p class="topbar-context">LOCAL RUNTIME / WEB</p>
+            <p class="topbar-context">MIRMIR RUNTIME / WEB</p>
             <h1 id="page-title">Overview</h1>
           </div>
           <div class="topbar-meta">
             <span>SERVER <b id="server-version">—</b></span>
             <span>PROTOCOL <b id="protocol-version">—</b></span>
+            <span class="connection-state" id="connection-state" data-state="connecting">CONNECTING</span>
           </div>
         </header>
 
         <main class="content" id="main-content">
           <p class="notice" id="notice" hidden></p>
+          <section class="startup-banner" id="startup-banner" aria-live="polite">
+            <div>
+              <span class="startup-pulse" aria-hidden="true"></span>
+              <p><strong id="startup-title">Starting runtime</strong><span id="startup-detail">Connecting to the MiRMiR server…</span></p>
+              <span class="stage" id="startup-phase">connecting</span>
+            </div>
+            <progress id="startup-progress" max="1" value="0" hidden></progress>
+          </section>
 
           <section class="view active" id="overview" aria-labelledby="overview-title">
             <header class="page-heading">
-              <p class="eyebrow">Runtime overview</p>
-              <div><h2 id="overview-title">Local intelligence, in view.</h2><span class="stage" id="stage">idle</span></div>
+              <div><h2 id="overview-title">Overview</h2><span class="stage" id="stage">idle</span></div>
               <p>Live inference telemetry from the MiRMiR server on this machine.</p>
             </header>
             <div class="cards">
@@ -96,7 +98,6 @@
 
           <section class="view" id="models" aria-labelledby="models-title">
             <header class="page-heading compact">
-              <p class="eyebrow">Model workspace</p>
               <div><h2 id="models-title">Models</h2><span class="stage" id="model-count">0 local</span></div>
               <p>Inspect local checkpoints or search Hugging Face for models compatible with this machine.</p>
             </header>
@@ -116,7 +117,6 @@
 
           <section class="view" id="chat" aria-labelledby="chat-title">
             <header class="page-heading compact">
-              <p class="eyebrow">Model test bench</p>
               <div><h2 id="chat-title">Chat</h2><span class="stage" id="chat-state">idle</span></div>
               <p>Stream a conversation through a loaded model and inspect server-side performance.</p>
             </header>
@@ -158,7 +158,6 @@
 
           <section class="view" id="configuration" aria-labelledby="configuration-title">
             <header class="page-heading compact">
-              <p class="eyebrow">Runtime configuration</p>
               <div><h2 id="configuration-title">Settings</h2><span class="stage">TOML</span></div>
               <p>Effective MiRMiR values, their source, and write-only local secrets.</p>
             </header>
@@ -193,7 +192,6 @@
 
           <section class="view" id="activity" aria-labelledby="activity-title">
             <header class="page-heading compact">
-              <p class="eyebrow">Server timeline</p>
               <div><h2 id="activity-title">Activity</h2><span class="stage" id="activity-count">0</span></div>
               <p>Model lifecycle and generation events streamed directly from the MiRMiR runtime.</p>
             </header>
@@ -205,7 +203,7 @@
 
         <footer>
           <span class="footer-brand">MiRMiR</span>
-          <span>THE COGNITIVE RUNTIME.</span>
+          <span>THE HIGH-PERFORMANCE LLM RUNTIME.</span>
           <span id="updated">not sampled</span>
         </footer>
 

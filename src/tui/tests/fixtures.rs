@@ -1,3 +1,24 @@
+use ratatui::{Terminal, backend::TestBackend};
+
+use super::super::{app::App, render};
+
+pub(super) fn rendered(
+    app: &mut App,
+    width: u16,
+    height: u16,
+) -> Result<String, std::convert::Infallible> {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend)?;
+    terminal.draw(|frame| render::draw(frame, app))?;
+    Ok(terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect())
+}
+
 pub fn telemetry() -> crate::rpc::proto::TelemetrySnapshot {
     crate::rpc::proto::TelemetrySnapshot {
         sampled_at_unix_ms: 1,

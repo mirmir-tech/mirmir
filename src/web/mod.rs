@@ -5,6 +5,7 @@ mod configuration;
 mod management;
 mod operations;
 mod session;
+mod socket;
 mod types;
 
 pub use activity::activity;
@@ -21,12 +22,14 @@ pub use management::{cancel, inspect, load, remove, unload};
 pub use operations::{pull, search};
 use serde::Serialize;
 pub use session::Sessions;
+pub use socket::updates;
 
 use crate::rpc::PROTOCOL_VERSION;
 
 const INDEX: &str = include_str!("assets/index.html");
 const STYLESHEET: &str = include_str!("assets/app.css");
 const SCRIPT: &str = include_str!("assets/app.js");
+const SERVICE_WORKER: &str = include_str!("assets/sw.js");
 const LOCKUP: &[u8] = include_bytes!("assets/brand/lockup.svg");
 const FAVICON: &[u8] = include_bytes!("assets/brand/favicon.svg");
 const TOPOGRAPHY: &[u8] = include_bytes!("assets/brand/topography.svg");
@@ -55,6 +58,7 @@ struct Capabilities {
     asset_delivery: &'static str,
     views: [&'static str; 5],
     management: &'static str,
+    updates: &'static str,
 }
 
 pub async fn redirect() -> Redirect {
@@ -73,6 +77,10 @@ pub async fn script() -> Response {
     (asset_headers("text/javascript; charset=utf-8"), SCRIPT).into_response()
 }
 
+pub async fn service_worker() -> Response {
+    (asset_headers("text/javascript; charset=utf-8"), SERVICE_WORKER).into_response()
+}
+
 pub async fn asset(Path(path): Path<String>) -> Response {
     let Some((content_type, bytes)) = embedded_asset(&path) else {
         return (StatusCode::NOT_FOUND, security_headers(), "asset not found").into_response();
@@ -82,7 +90,7 @@ pub async fn asset(Path(path): Path<String>) -> Response {
 
 pub async fn bootstrap() -> Response {
     let bootstrap = Bootstrap {
-        schema_version: 1,
+        schema_version: 2,
         application: "mirmir",
         server_version: env!("CARGO_PKG_VERSION"),
         protocol_version: PROTOCOL_VERSION,
@@ -94,6 +102,7 @@ pub async fn bootstrap() -> Response {
             asset_delivery: "embedded",
             views: ["overview", "models", "chat", "configuration", "activity"],
             management: "model-lifecycle",
+            updates: "websocket",
         },
     };
     (security_headers(), Json(bootstrap)).into_response()
@@ -102,6 +111,7 @@ pub async fn bootstrap() -> Response {
 fn asset_headers(content_type: &'static str) -> HeaderMap {
     let mut headers = security_headers();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert("x-mirmir-dashboard", HeaderValue::from_static("1"));
     headers
 }
 
@@ -130,7 +140,7 @@ fn security_headers() -> HeaderMap {
     headers.insert(
         "content-security-policy",
         HeaderValue::from_static(
-            "default-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            "default-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
     );
     headers

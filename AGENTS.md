@@ -24,7 +24,12 @@ encapsulated by its backend dependencies.
 ## Engineering rules
 
 - Rust source files must never exceed 250 lines.
-- Split modules as `module/mod.rs` plus focused feature files.
+- Split modules only as `module/mod.rs` plus focused files such as
+  `module/feature.rs`. Never flatten a child into a sibling such as
+  `module_feature.rs`.
+- Apply the same nesting to tests: use `module/tests.rs` or
+  `module/tests/feature.rs`, never sibling files such as `module_tests.rs` or
+  `feature_tests.rs` when they test an existing module.
 - Use `thiserror`, `From` conversions, and `?`; `map_err` is a last resort at a
   foreign boundary that requires additional context.
 - Do not introduce PyTorch or a Python runtime dependency.

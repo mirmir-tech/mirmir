@@ -95,6 +95,7 @@ pub async fn update_configuration(
     let configuration = response
         .configuration
         .ok_or_else(|| WebError::runtime("runtime omitted updated configuration"))?;
+    state.configuration_changed();
     Ok((
         security_headers(),
         Json(Updated {

@@ -1,4 +1,4 @@
-use super::rendered;
+use super::super::rendered;
 use crate::tui::app::{App, ChatParameters, ChatSettingsDialog, ChatSettingsStatus, Screen};
 
 #[test]

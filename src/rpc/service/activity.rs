@@ -106,6 +106,16 @@ impl Activity {
         ReceiverStream::new(receiver)
     }
 
+    pub fn history(&self) -> Vec<proto::ActivityEvent> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .history
+            .iter()
+            .cloned()
+            .collect()
+    }
+
     pub fn cancel(&self, id: &str) -> proto::CancelOperationResponse {
         let mut state = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(index) = state.history.iter().position(|event| event.operation_id == id) else {

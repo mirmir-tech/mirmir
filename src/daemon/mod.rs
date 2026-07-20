@@ -34,14 +34,13 @@ pub async fn serve(paths: Paths, mut config: AppConfig, args: ServeArgs) -> Resu
     let service = RuntimeService::new(&config, store);
     let owner = server::start_service(paths.clone(), service.clone())?;
     tracing::info!(socket = %paths.socket_file.display(), "gRPC server listening");
-    let restore = service.clone();
-    tokio::task::spawn_blocking(move || restore.restore_active_models()).await??;
     if args.no_http {
+        restore_in_background(service.clone());
         shutdown_signal().await?;
         tracing::info!("shutdown signal received");
         return owner.shutdown().await;
     }
-    let http = match http::start(service, &config.server, api_key).await {
+    let http = match http::start(service.clone(), &config.server, api_key).await {
         Ok(http) => http,
         Err(error) => {
             if let Err(cleanup) = owner.shutdown().await {
@@ -55,11 +54,30 @@ pub async fn serve(paths: Paths, mut config: AppConfig, args: ServeArgs) -> Resu
         web_enabled = config.server.web_enabled,
         "HTTP server listening"
     );
+    restore_in_background(service);
     shutdown_signal().await?;
     tracing::info!("shutdown signal received");
     let http_result = http.shutdown().await;
     let grpc_result = owner.shutdown().await;
     http_result.and(grpc_result)
+}
+
+fn restore_in_background(service: RuntimeService) {
+    let failed = service.clone();
+    let reported = service.clone();
+    let worker = std::thread::Builder::new().name("mirmir-restore".to_owned()).spawn(move || {
+        if let Err(error) = service.restore_active_models() {
+            reported.fail_startup(error.message().to_owned());
+            tracing::error!(%error, "active model restoration failed");
+        }
+    });
+    match worker {
+        Ok(handle) => drop(handle),
+        Err(error) => {
+            failed.fail_startup(error.to_string());
+            tracing::error!(%error, "active model restoration thread failed to start");
+        },
+    }
 }
 
 #[cfg(unix)]

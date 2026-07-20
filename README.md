@@ -158,9 +158,10 @@ After a successful load, both the recent history and the persistent active-model
 set are stored in `~/.config/mirmir/state.toml`. Unloading a model removes it from
 the active set. A later `mirmir` run restores those models sequentially with their
 saved per-model generation settings and displays `RESTORING MODELS n/N` together
-with the normal stage and shard progress. `mirmir serve` restores the same set
-before starting its HTTP listener. Because this file is managed state rather than
-user configuration, malformed or unsupported contents are quarantined as
+with the normal stage and shard progress. `mirmir serve` starts its HTTP listener
+first and restores the same set in the background, allowing the web dashboard to
+show the exact startup target, stage, and progress before the runtime is ready.
+Because this file is managed state rather than user configuration, malformed or unsupported contents are quarantined as
 `state.corrupt-<timestamp>-<pid>.toml` and replaced with an empty valid state. The
 recovery is logged and published in Activity; malformed `config.toml` remains a
 startup error. A downloaded snapshot is inspected through
@@ -249,7 +250,9 @@ remaining server settings.
 
 The web dashboard is opt-in. Setting `server.web_enabled = true` embeds and
 serves Overview, Models, Chat, Settings, and Activity at `/ui/`; `/` redirects to the shell.
-Overview polls live server telemetry every second. Models lists configured and
+One authenticated WebSocket at `/api/mirmir/v1/ws` carries startup readiness,
+live telemetry, model snapshots, configuration, and lifecycle activity to every
+view without periodic HTTP polling. Models lists configured and
 discovered local snapshots, can search Hugging Face with the same compatibility
 and memory-fit ranking as TUI, and exposes load, unload, and download actions.
 Models also exposes removal confirmation and editable generation defaults before
@@ -257,8 +260,8 @@ load. Chat streams content and reasoning separately, shows live and final
 TTFT/prefill/decode/E2E metrics, supports cancellation, and accepts an image by
 drag-and-drop or file picker with a local preview. Settings presents
 effective TOML sources and write-only secret management. Activity consumes a
-server-sent event stream shared with TUI and displays the real lifecycle stage
-and byte/weight progress. Versioned APIs live under
+WebSocket projection of the same runtime stream as TUI and displays the real
+lifecycle stage and byte/weight progress. Versioned APIs live under
 `/api/mirmir/v1`, separate from the OpenAI `/v1` API. The assets use the same
 MiRMiR visual identity as the TUI and project site: the approved vector lockup,
 topographic motif, design tokens, and self-hosted Space Grotesk, Inter, and
@@ -267,12 +270,13 @@ JetBrains Mono fonts. Every asset is compiled into the single binary.
 Opening the shell creates an eight-hour local browser session backed by a random
 `HttpOnly`, `SameSite=Strict` cookie. Session creation validates an exact local
 Origin/Host pair. A CSRF token is kept only in page memory and is required by
-logout and every management mutation. Sessions are
+every management mutation. Sessions are
 bounded in memory, the UI remains restricted to a loopback bind, and responses
 carry a strict CSP and browser security headers. OpenAI bearer authentication is
 not accepted as web-session or administration authority.
 
-The Overview dashboard polls a server-side telemetry snapshot every second. For
+The Overview dashboard receives a server-side telemetry snapshot over the shared
+WebSocket every second. For
 active requests, protocol v1 reports the current stage and elapsed time, live
 prompt/completion token counters, an advancing TTFT wait, and current aggregate
 E2E, prefill, and decode throughput. Idle cards fall back to the last completed

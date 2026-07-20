@@ -1,17 +1,12 @@
-use ratatui::{Terminal, backend::TestBackend};
-
-use super::{
-    app::{App, Message, Screen},
-    render,
-};
+use super::app::{App, Message, Screen};
 mod benchmarks;
-mod chat_settings;
+mod chat;
 mod configuration;
 mod fixtures;
 mod help;
 mod models;
 mod restore;
-use fixtures::telemetry;
+use fixtures::{rendered, telemetry};
 #[test]
 fn renders_identity_dashboard_at_minimum_size() -> Result<(), std::convert::Infallible> {
     let mut app = App::new(false);
@@ -231,21 +226,4 @@ fn renders_external_cache_removal_confirmation() -> Result<(), std::convert::Inf
     assert!(text.contains("Enter / y"));
     assert!(text.contains("Esc / n"));
     Ok(())
-}
-
-pub(super) fn rendered(
-    app: &mut App,
-    width: u16,
-    height: u16,
-) -> Result<String, std::convert::Infallible> {
-    let backend = TestBackend::new(width, height);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.draw(|frame| render::draw(frame, app))?;
-    Ok(terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(ratatui::buffer::Cell::symbol)
-        .collect())
 }

@@ -2,7 +2,7 @@ mod client;
 mod service;
 
 pub use client::{Client, connect};
-pub use service::RuntimeService;
+pub use service::{RuntimeService, StartupSnapshot};
 
 #[allow(clippy::all, clippy::nursery, clippy::pedantic)]
 pub mod proto {

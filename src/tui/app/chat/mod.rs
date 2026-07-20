@@ -6,6 +6,11 @@ use super::App;
 use crate::rpc::{Client, proto};
 
 mod image;
+mod metrics;
+pub(super) mod settings;
+
+pub use metrics::ChatLiveMetrics;
+pub use settings::{ChatParameters, ChatSettingsDialog, ChatSettingsStatus};
 
 #[derive(Debug, Clone)]
 pub struct Message {

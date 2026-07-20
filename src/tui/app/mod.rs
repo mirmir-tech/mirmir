@@ -2,8 +2,6 @@ mod actions;
 mod activity;
 mod benchmark;
 mod chat;
-mod chat_metrics;
-mod chat_settings;
 mod configuration;
 mod events;
 mod load;
@@ -18,10 +16,10 @@ mod viewport;
 use std::collections::VecDeque;
 
 pub use benchmark::{BenchmarkState, BenchmarkStatus};
-pub use chat::{ChatStatus, Message};
-pub use chat_metrics::ChatLiveMetrics;
-use chat_settings::ChatSettingsEvent;
-pub use chat_settings::{ChatParameters, ChatSettingsDialog, ChatSettingsStatus};
+use chat::settings::ChatSettingsEvent;
+pub use chat::{
+    ChatLiveMetrics, ChatParameters, ChatSettingsDialog, ChatSettingsStatus, ChatStatus, Message,
+};
 pub use configuration::{ConfigurationEdit, ConfigurationTarget};
 pub use load::{LoadDialog, LoadStatus};
 #[cfg(test)]

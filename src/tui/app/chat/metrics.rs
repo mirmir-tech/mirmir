@@ -1,4 +1,4 @@
-use super::{App, ChatStatus};
+use super::{super::App, ChatStatus};
 use crate::rpc::proto;
 
 #[derive(Debug, Clone)]
@@ -29,7 +29,10 @@ impl Default for ChatLiveMetrics {
 }
 
 impl App {
-    pub(super) fn update_chat_telemetry(&mut self, telemetry: &proto::TelemetrySnapshot) {
+    pub(in crate::tui::app) fn update_chat_telemetry(
+        &mut self,
+        telemetry: &proto::TelemetrySnapshot,
+    ) {
         if self.chat_status != ChatStatus::Generating || telemetry.active_requests == 0 {
             return;
         }

@@ -4,21 +4,33 @@ use super::{RuntimeService, models::log_progress};
 
 impl RuntimeService {
     pub fn restore_active_models(&self) -> Result<(), Status> {
-        let selectors = self
-            .store
-            .active_models()
-            .map_err(|error| Status::internal(error.to_string()))?;
-        self.report_state_recovery()?;
+        let selectors = self.store.active_models().map_err(|error| {
+            self.startup.failed(error.to_string());
+            Status::internal(error.to_string())
+        })?;
         let total = selectors.len();
+        self.startup.restoring(total);
+        self.report_state_recovery().inspect_err(|error| {
+            self.startup.failed(error.message().to_owned());
+        })?;
         tracing::info!(models = total, "restoring active models");
         let mut restored = 0_usize;
         let mut failed = 0_usize;
         for selector in selectors {
             let operation = self.activity.begin("restore", &selector, None);
+            self.startup.loading(&selector, "preparing model", None, None);
             tracing::info!(model = %selector, "restoring active model");
             let progress_operation = operation.clone();
+            let startup = self.startup.clone();
+            let startup_target = selector.clone();
             let mut progress = |event: libmir::ProgressEvent| {
                 log_progress(&selector, &event);
+                startup.loading(
+                    &startup_target,
+                    &event.detail,
+                    Some(event.current),
+                    Some(event.total),
+                );
                 progress_operation.progress(
                     "loading",
                     &event.detail,
@@ -39,6 +51,12 @@ impl RuntimeService {
                 },
             }
         }
+        let detail = if failed == 0 {
+            format!("runtime ready; {restored} active models restored")
+        } else {
+            format!("runtime ready; {restored} models restored and {failed} failed")
+        };
+        self.startup.ready(detail);
         tracing::info!(models = total, restored, failed, "active model restoration finished");
         Ok(())
     }

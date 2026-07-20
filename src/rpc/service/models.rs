@@ -8,6 +8,7 @@ use crate::rpc::proto;
 mod capability;
 mod events;
 
+pub(super) use self::events::log_progress;
 use self::{
     capability::model_info,
     events::{LifecycleState, checking_memory, event},
@@ -131,6 +132,7 @@ pub fn stream_load(
 ) {
     let requested = request.selector.clone();
     let operation = service.activity.begin("load", &requested, None);
+    operation.progress("resolving", "resolving model", Some(0), None);
     tracing::info!(model = %requested, "model load requested");
     send(
         sender,
@@ -155,6 +157,12 @@ pub fn stream_load(
             return;
         },
     };
+    operation.progress(
+        "checking_memory",
+        "checking weights, KV cache, workspace, and device budget",
+        Some(0),
+        None,
+    );
     send(sender, checking_memory(operation.id(), &selector));
     let mut progress = |progress: ProgressEvent| {
         log_progress(&selector, &progress);
@@ -172,6 +180,7 @@ pub fn stream_load(
             ProgressUnit::Byte => "byte",
             ProgressUnit::Token => "token",
         };
+        operation.progress(phase, &progress.detail, Some(progress.current), Some(progress.total));
         send(
             sender,
             event(
@@ -214,18 +223,6 @@ pub fn stream_load(
             drop(sender.blocking_send(Err(error)));
         },
     }
-}
-
-pub(super) fn log_progress(selector: &str, event: &ProgressEvent) {
-    tracing::info!(
-        model = %selector,
-        stage = ?event.stage,
-        current = event.current,
-        total = event.total,
-        unit = ?event.unit,
-        detail = %event.detail,
-        "model load progress"
-    );
 }
 
 fn send(

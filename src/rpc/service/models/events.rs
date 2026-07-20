@@ -1,3 +1,5 @@
+use libmir::ProgressEvent;
+
 use crate::rpc::proto;
 
 pub struct LifecycleState<'a> {
@@ -39,4 +41,16 @@ pub fn checking_memory(operation_id: &str, selector: &str) -> proto::ModelLifecy
             model: None,
         },
     )
+}
+
+pub fn log_progress(selector: &str, event: &ProgressEvent) {
+    tracing::info!(
+        model = %selector,
+        stage = ?event.stage,
+        current = event.current,
+        total = event.total,
+        unit = ?event.unit,
+        detail = %event.detail,
+        "model load progress"
+    );
 }

@@ -27,24 +27,46 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
 
     let index = client.get(format!("{base}/ui/")).send().await?;
     assert_eq!(index.status(), StatusCode::OK);
+    assert_eq!(index.headers()["x-mirmir-dashboard"], "1");
     assert_eq!(index.headers()["x-frame-options"], "DENY");
     assert_eq!(
         index.headers()["content-security-policy"],
-        "default-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "default-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
     );
     let index = index.text().await?;
     assert!(index.contains("MiRMiR · Runtime dashboard"));
     assert!(index.contains("/ui/assets/brand/lockup.svg"));
+    assert!(index.contains("/ui/assets/brand/favicon.svg?v=2"));
+    assert!(index.contains("/ui/app.css?v=2"));
+    assert!(index.contains("/ui/app.js?v=3"));
+    assert!(index.contains("Starting runtime"));
+    assert!(index.contains("id=\"connection-state\""));
 
     let stylesheet = client.get(format!("{base}/ui/app.css")).send().await?;
     assert_eq!(stylesheet.status(), StatusCode::OK);
     let stylesheet = stylesheet.text().await?;
     assert!(stylesheet.contains("#79d7ff"));
     assert!(stylesheet.contains("Space Grotesk"));
+    assert!(!stylesheet.contains(".badge.loading::before"));
 
     let script = client.get(format!("{base}/ui/app.js")).send().await?;
     assert_eq!(script.status(), StatusCode::OK);
-    assert!(script.text().await?.contains("/api/mirmir/v1"));
+    let script = script.text().await?;
+    assert!(script.contains("/api/mirmir/v1"));
+    assert!(script.contains("new WebSocket"));
+    assert!(script.contains("Connection lost"));
+    assert!(!script.contains("new EventSource"));
+    assert!(!script.contains("setInterval"));
+    assert!(script.contains("serviceWorker.register"));
+    assert!(script.contains("pullOperations"));
+    assert!(script.contains("appendPullRow"));
+
+    let worker = client.get(format!("{base}/ui/sw.js")).send().await?;
+    assert_eq!(worker.status(), StatusCode::OK);
+    assert_eq!(worker.headers()["content-type"], "text/javascript; charset=utf-8");
+    let worker = worker.text().await?;
+    assert!(worker.contains("mirmir-dashboard-shell"));
+    assert!(worker.contains("x-mirmir-dashboard"));
 
     let logo = client.get(format!("{base}/ui/assets/brand/lockup.svg")).send().await?;
     assert_eq!(logo.status(), StatusCode::OK);
@@ -62,14 +84,22 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     let bootstrap = client.get(format!("{base}/api/mirmir/v1/bootstrap")).send().await?;
     assert_eq!(bootstrap.status(), StatusCode::OK);
     let bootstrap = bootstrap.json::<Value>().await?;
+    assert_eq!(bootstrap["schema_version"], 2);
     assert_eq!(bootstrap["application"], "mirmir");
     assert_eq!(bootstrap["management_api_base"], "/api/mirmir/v1");
     assert_eq!(bootstrap["capabilities"]["management"], "model-lifecycle");
+    assert_eq!(bootstrap["capabilities"]["updates"], "websocket");
     assert_eq!(
         bootstrap["capabilities"]["views"],
         json!(["overview", "models", "chat", "configuration", "activity"])
     );
     assert!(bootstrap["protocol_version"].is_string());
+
+    let inspect = client
+        .get(format!("{base}/api/mirmir/v1/models/inspect?selector=probe"))
+        .send()
+        .await?;
+    assert_eq!(inspect.status(), StatusCode::UNAUTHORIZED);
 
     owner.shutdown().await
 }

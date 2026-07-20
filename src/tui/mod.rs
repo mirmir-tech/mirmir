@@ -2,7 +2,6 @@ mod activity;
 mod app;
 mod benchmarks;
 mod chat;
-mod chat_settings;
 mod configuration;
 mod confirm;
 mod help;

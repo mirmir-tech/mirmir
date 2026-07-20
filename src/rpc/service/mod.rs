@@ -1,12 +1,15 @@
 mod activity;
 mod catalog;
 mod configuration;
+mod construction;
+mod dashboard;
 mod generation;
 mod local_models;
 mod models;
 mod preflight;
 mod restore;
 mod settings;
+mod startup;
 mod telemetry;
 
 use std::{
@@ -15,17 +18,15 @@ use std::{
 };
 
 use libmir::Library;
+pub use startup::Snapshot as StartupSnapshot;
 pub use telemetry::history::SAMPLING_INTERVAL_MS;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use self::{activity::Activity, models::ModelEntry, telemetry::Telemetry};
+use self::{activity::Activity, models::ModelEntry, startup::Startup, telemetry::Telemetry};
 use super::{PROTOCOL_VERSION, proto};
-use crate::{
-    catalog::Catalog,
-    config::{AppConfig, Store},
-};
+use crate::{catalog::Catalog, config::Store};
 
 #[derive(Clone)]
 pub struct RuntimeService {
@@ -36,22 +37,7 @@ pub struct RuntimeService {
     loading: Arc<Mutex<HashSet<String>>>,
     telemetry: Telemetry,
     activity: Activity,
-}
-
-impl RuntimeService {
-    #[must_use]
-    pub fn new(config: &AppConfig, store: Store) -> Self {
-        let telemetry = Telemetry::new(store.paths().telemetry_file.clone());
-        Self {
-            library: Library::new(config.runtime.to_libmir()),
-            catalog: Catalog::new(store.clone()),
-            store,
-            models: Arc::new(Mutex::new(HashMap::new())),
-            loading: Arc::new(Mutex::new(HashSet::new())),
-            telemetry,
-            activity: Activity::new(),
-        }
-    }
+    startup: Startup,
 }
 
 #[tonic::async_trait]
@@ -181,7 +167,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::RemoveModelRequest>,
     ) -> Result<Response<proto::RemoveModelResponse>, Status> {
-        Ok(Response::new(catalog::remove(self, request.into_inner().repo_id).await?))
+        Ok(Response::new(self.remove_with_activity(request.into_inner().repo_id).await?))
     }
 
     async fn generate(

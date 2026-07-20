@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
 };
 
-use super::{
+use super::super::{
     app::{App, ChatSettingsDialog, ChatSettingsStatus},
     theme,
 };

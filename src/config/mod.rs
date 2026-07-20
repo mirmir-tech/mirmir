@@ -1,3 +1,4 @@
+pub mod command;
 mod editing;
 mod file;
 mod generation;
