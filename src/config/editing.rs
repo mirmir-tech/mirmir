@@ -1,5 +1,6 @@
 use std::fs;
 
+use libmir::KvCacheDType;
 use toml_edit::{Array, DocumentMut, Item, value};
 
 use super::{AppConfig, Store, file::write_text};
@@ -60,7 +61,14 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
             optional_integer(document, "vision_memory_percent", key, input)?;
         },
         "runtime.kv_cache_dtype" => {
-            return Err(Error::Config("runtime.kv_cache_dtype is read-only for now".to_owned()));
+            if automatic(input) {
+                if let Some(runtime) = document["runtime"].as_table_mut() {
+                    runtime.remove("kv_cache_dtype");
+                }
+            } else {
+                let dtype = parse::<KvCacheDType>(key, input)?;
+                document["runtime"]["kv_cache_dtype"] = value(dtype.as_str());
+            }
         },
         _ => return Err(Error::Config(format!("unknown configuration key `{key}`"))),
     }
@@ -152,6 +160,17 @@ mod tests {
         store.initialize()?;
         store.set_config_value("server.web_enabled", "true")?;
         assert!(store.load()?.server.web_enabled);
+        Ok(())
+    }
+
+    #[test]
+    fn selects_int8_kv_storage() -> Result<()> {
+        let store = store();
+        store.initialize()?;
+        store.set_config_value("runtime.kv_cache_dtype", "int8_per_token_head")?;
+        assert_eq!(store.load()?.runtime.kv_cache_dtype, Some(KvCacheDType::Int8PerTokenHead));
+        store.set_config_value("runtime.kv_cache_dtype", "auto")?;
+        assert_eq!(store.load()?.runtime.kv_cache_dtype, None);
         Ok(())
     }
 

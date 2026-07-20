@@ -173,8 +173,8 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
         &config
             .runtime
             .kv_cache_dtype
-            .map_or_else(|| "auto".to_owned(), |value| format!("{value:?}")),
-        false,
+            .map_or_else(|| "auto".to_owned(), |value| value.to_string()),
+        true,
         true,
     );
     push(
