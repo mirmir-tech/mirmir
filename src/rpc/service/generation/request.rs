@@ -11,15 +11,8 @@ pub(super) fn generate(
     token: &mut dyn FnMut(libmir::GenerationToken),
     cancellation: &CancellationToken,
 ) -> libmir::Result<libmir::GenerationOutput> {
-    #[cfg(target_os = "macos")]
     if let Some(image) = image {
         return model.generate_image_cancellable(chat, image, progress, token, cancellation);
-    }
-    #[cfg(not(target_os = "macos"))]
-    if image.is_some() {
-        return Err(libmir::Error::InvalidConfig(
-            "image generation is currently available only on Metal".into(),
-        ));
     }
     model.generate_cancellable(chat, progress, token, cancellation)
 }
