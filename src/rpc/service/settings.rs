@@ -1,4 +1,7 @@
-use libmir::{GenerationOverrides, ModelDescriptor};
+use libmir::{
+    GenerationOverrides, ModelDescriptor,
+    models::execution::{ModelTask, PoolingMode, TaskExecutionPlan},
+};
 use tonic::Status;
 
 use super::RuntimeService;
@@ -21,9 +24,12 @@ impl RuntimeService {
             .map_err(|error| Status::failed_precondition(error.to_string()))?;
         let memory = super::preflight::report(&self.library, &descriptor)?;
         Ok(proto::InspectModelResponse {
-            settings: Some(settings(descriptor.generation())),
+            settings: matches!(descriptor.task(), ModelTask::Generation)
+                .then(|| settings(descriptor.generation())),
             has_mirmir_overrides,
             memory: Some(memory_estimate(memory)),
+            task: task_name(&descriptor.task()).to_owned(),
+            capabilities: Some(capabilities(&descriptor)),
         })
     }
 
@@ -63,6 +69,57 @@ impl RuntimeService {
         self.store
             .save_model_generation(selector, &resolved.key, None, generation)
             .map_err(|error| Status::invalid_argument(error.to_string()))
+    }
+}
+
+fn capabilities(descriptor: &ModelDescriptor) -> proto::ModelTaskCapabilities {
+    let max_input_tokens = descriptor
+        .tokenizer()
+        .default_max_length()
+        .unwrap_or_else(|| descriptor.metadata().context_len)
+        .min(descriptor.metadata().context_len);
+    let (embedding, rerank) = match descriptor.task_plan() {
+        TaskExecutionPlan::Embedding { task, .. } => (
+            Some(proto::EmbeddingCapabilities {
+                native_dimensions: u64::try_from(task.native_dimensions).unwrap_or(u64::MAX),
+                pooling: pooling(task.pooling).to_owned(),
+                normalized: task.normalize,
+                prompt_names: task.prompts.keys().cloned().collect(),
+                default_prompt: task.default_prompt.clone(),
+                includes_prompt: task.include_prompt,
+            }),
+            None,
+        ),
+        TaskExecutionPlan::SequenceScoring { task, .. } => (
+            None,
+            Some(proto::RerankCapabilities {
+                labels: u64::try_from(task.labels).unwrap_or(u64::MAX),
+                pooling: pooling(task.pooling).to_owned(),
+                raw_scores: true,
+            }),
+        ),
+        TaskExecutionPlan::Generation { .. } => (None, None),
+    };
+    proto::ModelTaskCapabilities {
+        max_input_tokens: u64::try_from(max_input_tokens).unwrap_or(u64::MAX),
+        embedding,
+        rerank,
+    }
+}
+
+const fn pooling(mode: PoolingMode) -> &'static str {
+    match mode {
+        PoolingMode::Cls => "cls",
+        PoolingMode::LastToken => "last_token",
+        PoolingMode::Mean => "mean",
+    }
+}
+
+const fn task_name(task: &ModelTask) -> &'static str {
+    match task {
+        ModelTask::Generation => "generation",
+        ModelTask::Embedding(_) => "embedding",
+        ModelTask::SequenceScoring(_) => "rerank",
     }
 }
 

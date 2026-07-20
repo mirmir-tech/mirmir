@@ -103,7 +103,9 @@ impl App {
         let Some(event) = self.activities.get(self.activity_selected) else {
             return;
         };
-        if !event.cancellable || !matches!(event.state.as_str(), "running" | "cancelling") {
+        if !event.cancellable
+            || !matches!(event.state.as_str(), "queued" | "running" | "cancelling")
+        {
             self.activity_error = Some("selected operation cannot be cancelled".to_owned());
             return;
         }

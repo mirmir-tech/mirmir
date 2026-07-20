@@ -15,6 +15,8 @@ service Runtime {
   rpc PullModel(PullModelRequest) returns (stream ModelTransferEvent);
   rpc RemoveModel(RemoveModelRequest) returns (RemoveModelResponse);
   rpc Generate(GenerateRequest) returns (stream GenerateEvent);
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+  rpc Rerank(RerankRequest) returns (RerankResponse);
   rpc Telemetry(TelemetryRequest) returns (TelemetrySnapshot);
   rpc TelemetryHistory(TelemetryHistoryRequest) returns (TelemetryHistoryResponse);
   rpc GetConfiguration(GetConfigurationRequest) returns (ConfigurationSnapshot);
@@ -67,6 +69,9 @@ message LocalModelInfo {
   bool managed = 9;
   bool image_input = 10;
   string image_unavailable_reason = 11;
+  string model_class = 12;
+  bool loadable = 13;
+  string load_unavailable_reason = 14;
 }
 
 message InspectModelRequest {
@@ -85,6 +90,29 @@ message InspectModelResponse {
   GenerationSettings settings = 1;
   bool has_mirmir_overrides = 2;
   ModelMemoryEstimate memory = 3;
+  string task = 4;
+  ModelTaskCapabilities capabilities = 5;
+}
+
+message ModelTaskCapabilities {
+  uint64 max_input_tokens = 1;
+  EmbeddingCapabilities embedding = 2;
+  RerankCapabilities rerank = 3;
+}
+
+message EmbeddingCapabilities {
+  uint64 native_dimensions = 1;
+  string pooling = 2;
+  bool normalized = 3;
+  repeated string prompt_names = 4;
+  optional string default_prompt = 5;
+  bool includes_prompt = 6;
+}
+
+message RerankCapabilities {
+  uint64 labels = 1;
+  string pooling = 2;
+  bool raw_scores = 3;
 }
 
 message UpdateModelGenerationRequest {
@@ -157,7 +185,7 @@ message CatalogModel {
   uint64 downloads = 2;
   uint64 likes = 3;
   bool gated = 4;
-  string architecture = 5;
+  string model_class = 5;
   string compatibility = 6;
   string memory_fit = 7;
   optional uint64 estimated_weight_bytes = 8;
@@ -243,6 +271,41 @@ message Completion {
   optional double prefill_ms = 10;
   optional double decode_ms = 11;
   string reasoning = 12;
+}
+
+message EmbedRequest {
+  string model = 1;
+  repeated string inputs = 2;
+  optional uint64 dimensions = 3;
+  optional string prompt_name = 4;
+}
+
+message EmbeddingVector {
+  repeated float values = 1;
+}
+
+message EmbedResponse {
+  repeated EmbeddingVector embeddings = 1;
+  uint64 prompt_tokens = 2;
+}
+
+message RerankRequest {
+  string model = 1;
+  string query = 2;
+  repeated string documents = 3;
+  optional uint64 max_length = 4;
+  bool raw_scores = 5;
+}
+
+message RerankResult {
+  uint64 index = 1;
+  float score = 2;
+  string document = 3;
+}
+
+message RerankResponse {
+  repeated RerankResult results = 1;
+  uint64 prompt_tokens = 2;
 }
 
 message TelemetryRequest {}

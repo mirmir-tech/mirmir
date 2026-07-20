@@ -37,10 +37,13 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert!(index.contains("MiRMiR · Runtime dashboard"));
     assert!(index.contains("/ui/assets/brand/lockup.svg"));
     assert!(index.contains("/ui/assets/brand/favicon.svg?v=2"));
-    assert!(index.contains("/ui/app.css?v=2"));
-    assert!(index.contains("/ui/app.js?v=3"));
+    assert!(index.contains("/ui/app.css?v=5"));
+    assert!(index.contains("/ui/app.js?v=6"));
     assert!(index.contains("Starting runtime"));
     assert!(index.contains("id=\"connection-state\""));
+    assert!(index.contains("<th>Model class</th>"));
+    assert!(index.contains("id=\"load-top-k\" type=\"number\" min=\"0\""));
+    assert!(index.contains("id=\"load-task-capabilities\""));
 
     let stylesheet = client.get(format!("{base}/ui/app.css")).send().await?;
     assert_eq!(stylesheet.status(), StatusCode::OK);
@@ -48,6 +51,9 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert!(stylesheet.contains("#79d7ff"));
     assert!(stylesheet.contains("Space Grotesk"));
     assert!(!stylesheet.contains(".badge.loading::before"));
+    assert!(stylesheet.contains(".dialog-actions button[aria-busy=\"true\"]::before"));
+    assert!(stylesheet.contains(".badge.loading, .badge.queued, .badge.running"));
+    assert!(stylesheet.contains(".badge.unavailable"));
 
     let script = client.get(format!("{base}/ui/app.js")).send().await?;
     assert_eq!(script.status(), StatusCode::OK);
@@ -60,6 +66,16 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert!(script.contains("serviceWorker.register"));
     assert!(script.contains("pullOperations"));
     assert!(script.contains("appendPullRow"));
+    assert!(script.contains("addEventListener(\"invalid\""));
+    assert!(script.contains("inspection.task === \"generation\""));
+    assert!(script.contains("!inspection.task && settings != null"));
+    assert!(script.contains("capabilities.max_input_tokens"));
+    assert!(script.contains("input.disabled = !enabled"));
+    assert!(script.contains("setLoadButtonState(\"inspecting\")"));
+    assert!(script.contains("button.setAttribute(\"aria-busy\", \"true\")"));
+    assert!(script.contains("new Set([\"queued\", \"running\", \"cancelling\"])"));
+    assert!(script.contains("partial download will be removed"));
+    assert!(script.contains("model.load_unavailable_reason"));
 
     let worker = client.get(format!("{base}/ui/sw.js")).send().await?;
     assert_eq!(worker.status(), StatusCode::OK);

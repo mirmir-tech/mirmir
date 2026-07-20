@@ -178,6 +178,9 @@ progress::-moz-progress-bar { background: var(--mir-color-signal); }
 .search button:hover, .action:hover { background: #659cf8; }
 .search button:focus-visible, .action:focus-visible, .quiet:focus-visible, .tab:focus-visible { outline: 0; box-shadow: var(--mir-focus-ring); }
 .search button:disabled, .action:disabled { border-color: var(--mir-color-border); background: var(--mir-color-raised); color: var(--mir-color-thought); cursor: not-allowed; }
+.action[aria-busy="true"], .dialog-actions button[aria-busy="true"] { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.action[aria-busy="true"]::before, .dialog-actions button[aria-busy="true"]::before { width: 12px; height: 12px; flex: 0 0 auto; border: 2px solid currentcolor; border-right-color: transparent; border-radius: 50%; content: ""; animation: button-activity .7s linear infinite; }
+@keyframes button-activity { to { transform: rotate(360deg); } }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
@@ -191,8 +194,8 @@ tbody tr:hover { background: rgb(32 37 45 / 32%); }
 td.path { max-width: 350px; overflow: hidden; color: var(--mir-color-thought); font-family: var(--mir-font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .badge { display: inline-block; padding: 3px 7px; border: 1px solid var(--mir-color-border); border-radius: 999px; color: var(--mir-color-muted); font: 9px var(--mir-font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .badge.ready, .badge.completed, .badge.available, .badge.downloaded { border-color: rgb(97 214 163 / 48%); color: var(--mir-color-success); }
-.badge.loading, .badge.running { border-color: rgb(121 215 255 / 48%); color: var(--mir-color-glacier); }
-.badge.failed, .badge.does_not_fit, .badge.cancelled { border-color: rgb(240 113 120 / 48%); color: var(--mir-color-danger); }
+.badge.loading, .badge.queued, .badge.running { border-color: rgb(121 215 255 / 48%); color: var(--mir-color-glacier); }
+.badge.failed, .badge.does_not_fit, .badge.cancelled, .badge.unavailable { border-color: rgb(240 113 120 / 48%); color: var(--mir-color-danger); }
 .badge.gated { margin-left: 5px; border-color: rgb(232 177 90 / 48%); color: #e8b15a; }
 .empty { margin: 0; padding: 38px 28px; text-align: center; }
 
@@ -261,7 +264,14 @@ tr.busy td { background: rgb(121 215 255 / 3%); }
 .modal h2 { font-size: 32px; }
 .modal-target { margin: 12px 0 4px; color: var(--mir-color-glacier); font: 12px var(--mir-font-mono); overflow-wrap: anywhere; }
 .modal-note { color: var(--mir-color-muted); font-size: 12px; }
+.task-contract { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--mir-color-border); border-radius: var(--mir-radius-control); background: var(--mir-color-canvas); }
+.task-contract[hidden] { display: none; }
+.task-contract dl { display: grid; margin: 0; grid-template-columns: 120px 1fr; gap: 7px 12px; }
+.task-contract dt { color: var(--mir-color-muted); font-size: 11px; }
+.task-contract dd { margin: 0; color: var(--mir-color-ink); font: 11px var(--mir-font-mono); overflow-wrap: anywhere; }
+.task-contract p { margin: 12px 0 0; color: var(--mir-color-thought); font-size: 11px; }
 .field-grid { display: grid; margin: 20px 0; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-grid[hidden], .modal-note[hidden] { display: none; }
 .field-grid label { display: grid; margin: 0; gap: 6px; }
 .field-grid input { width: 100%; padding: 9px 10px; border: 1px solid var(--mir-color-border); border-radius: var(--mir-radius-control); outline: 0; background: var(--mir-color-canvas); color: var(--mir-color-ink); font: 11px var(--mir-font-mono); }
 .field-grid input:focus { border-color: var(--mir-color-glacier); box-shadow: var(--mir-focus-ring); }

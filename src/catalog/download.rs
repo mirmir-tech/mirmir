@@ -1,7 +1,8 @@
 use hf_hub::{HFClient, split_id};
+use libmir::CancellationToken;
 use tokio::sync::mpsc;
 
-use super::{cache::discover_cached_models, progress::Reporter};
+use super::{cache::discover_cached_models, cancellation, progress::Reporter};
 use crate::{
     config::{ModelConfig, Store, model_key},
     error::{Error, Result},
@@ -15,6 +16,12 @@ pub struct TransferUpdate {
     pub message: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct DownloadedModel {
+    pub config: ModelConfig,
+    pub load_unavailable_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Removal {
     pub removed: bool,
@@ -26,21 +33,22 @@ pub async fn pull(
     repo_id: &str,
     revision: Option<&str>,
     updates: mpsc::Sender<TransferUpdate>,
-) -> Result<ModelConfig> {
+    cancellation: &CancellationToken,
+) -> Result<DownloadedModel> {
     drop(model_key(repo_id)?);
     let revision = revision.unwrap_or("main");
     let client = client(store)?;
     let (owner, name) = split_id(repo_id);
     send(&updates, "resolving", 0, None, format!("resolving {repo_id}@{revision}")).await;
-    let snapshot = client
-        .model(owner, name)
+    let repository = client.model(owner, name);
+    let pending = repository
         .snapshot_download()
         .revision(revision)
         .allow_patterns(patterns())
         .max_workers(8)
         .progress(Reporter::new(updates.clone()))
-        .send()
-        .await?;
+        .send();
+    let snapshot = cancellation::wait(pending, cancellation).await.ok_or(Error::Cancelled)??;
     send(
         &updates,
         "validating",
@@ -49,20 +57,16 @@ pub async fn pull(
         format!("validating snapshot for {repo_id}"),
     )
     .await;
-    drop(libmir::ModelDescriptor::inspect(
-        &snapshot,
-        libmir::GenerationOverrides::default(),
-    )?);
+    let inspection =
+        libmir::ModelDescriptor::inspect(&snapshot, libmir::GenerationOverrides::default());
+    let load_unavailable_reason = inspection.err().map(|error| error.to_string());
     let model = store.save_hub_model(repo_id, revision, snapshot.clone())?;
-    send(
-        &updates,
-        "available",
-        directory_size(&snapshot),
-        None,
-        format!("saved model configuration for {repo_id}"),
-    )
-    .await;
-    Ok(model)
+    let message = load_unavailable_reason.as_ref().map_or_else(
+        || format!("saved model configuration for {repo_id}"),
+        |reason| format!("downloaded {repo_id}; loading is unavailable: {reason}"),
+    );
+    send(&updates, "available", directory_size(&snapshot), None, message).await;
+    Ok(DownloadedModel { config: model, load_unavailable_reason })
 }
 
 pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
@@ -92,6 +96,17 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
         removed: removed_cache || removed_config,
         freed_bytes,
     })
+}
+
+pub async fn discard_partial(store: &Store, repo_id: &str) -> Result<Removal> {
+    let key = model_key(repo_id)?;
+    let cache = store.paths().hub_cache_dir.clone();
+    let repo = cache.join(format!("models--{key}"));
+    if !repo.exists() {
+        return Ok(Removal { removed: false, freed_bytes: 0 });
+    }
+    let freed_bytes = remove_cache_repo(repo, cache, None).await?;
+    Ok(Removal { removed: true, freed_bytes })
 }
 
 async fn remove_cache_repo(
@@ -153,7 +168,7 @@ fn validated_cache_repo(
     )))
 }
 
-async fn send(
+pub(super) async fn send(
     sender: &mpsc::Sender<TransferUpdate>,
     phase: &'static str,
     downloaded_bytes: u64,
@@ -186,47 +201,4 @@ fn directory_size(path: &std::path::Path) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accepts_only_direct_model_repositories_in_cache() -> Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "mirmir-remove-cache-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
-        let cache = root.join("cache");
-        let model = cache.join("models--Qwen--Test");
-        let nested = cache.join("nested/models--Qwen--Nested");
-        let outside = root.join("models--Qwen--Outside");
-        std::fs::create_dir_all(&model)?;
-        std::fs::create_dir_all(&nested)?;
-        std::fs::create_dir_all(&outside)?;
-        assert_eq!(validated_cache_repo(&model, &cache)?, model.canonicalize()?);
-        assert!(validated_cache_repo(&nested, &cache).is_err());
-        assert!(validated_cache_repo(&outside, &cache).is_err());
-        std::fs::remove_dir_all(root)?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn removes_verified_external_cache_repository() -> Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "mirmir-remove-external-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
-        let cache = root.join("hub");
-        let model = cache.join("models--Qwen--External");
-        let weights = model.join("snapshots/abc/model.safetensors");
-        std::fs::create_dir_all(weights.parent().unwrap_or(&model))?;
-        std::fs::write(&weights, b"weights")?;
-
-        let freed = remove_cache_repo(model.clone(), cache, None).await?;
-        assert_eq!(freed, 7);
-        assert!(!model.exists());
-        std::fs::remove_dir_all(root)?;
-        Ok(())
-    }
-}
+mod tests;

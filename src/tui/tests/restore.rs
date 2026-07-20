@@ -12,6 +12,8 @@ fn renders_saved_model_restoration_progress() -> Result<(), std::convert::Infall
             revision: "main".to_owned(),
             commit: "abc123".to_owned(),
         },
+        task: "generation".to_owned(),
+        capabilities: None,
         status: super::super::app::LoadStatus::Loading,
         fields: std::array::from_fn(|_| String::new()),
         selected: 0,

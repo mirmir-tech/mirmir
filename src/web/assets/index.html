@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#0D1117">
     <title>MiRMiR · Runtime dashboard</title>
     <link rel="icon" href="/ui/assets/brand/favicon.svg?v=2" type="image/svg+xml">
-    <link rel="stylesheet" href="/ui/app.css?v=2">
-    <script src="/ui/app.js?v=3" defer></script>
+    <link rel="stylesheet" href="/ui/app.css?v=5">
+    <script src="/ui/app.js?v=6" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -108,7 +108,7 @@
             </form>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Model</th><th>State / fit</th><th>Revision / architecture</th><th>Source</th><th>Action</th></tr></thead>
+                <thead><tr><th>Model</th><th>State / fit</th><th>Model class</th><th>Source</th><th>Action</th></tr></thead>
                 <tbody id="model-rows"></tbody>
               </table>
               <p class="empty" id="models-empty">No local models found.</p>
@@ -209,19 +209,23 @@
 
         <dialog class="modal" id="load-dialog">
           <form id="load-model-form">
-            <p class="eyebrow">Model defaults</p>
+            <p class="eyebrow" id="load-settings-kind">Model settings</p>
             <h2>Load model</h2>
             <p class="modal-target" id="load-target">—</p>
             <p class="modal-note" id="load-memory">Inspecting model and memory…</p>
-            <div class="field-grid">
+            <div class="task-contract" id="load-task-contract" hidden>
+              <dl id="load-task-capabilities"></dl>
+              <p>Detected from the checkpoint. Nothing here needs to be configured before loading.</p>
+            </div>
+            <div class="field-grid" id="load-generation-fields">
               <label>Max tokens<input id="load-max-tokens" type="number" min="1" required></label>
               <label>Temperature<input id="load-temperature" type="number" min="0" step="0.01" required></label>
               <label>Top P<input id="load-top-p" type="number" min="0" max="1" step="0.01" required></label>
-              <label>Top K<input id="load-top-k" type="number" min="1" required></label>
+              <label>Top K<input id="load-top-k" type="number" min="0" required></label>
               <label>Repetition penalty<input id="load-repetition" type="number" min="0" step="0.01" required></label>
             </div>
             <label class="check"><input id="load-force" type="checkbox"> Allow load despite memory-fit rejection</label>
-            <p class="modal-note">These values become the MiRMiR defaults for this model.</p>
+            <p class="modal-note" id="load-generation-note">These values become the MiRMiR defaults for this model.</p>
             <div class="dialog-actions"><button class="quiet" id="cancel-load" type="button">Cancel</button><button id="confirm-load" type="submit">Load model</button></div>
           </form>
         </dialog>

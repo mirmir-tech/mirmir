@@ -103,7 +103,8 @@ pub struct App {
     restore_queue: VecDeque<String>,
     restore_total: usize,
     restore_completed: usize,
-    transfer_rx: Option<mpsc::Receiver<Result<proto::ModelTransferEvent, String>>>,
+    transfer_tx: mpsc::Sender<Result<proto::ModelTransferEvent, String>>,
+    transfer_rx: mpsc::Receiver<Result<proto::ModelTransferEvent, String>>,
     removal_rx: Option<mpsc::Receiver<Result<proto::RemoveModelResponse, String>>>,
     pending_removal: Option<RemoveDialog>,
     lifecycle_rx: Option<mpsc::Receiver<Result<proto::ModelLifecycleEvent, String>>>,
@@ -116,6 +117,7 @@ pub struct App {
 
 impl App {
     pub fn new(server_reused: bool) -> Self {
+        let (transfer_tx, transfer_rx) = mpsc::channel(256);
         Self {
             screen: Screen::Overview,
             navigation: NavigationState::default(),
@@ -172,7 +174,8 @@ impl App {
             restore_queue: VecDeque::new(),
             restore_total: 0,
             restore_completed: 0,
-            transfer_rx: None,
+            transfer_tx,
+            transfer_rx,
             removal_rx: None,
             pending_removal: None,
             lifecycle_rx: None,

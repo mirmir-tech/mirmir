@@ -44,6 +44,30 @@ async fn serves_openai_routes_with_bearer_auth_and_sse_errors() -> Result<()> {
     assert_eq!(models.status(), StatusCode::OK);
     assert_eq!(models.json::<Value>().await?["data"], json!([]));
 
+    let embedding = client
+        .post(format!("{base}/v1/embeddings"))
+        .bearer_auth("test-key")
+        .json(&json!({"model": "", "input": "hello"}))
+        .send()
+        .await?;
+    assert_eq!(embedding.status(), StatusCode::BAD_REQUEST);
+
+    let rerank = client
+        .post(format!("{base}/v1/rerank"))
+        .bearer_auth("test-key")
+        .json(&json!({"model": "", "query": "q", "documents": ["d"]}))
+        .send()
+        .await?;
+    assert_eq!(rerank.status(), StatusCode::BAD_REQUEST);
+
+    let unversioned_rerank = client
+        .post(format!("{base}/rerank"))
+        .bearer_auth("test-key")
+        .json(&json!({"model": "", "query": "q", "documents": ["d"]}))
+        .send()
+        .await?;
+    assert_eq!(unversioned_rerank.status(), StatusCode::NOT_FOUND);
+
     let missing = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth("test-key")

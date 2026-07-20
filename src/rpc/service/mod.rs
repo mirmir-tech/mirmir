@@ -10,6 +10,7 @@ mod preflight;
 mod restore;
 mod settings;
 mod startup;
+mod tasks;
 mod telemetry;
 
 use std::{
@@ -175,6 +176,20 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::GenerateRequest>,
     ) -> Result<Response<Self::GenerateStream>, Status> {
         Ok(Response::new(generation::stream(self.clone(), request.into_inner())))
+    }
+
+    async fn embed(
+        &self,
+        request: Request<proto::EmbedRequest>,
+    ) -> Result<Response<proto::EmbedResponse>, Status> {
+        tasks::embed_rpc(self.clone(), request.into_inner()).await.map(Response::new)
+    }
+
+    async fn rerank(
+        &self,
+        request: Request<proto::RerankRequest>,
+    ) -> Result<Response<proto::RerankResponse>, Status> {
+        tasks::rerank_rpc(self.clone(), request.into_inner()).await.map(Response::new)
     }
 
     async fn telemetry(

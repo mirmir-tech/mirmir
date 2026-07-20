@@ -45,6 +45,8 @@ impl App {
                 revision: String::new(),
                 commit: String::new(),
             },
+            task: String::new(),
+            capabilities: None,
             status: LoadStatus::Loading,
             fields: std::array::from_fn(|_| String::new()),
             selected: 0,

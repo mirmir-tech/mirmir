@@ -72,7 +72,7 @@ impl App {
             self.catalog_filter == CatalogFilter::All
                 || model.downloaded
                 || model.local_source != "remote"
-                || (model.compatibility == "supported" && model.memory_fit != "does_not_fit")
+                || (model.compatibility != "unsupported" && model.memory_fit != "does_not_fit")
         })
     }
 
@@ -150,7 +150,10 @@ fn catalog_rank(model: &proto::CatalogModel) -> u8 {
         ("supported", "tight") => 1,
         ("supported", "unknown") => 2,
         ("supported", "does_not_fit") => 3,
-        ("unknown", _) => 4,
-        _ => 5,
+        ("unknown", "fits") => 4,
+        ("unknown", "tight") => 5,
+        ("unknown", "unknown") => 6,
+        ("unknown", "does_not_fit") => 7,
+        _ => 8,
     }
 }

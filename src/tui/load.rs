@@ -1,3 +1,4 @@
+mod capabilities;
 mod memory;
 
 use ratatui::{
@@ -15,6 +16,7 @@ use super::{
 };
 
 const LABELS: [&str; 5] = ["max tokens", "temperature", "top p", "top k", "repetition penalty"];
+const GENERATION_HINT: &str = "↑/↓ · type · f force · Enter save & load";
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let Some(dialog) = app.load_dialog.as_ref() else {
@@ -145,12 +147,12 @@ fn event_ratio(event: &crate::rpc::proto::ModelLifecycleEvent) -> (f64, u16) {
 }
 
 fn header(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
-    let source = if dialog.restore.is_some() {
-        "saved active model configuration"
-    } else if dialog.has_mirmir_overrides {
-        "Mirmir configuration"
-    } else {
-        "model defaults"
+    let source = match (dialog.restore.is_some(), dialog.task.as_str(), dialog.has_mirmir_overrides)
+    {
+        (true, _, _) => "saved active model configuration",
+        (false, "generation", true) => "Mirmir configuration",
+        (false, "generation", false) => "model defaults",
+        _ => "checkpoint capabilities",
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
@@ -165,6 +167,9 @@ fn header(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
 }
 
 fn fields(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
+    if capabilities::draw(frame, area, dialog) {
+        return;
+    }
     let items = LABELS.iter().zip(&dialog.fields).map(|(label, value)| {
         ListItem::new(Line::from(vec![
             Span::styled(format!("{label:<20}"), Style::new().fg(theme::MUTED)),
@@ -220,8 +225,10 @@ fn error(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
 fn hint(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
     let text = match dialog.status {
         LoadStatus::Inspecting => "x cancel  ·  Esc close Mirmir",
-        LoadStatus::Editing => "↑/↓ field  ·  type to edit  ·  f force  ·  Enter save & load",
-        LoadStatus::Loading => "Settings saved · loading in progress",
+        LoadStatus::Editing if dialog.task == "generation" => GENERATION_HINT,
+        LoadStatus::Editing => "f force  ·  Enter load",
+        LoadStatus::Loading if dialog.task == "generation" => "Settings saved · loading",
+        LoadStatus::Loading => "Loading checkpoint · no task settings",
     };
     frame.render_widget(
         Paragraph::new(text)

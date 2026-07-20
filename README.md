@@ -100,7 +100,7 @@ The current implementation includes the versioned TOML foundation, protected HF
 secret storage, a versioned gRPC service over a Unix socket, shared model
 list/search/load/unload operations, and the first single-prompt path through
 public `libmir` APIs. Hub search uses the configured token when present and
-prioritizes results by `libmir` architecture compatibility and a conservative
+prioritizes results by `libmir` model-contract compatibility and a conservative
 machine-memory fit estimate.
 
 Running `mirmir` without a subcommand opens the Ratatui dashboard and either
@@ -133,7 +133,16 @@ matches always remain visible. Snapshot progress is streamed through gRPC. Downl
 records remain under `~/.config/mirmir/models`. During a transfer, Models shows
 a bordered progress bar with its phase, repository, percentage to 0.1%, and
 downloaded/total binary size. A phase without a known total uses an animated
-indeterminate state instead of presenting a false percentage.
+indeterminate state instead of presenting a false percentage. Only one Hub
+snapshot is transferred at a time; additional requests enter a FIFO queue and
+remain visible as `queued`. Select a queued or active download in Activity and
+press `X` to cancel it. Cancelling an active transfer removes its partial files
+from Mirmir's managed cache without touching the standard Hugging Face cache.
+A completed snapshot is always retained in the local model list. If its execution
+contract is not supported, Models marks it `unavailable`, disables Load, and
+shows the exact inspection error; it can still be removed normally. The local
+inventory also recovers completed snapshots that exist in Mirmir's cache without
+a configuration record.
 
 On a downloaded result, `l` loads the model into the shared runtime and `u`
 unloads it. The same identifier can be used from CLI, for example
@@ -219,6 +228,8 @@ baseline; use an explicit target to change it, for example
 
 - `GET /health`;
 - `GET /v1/models`, listing only models ready in the shared runtime;
+- `POST /v1/embeddings`, with OpenAI-compatible string or string-array input;
+- `POST /v1/rerank`, with TEI-style relevance results;
 - `POST /v1/chat/completions`, with regular JSON and `stream: true` SSE responses.
 
 Reasoning-capable models expose model-independent `reasoning_content` separately
@@ -234,6 +245,16 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -H "Authorization: Bearer $MIRMIR_HTTP_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"model":"qwen","messages":[{"role":"user","content":"Hello"}],"stream":true}'
+
+curl http://127.0.0.1:8080/v1/embeddings \
+  -H "Authorization: Bearer $MIRMIR_HTTP_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"embedding","input":["first text","second text"],"encoding_format":"float"}'
+
+curl http://127.0.0.1:8080/v1/rerank \
+  -H "Authorization: Bearer $MIRMIR_HTTP_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"reranker","query":"search query","documents":["candidate one","candidate two"],"return_documents":true}'
 
 IMAGE_DATA=$(base64 < image.jpg | tr -d '\n')
 curl http://127.0.0.1:8080/v1/chat/completions \
@@ -311,9 +332,11 @@ changes; select one with `Up`/`Down` and press `X` to cancel it when marked
 cancellable. Generation cancellation is checked before prefill, after prefill,
 and between decode steps. Dropping an HTTP/gRPC generation stream also triggers
 the same cooperative path once the producer observes the disconnected receiver.
-Loads and downloads are displayed but deliberately marked non-cancellable until
-their backends expose a safe interruption boundary.
+Hub downloads are serialized through a FIFO queue and are cancellable both while
+queued and while transferring. Cancelling a transfer drops the in-flight Hub
+request and removes the repository's partial files from Mirmir's managed cache.
+Model loads remain non-cancellable until their backends expose a safe
+interruption boundary.
 
-Safe cancellation boundaries for model load and Hub download, plus deeper
-backend timing than the public `libmir` metrics currently expose, remain future
-implementation stages.
+Safe cancellation boundaries for model load, plus deeper backend timing than the
+public `libmir` metrics currently expose, remain future implementation stages.

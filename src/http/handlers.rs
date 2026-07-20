@@ -23,7 +23,7 @@ use crate::rpc::{proto, proto::runtime_server::Runtime};
 static NEXT_COMPLETION: AtomicU64 = AtomicU64::new(0);
 
 impl ApiState {
-    fn authorize(&self, headers: &HeaderMap) -> Result<(), ApiError> {
+    pub(super) fn authorize(&self, headers: &HeaderMap) -> Result<(), ApiError> {
         let Some(expected) = &self.api_key else {
             return Ok(());
         };

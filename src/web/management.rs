@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tonic::Request;
 
-use super::{security_headers, session::WebError};
+use super::{capabilities::TaskCapabilities, security_headers, session::WebError};
 use crate::{
     http::ApiState,
     rpc::{proto, proto::runtime_server::Runtime},
@@ -53,9 +53,11 @@ pub struct CancelRequest {
 
 #[derive(Serialize)]
 struct Inspection {
-    settings: Settings,
+    settings: Option<Settings>,
     has_mirmir_overrides: bool,
     memory: Memory,
+    task: String,
+    capabilities: Option<TaskCapabilities>,
 }
 
 #[derive(Serialize)]
@@ -106,12 +108,13 @@ pub async fn inspect(
         .await
         .map_err(WebError::from_status)?
         .into_inner();
-    let settings = inspected.settings.ok_or_else(|| WebError::runtime("settings missing"))?;
     let memory = inspected.memory.ok_or_else(|| WebError::runtime("memory estimate missing"))?;
     let response = Inspection {
-        settings: Settings::from(settings),
+        settings: inspected.settings.map(Settings::from),
         has_mirmir_overrides: inspected.has_mirmir_overrides,
         memory: Memory::from(memory),
+        task: inspected.task,
+        capabilities: inspected.capabilities.map(TaskCapabilities::from),
     };
     Ok((security_headers(), Json(response)).into_response())
 }

@@ -10,11 +10,9 @@ use super::super::{app::App, theme};
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let items = app.visible_local_models().map(|model| {
+        let state = visible_state(model);
         ListItem::new(Line::from(vec![
-            Span::styled(
-                format!(" {:<9} ", model.state),
-                Style::new().fg(state_color(&model.state)),
-            ),
+            Span::styled(format!(" {state:<11} "), Style::new().fg(state_color(state))),
             Span::styled(&model.id, Style::new().fg(theme::INK).add_modifier(Modifier::BOLD)),
         ]))
     });
@@ -51,15 +49,36 @@ pub fn details(app: &App) -> Line<'_> {
             } else {
                 model.repo_id.as_str()
             };
-            Line::from(vec![
-                Span::styled(&model.state, Style::new().fg(state_color(&model.state))),
+            let state = visible_state(model);
+            let mut spans = vec![Span::styled(state, Style::new().fg(state_color(state)))];
+            if !model.loadable {
+                spans.push(Span::raw("  ·  "));
+                spans.push(Span::styled(
+                    &model.load_unavailable_reason,
+                    Style::new().fg(theme::DANGER),
+                ));
+                spans.push(Span::raw("\n"));
+            }
+            spans.extend([
                 Span::raw("  ·  "),
                 Span::styled(source, Style::new().fg(theme::GLACIER)),
+                Span::raw("  ·  "),
+                Span::styled("class ", Style::new().fg(theme::MUTED)),
+                Span::styled(&model.model_class, Style::new().fg(theme::SIGNAL)),
                 Span::raw(format!("  ·  revision {}\n", revision(model))),
                 Span::styled(&model.path, Style::new().fg(theme::MUTED)),
-            ])
+            ]);
+            Line::from(spans)
         },
     )
+}
+
+fn visible_state(model: &crate::rpc::proto::LocalModelInfo) -> &str {
+    if model.state == "available" && !model.loadable {
+        "unavailable"
+    } else {
+        &model.state
+    }
 }
 
 fn revision(model: &crate::rpc::proto::LocalModelInfo) -> &str {
@@ -79,7 +98,7 @@ fn state_color(state: &str) -> Color {
         "ready" => theme::SUCCESS,
         "loading" => theme::GLACIER,
         "available" => theme::SIGNAL,
-        "missing" => theme::DANGER,
+        "missing" | "unavailable" => theme::DANGER,
         _ => theme::MUTED,
     }
 }

@@ -137,7 +137,8 @@ fn selected_details(app: &App) -> Line<'_> {
         },
         |model| {
             Line::from(vec![
-                Span::styled(&model.architecture, Style::new().fg(theme::GLACIER)),
+                Span::styled("class ", Style::new().fg(theme::MUTED)),
+                Span::styled(&model.model_class, Style::new().fg(theme::GLACIER)),
                 Span::raw("  ·  "),
                 Span::styled(
                     &model.compatibility,

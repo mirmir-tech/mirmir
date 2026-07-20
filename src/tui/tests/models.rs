@@ -16,9 +16,26 @@ fn empty_search_renders_only_local_models() -> Result<(), std::convert::Infallib
     assert!(text.contains("Qwen--Local"));
     assert!(text.contains("available"));
     assert!(text.contains("Qwen/Local"));
+    assert!(text.contains("Qwen2ForCausalLM"));
     assert!(!text.contains("Remote/Hidden"));
     assert!(!text.contains("Missing--Hidden"));
     assert!(!text.contains("SEARCH RESULTS"));
+    Ok(())
+}
+
+#[test]
+fn unsupported_download_stays_visible_with_its_reason() -> Result<(), std::convert::Infallible> {
+    let mut app = App::new(true);
+    app.screen = Screen::Models;
+    let mut model = local_model("Org--Unsupported", "Org/Unsupported");
+    model.loadable = false;
+    model.load_unavailable_reason = "unsupported execution contract".to_owned();
+    app.local_models.push(model);
+
+    let text = rendered(&mut app, 120, 36)?;
+    assert!(text.contains("Org--Unsupported"));
+    assert!(text.contains("unavailable"));
+    assert!(text.contains("unsupported execution contract"));
     Ok(())
 }
 
@@ -69,6 +86,19 @@ fn incompatible_remote_models_are_hidden_until_requested() -> Result<(), std::co
 }
 
 #[test]
+fn unknown_remote_contracts_remain_visible_for_download() -> Result<(), std::convert::Infallible> {
+    let mut app = App::new(true);
+    app.screen = Screen::Models;
+    app.search_query = "reranker".to_owned();
+    let mut candidate = catalog_model("Alibaba-NLP/Reranker", "remote");
+    candidate.compatibility = "unknown".to_owned();
+    app.catalog.push(candidate);
+
+    assert!(rendered(&mut app, 120, 36)?.contains("Alibaba-NLP/Reranker"));
+    Ok(())
+}
+
+#[test]
 fn local_gated_results_remain_visible_and_marked() -> Result<(), std::convert::Infallible> {
     let mut app = App::new(true);
     app.screen = Screen::Models;
@@ -113,6 +143,8 @@ fn local_model(id: &str, repo_id: &str) -> LocalModelInfo {
         recent_rank: Some(0),
         selector: id.to_owned(),
         managed: true,
+        loadable: true,
+        model_class: "Qwen2ForCausalLM".to_owned(),
         ..Default::default()
     }
 }
@@ -123,7 +155,7 @@ fn catalog_model(id: &str, local_source: &str) -> CatalogModel {
         downloads: 42,
         likes: 7,
         gated: false,
-        architecture: "Qwen2ForCausalLM".to_owned(),
+        model_class: "Qwen2ForCausalLM".to_owned(),
         compatibility: "supported".to_owned(),
         memory_fit: "fits".to_owned(),
         estimated_weight_bytes: Some(1_000_000_000),

@@ -1,3 +1,4 @@
+use libmir::CancellationToken;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
@@ -24,7 +25,7 @@ fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
         downloads: model.downloads,
         likes: model.likes,
         gated: model.gated,
-        architecture: model.architecture,
+        model_class: model.model_class,
         compatibility: model.compatibility.to_owned(),
         memory_fit: model.memory_fit.to_owned(),
         estimated_weight_bytes: model.weight_bytes,
@@ -139,7 +140,8 @@ async fn pull(
     output: mpsc::Sender<Result<proto::ModelTransferEvent, tonic::Status>>,
 ) {
     let repo_id = request.repo_id;
-    let operation = service.activity.begin("pull", &repo_id, None);
+    let cancellation = CancellationToken::new();
+    let operation = service.activity.enqueue("pull", &repo_id, cancellation.clone());
     let (updates, mut receiver) = mpsc::channel::<TransferUpdate>(64);
     let forward = output.clone();
     let forwarded_repo = repo_id.clone();
@@ -161,20 +163,33 @@ async fn pull(
             }
         }
     });
-    match service.catalog.pull(&repo_id, request.revision.as_deref(), updates).await {
+    match service
+        .catalog
+        .pull(&repo_id, request.revision.as_deref(), updates, &cancellation)
+        .await
+    {
         Ok(model) => {
             drop(task.await);
-            operation.finish("completed", "model is available");
+            let message = model.load_unavailable_reason.as_ref().map_or_else(
+                || "model is available".to_owned(),
+                |reason| format!("model downloaded; loading is unavailable: {reason}"),
+            );
+            operation.finish("completed", &message);
             let event = proto::ModelTransferEvent {
                 repo_id,
                 phase: "available".to_owned(),
                 downloaded_bytes: 0,
                 total_bytes: None,
-                path: Some(model.path.display().to_string()),
-                message: "model is available".to_owned(),
+                path: Some(model.config.path.display().to_string()),
+                message,
                 operation_id: operation.id().to_owned(),
             };
             drop(output.send(Ok(event)).await);
+        },
+        Err(crate::error::Error::Cancelled) => {
+            drop(task.await);
+            operation.finish("cancelled", "download cancelled and partial files removed");
+            drop(output.send(Err(tonic::Status::cancelled("download cancelled"))).await);
         },
         Err(error) => {
             drop(task.await);

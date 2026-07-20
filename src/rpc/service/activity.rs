@@ -50,6 +50,20 @@ impl Activity {
         target: &str,
         cancellation: Option<CancellationToken>,
     ) -> Operation {
+        self.begin_with_state(kind, target, "running", cancellation)
+    }
+
+    pub fn enqueue(&self, kind: &str, target: &str, cancellation: CancellationToken) -> Operation {
+        self.begin_with_state(kind, target, "queued", Some(cancellation))
+    }
+
+    fn begin_with_state(
+        &self,
+        kind: &str,
+        target: &str,
+        state_name: &str,
+        cancellation: Option<CancellationToken>,
+    ) -> Operation {
         let mut state = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let id = format!("op-{}", state.next);
         state.next = state.next.saturating_add(1);
@@ -61,9 +75,9 @@ impl Activity {
             operation_id: id.clone(),
             kind: kind.to_owned(),
             target: target.to_owned(),
-            state: "running".to_owned(),
-            stage: "starting".to_owned(),
-            detail: format!("{kind} started"),
+            state: state_name.to_owned(),
+            stage: state_name.to_owned(),
+            detail: format!("{kind} {state_name}"),
             started_at_unix_ms: now,
             updated_at_unix_ms: now,
             cancellable: state.cancellations.contains_key(&id),
@@ -172,6 +186,9 @@ impl Operation {
 
     pub fn progress(&self, stage: &str, detail: &str, current: Option<u64>, total: Option<u64>) {
         self.activity.update(&self.id, |event| {
+            if event.state == "queued" && stage != "queued" {
+                "running".clone_into(&mut event.state);
+            }
             stage.clone_into(&mut event.stage);
             detail.clone_into(&mut event.detail);
             event.current = current;
@@ -215,29 +232,4 @@ fn unix_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cancellation_is_idempotent_and_updates_activity() {
-        let activity = Activity::new();
-        let token = CancellationToken::new();
-        let operation = activity.begin("generate", "model", Some(token.clone()));
-        assert!(activity.cancel(operation.id()).accepted);
-        assert!(activity.cancel(operation.id()).accepted);
-        assert!(token.is_cancelled());
-        operation.finish("cancelled", "cancelled by test");
-        assert!(!activity.cancel(operation.id()).accepted);
-    }
-
-    #[test]
-    fn history_limit_never_evicts_a_running_operation() {
-        let activity = Activity::new();
-        let oldest = activity.begin("generate", "oldest", Some(CancellationToken::new()));
-        for index in 0..HISTORY_LIMIT {
-            let operation = activity.begin("load", &index.to_string(), None);
-            operation.finish("completed", "done");
-        }
-        assert!(activity.cancel(oldest.id()).accepted);
-    }
-}
+mod tests;

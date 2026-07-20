@@ -11,6 +11,10 @@ impl App {
             self.action_message = Some(format!("model is already {}", model.state));
             return None;
         }
+        if !model.loadable {
+            self.action_message = Some(model.load_unavailable_reason.clone());
+            return None;
+        }
         Some(local_load_target(model))
     }
 
@@ -23,6 +27,10 @@ impl App {
         if let Some(local) = self.local_catalog_model(model) {
             if local.state == "missing" || local.state == "ready" {
                 self.action_message = Some(format!("model is already {}", local.state));
+                return None;
+            }
+            if !local.loadable {
+                self.action_message = Some(local.load_unavailable_reason.clone());
                 return None;
             }
             return Some(local_load_target(local));

@@ -6,10 +6,6 @@ use crate::rpc::{Client, proto};
 
 impl App {
     pub(super) fn start_pull(&mut self, client: &Client) {
-        if self.transfer_rx.is_some() {
-            self.action_message = Some("another download is already active".to_owned());
-            return;
-        }
         if !self.searching_models() {
             self.action_message = Some("search Hugging Face before downloading a model".to_owned());
             return;
@@ -26,9 +22,9 @@ impl App {
                 Some("model is already available in the external HF cache".to_owned());
             return;
         }
-        if model.compatibility != "supported" {
+        if model.compatibility == "unsupported" {
             self.action_message =
-                Some("only models supported by libmir can be downloaded".to_owned());
+                Some("this remote weight format cannot be inspected by libmir".to_owned());
             return;
         }
         if model.memory_fit == "does_not_fit" {
@@ -38,7 +34,7 @@ impl App {
         }
         let repo_id = model.id.clone();
         let request = proto::PullModelRequest { repo_id: repo_id.clone(), revision: None };
-        let (sender, receiver) = mpsc::channel(64);
+        let sender = self.transfer_tx.clone();
         let mut client = client.clone();
         drop(tokio::spawn(async move {
             match client.pull_model(request).await {
@@ -47,11 +43,10 @@ impl App {
             }
         }));
         self.transfer_repo = Some(repo_id);
-        self.transfer_phase = Some("starting".to_owned());
+        self.transfer_phase = Some("queued".to_owned());
         self.transfer_downloaded_bytes = 0;
         self.transfer_total_bytes = None;
         self.action_message = None;
-        self.transfer_rx = Some(receiver);
     }
 
     pub fn poll_operations(&mut self, client: &Client) {
@@ -64,16 +59,10 @@ impl App {
 
     fn poll_download(&mut self) {
         loop {
-            let Some(result) = self.transfer_rx.as_mut().map(mpsc::Receiver::try_recv) else {
-                return;
-            };
-            match result {
+            match self.transfer_rx.try_recv() {
                 Ok(Ok(event)) => self.apply_transfer(event),
                 Ok(Err(error)) => self.action_message = Some(error),
-                Err(mpsc::error::TryRecvError::Empty) => break,
-                Err(mpsc::error::TryRecvError::Disconnected) => {
-                    self.transfer_rx = None;
-                    self.transfer_repo = None;
+                Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => {
                     break;
                 },
             }
@@ -93,6 +82,7 @@ impl App {
     }
 
     fn apply_transfer(&mut self, event: proto::ModelTransferEvent) {
+        self.transfer_repo = Some(event.repo_id.clone());
         self.transfer_phase = Some(event.phase.clone());
         if event.downloaded_bytes > 0 {
             self.transfer_downloaded_bytes = event.downloaded_bytes;

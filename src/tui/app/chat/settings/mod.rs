@@ -9,7 +9,7 @@ use super::super::App;
 use crate::rpc::{Client, proto};
 
 pub(in crate::tui::app) enum ChatSettingsEvent {
-    Inspected(proto::InspectModelResponse),
+    Inspected(Box<proto::InspectModelResponse>),
     Saved(proto::UpdateModelGenerationResponse),
 }
 
@@ -32,6 +32,7 @@ impl App {
                 .inspect_model(proto::InspectModelRequest { selector })
                 .await
                 .map(tonic::Response::into_inner)
+                .map(Box::new)
                 .map(ChatSettingsEvent::Inspected)
                 .map_err(|error| error.to_string());
             drop(sender.send(result).await);

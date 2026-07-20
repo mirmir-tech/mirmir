@@ -17,6 +17,10 @@ pub fn discover_cached_models() -> Vec<CachedModel> {
     discover_in(&hf_hub::resolve_cache_dir())
 }
 
+pub fn discover_cached_models_in(cache: &Path) -> Vec<CachedModel> {
+    discover_in(cache)
+}
+
 fn discover_in(cache: &Path) -> Vec<CachedModel> {
     let Ok(entries) = fs::read_dir(cache) else {
         return Vec::new();
@@ -92,6 +96,22 @@ mod tests {
         assert_eq!(models[0].commit, "abc123");
         assert_eq!(models[0].repo_path, repo);
         assert_eq!(models[0].snapshot, repo.join("snapshots/abc123"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn exposes_discovery_for_a_managed_cache() -> std::io::Result<()> {
+        let root = std::env::temp_dir().join(format!(
+            "mirmir-managed-cache-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("cache")
+        ));
+        fs::create_dir_all(root.join("models--Org--Unsupported/snapshots/deadbeef"))?;
+
+        let models = discover_cached_models_in(&root);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].repo_id, "Org/Unsupported");
         fs::remove_dir_all(root)?;
         Ok(())
     }

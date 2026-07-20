@@ -20,7 +20,7 @@ pub struct CatalogModel {
     pub downloads: u64,
     pub likes: u64,
     pub gated: bool,
-    pub architecture: String,
+    pub model_class: String,
     pub compatibility: &'static str,
     pub memory_fit: &'static str,
     pub weight_bytes: Option<u64>,
@@ -73,8 +73,8 @@ impl MachineMemory {
 }
 
 pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
-    let architecture = model.architecture();
-    let compatibility = compatibility(&model, &architecture);
+    let model_class = model.model_class();
+    let compatibility = compatibility(&model);
     let weight_bytes = weights(&model);
     let required_bytes = weight_bytes.map(required);
     let memory_fit = fit(required_bytes, memory.budget);
@@ -90,7 +90,7 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         downloads: model.downloads,
         likes: model.likes,
         gated,
-        architecture,
+        model_class,
         compatibility,
         memory_fit,
         weight_bytes,
@@ -116,26 +116,19 @@ fn rank(model: &CatalogModel) -> u8 {
         ("supported", "tight") => 1,
         ("supported", "unknown") => 2,
         ("supported", "does_not_fit") => 3,
-        ("unknown", _) => 4,
-        _ => 5,
+        ("unknown", "fits") => 4,
+        ("unknown", "tight") => 5,
+        ("unknown", "unknown") => 6,
+        ("unknown", "does_not_fit") => 7,
+        _ => 8,
     }
 }
 
-fn compatibility(model: &HubModel, architecture: &str) -> &'static str {
+fn compatibility(model: &HubModel) -> &'static str {
     if model.safetensors.is_none() || model.tags.iter().any(|tag| tag == "gguf") {
         return "unsupported";
     }
-    let architecture = architecture.to_ascii_lowercase();
-    if ["bielik", "deepseek", "gemma", "glm", "qwen", "mistral", "mixtral", "llama"]
-        .iter()
-        .any(|family| architecture.contains(family))
-    {
-        "supported"
-    } else if architecture == "unknown" {
-        "unknown"
-    } else {
-        "unsupported"
-    }
+    "unknown"
 }
 
 fn weights(model: &HubModel) -> Option<u64> {
@@ -175,7 +168,23 @@ const fn fit(required: Option<u64>, budget: Option<u64>) -> &'static str {
 
 fn reason(compatibility: &str, memory_fit: &str) -> String {
     match (compatibility, memory_fit) {
-        ("unsupported", _) => "architecture or weight format is not supported by libmir".to_owned(),
+        ("unsupported", _) => {
+            "model contract or weight format is not supported by libmir".to_owned()
+        },
+        ("unknown", "fits") => {
+            "estimated weights fit; download is required to inspect the execution contract"
+                .to_owned()
+        },
+        ("unknown", "tight") => {
+            "estimated usage is tight; download is required to inspect the execution contract"
+                .to_owned()
+        },
+        ("unknown", "does_not_fit") => {
+            "estimated usage exceeds the current memory budget".to_owned()
+        },
+        ("unknown", "unknown") => {
+            "download is required to inspect the model configuration and tensors".to_owned()
+        },
         (_, "fits") => "estimated weights and runtime reserve fit the current budget".to_owned(),
         (_, "tight") => "estimated usage leaves less than 15% headroom".to_owned(),
         (_, "does_not_fit") => "estimated usage exceeds the current memory budget".to_owned(),
@@ -184,67 +193,4 @@ fn reason(compatibility: &str, memory_fit: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use super::*;
-    use crate::catalog::hub::{HubConfig, SafeTensors};
-
-    fn model(dtype: &str, parameters: u64) -> HubModel {
-        HubModel {
-            id: "Qwen/Test".to_owned(),
-            downloads: 10,
-            likes: 2,
-            gated: serde_json::Value::Bool(false),
-            config: HubConfig {
-                architectures: vec!["Qwen2ForCausalLM".to_owned()],
-                model_type: Some("qwen2".to_owned()),
-            },
-            safetensors: Some(SafeTensors {
-                parameters: BTreeMap::from([(dtype.to_owned(), parameters)]),
-            }),
-            tags: vec!["safetensors".to_owned()],
-        }
-    }
-
-    #[test]
-    fn estimates_bf16_weights_and_fits_with_headroom() {
-        let memory = MachineMemory {
-            total: Some(16 * GIB),
-            available: Some(12 * GIB),
-            budget: Some(10 * GIB),
-            source: "test",
-        };
-        let result = evaluate(model("BF16", 1_000_000_000), memory);
-        assert_eq!(result.compatibility, "supported");
-        assert_eq!(result.weight_bytes, Some(2_000_000_000));
-        assert_eq!(result.memory_fit, "fits");
-    }
-
-    #[test]
-    fn refuses_to_guess_unknown_dtype() {
-        let memory = MachineMemory {
-            total: Some(16 * GIB),
-            available: Some(12 * GIB),
-            budget: Some(10 * GIB),
-            source: "test",
-        };
-        let result = evaluate(model("CUSTOM", 1_000_000_000), memory);
-        assert_eq!(result.weight_bytes, None);
-        assert_eq!(result.memory_fit, "unknown");
-        assert_eq!(result.confidence, "low");
-    }
-
-    #[test]
-    fn ranks_supported_fitting_models_first() {
-        let memory = MachineMemory {
-            total: Some(8 * GIB),
-            available: Some(6 * GIB),
-            budget: Some(5 * GIB),
-            source: "test",
-        };
-        let fitting = evaluate(model("BF16", 500_000_000), memory);
-        let oversized = evaluate(model("BF16", 8_000_000_000), memory);
-        assert_eq!(compare(&fitting, &oversized), Ordering::Less);
-    }
-}
+mod tests;

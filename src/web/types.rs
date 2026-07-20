@@ -42,6 +42,10 @@ pub struct Model {
     pub managed: bool,
     pub image_input: bool,
     pub image_unavailable_reason: String,
+    pub loadable: bool,
+    pub load_unavailable_reason: String,
+    #[serde(rename = "model_class")]
+    pub class: String,
 }
 
 #[derive(Serialize)]
@@ -59,7 +63,7 @@ pub struct CatalogModel {
     pub downloads: u64,
     pub likes: u64,
     pub gated: bool,
-    pub architecture: String,
+    pub model_class: String,
     pub compatibility: String,
     pub memory_fit: String,
     pub estimated_required_bytes: Option<u64>,
@@ -123,6 +127,9 @@ impl From<proto::LocalModelInfo> for Model {
             managed: model.managed,
             image_input: model.image_input,
             image_unavailable_reason: model.image_unavailable_reason,
+            loadable: model.loadable,
+            load_unavailable_reason: model.load_unavailable_reason,
+            class: model.model_class,
         }
     }
 }
@@ -146,7 +153,7 @@ impl From<proto::CatalogModel> for CatalogModel {
             downloads: model.downloads,
             likes: model.likes,
             gated: model.gated,
-            architecture: model.architecture,
+            model_class: model.model_class,
             compatibility: model.compatibility,
             memory_fit: model.memory_fit,
             estimated_required_bytes: model.estimated_required_bytes,

@@ -137,6 +137,8 @@ fn renders_stage_only_during_model_loading() -> Result<(), std::convert::Infalli
             revision: "main".to_owned(),
             commit: "abc123".to_owned(),
         },
+        task: "generation".to_owned(),
+        capabilities: None,
         status: super::app::LoadStatus::Loading,
         fields: ["2048", "0.7", "0.9", "40", "1.1"].map(str::to_owned),
         selected: 0,

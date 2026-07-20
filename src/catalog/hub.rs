@@ -33,7 +33,6 @@ pub struct HubPage {
 pub struct HubConfig {
     #[serde(default)]
     pub architectures: Vec<String>,
-    pub model_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,19 +49,7 @@ pub async fn search(
     cursor: Option<&str>,
 ) -> Result<HubPage> {
     let limit = limit.clamp(1, 50).to_string();
-    let query = [
-        ("search", query),
-        ("filter", "text-generation"),
-        ("sort", "downloads"),
-        ("direction", "-1"),
-        ("limit", limit.as_str()),
-        ("expand[]", "safetensors"),
-        ("expand[]", "config"),
-        ("expand[]", "downloads"),
-        ("expand[]", "likes"),
-        ("expand[]", "gated"),
-        ("expand[]", "tags"),
-    ];
+    let query = search_parameters(query, &limit);
     let mut request = client
         .get(MODELS_ENDPOINT)
         .query(&query)
@@ -79,6 +66,21 @@ pub async fn search(
         models: response.json().await?,
         next_cursor,
     })
+}
+
+const fn search_parameters<'a>(query: &'a str, limit: &'a str) -> [(&'static str, &'a str); 10] {
+    [
+        ("search", query),
+        ("sort", "downloads"),
+        ("direction", "-1"),
+        ("limit", limit),
+        ("expand[]", "safetensors"),
+        ("expand[]", "config"),
+        ("expand[]", "downloads"),
+        ("expand[]", "likes"),
+        ("expand[]", "gated"),
+        ("expand[]", "tags"),
+    ]
 }
 
 fn parse_next_cursor(header: &reqwest::header::HeaderValue) -> Option<String> {
@@ -109,13 +111,11 @@ pub async fn whoami(client: &reqwest::Client, token: &str) -> Result<String> {
 
 impl HubModel {
     #[must_use]
-    pub fn architecture(&self) -> String {
-        self.config
-            .architectures
-            .first()
-            .cloned()
-            .or_else(|| self.config.model_type.clone())
-            .unwrap_or_else(|| "unknown".to_owned())
+    pub fn model_class(&self) -> String {
+        if self.config.architectures.is_empty() {
+            return "unknown".to_owned();
+        }
+        self.config.architectures.join(", ")
     }
 
     #[must_use]
@@ -140,7 +140,7 @@ mod tests {
             "tags":["transformers","safetensors","text-generation"]
         }]"#;
         let models: Vec<HubModel> = serde_json::from_str(json)?;
-        assert_eq!(models[0].architecture(), "Qwen2ForCausalLM");
+        assert_eq!(models[0].model_class(), "Qwen2ForCausalLM");
         assert_eq!(
             models[0].safetensors.as_ref().map(|value| value.parameters["BF16"]),
             Some(494_032_768)
@@ -155,5 +155,13 @@ mod tests {
             "<https://huggingface.co/api/models?limit=20&cursor=next%3D%3D>; rel=\"next\"",
         );
         assert_eq!(parse_next_cursor(&header).as_deref(), Some("next=="));
+    }
+
+    #[test]
+    fn searches_across_model_tasks_without_a_pipeline_filter() {
+        let parameters = search_parameters("reranker", "20");
+
+        assert!(parameters.iter().any(|(key, value)| *key == "search" && *value == "reranker"));
+        assert!(!parameters.iter().any(|(key, _)| *key == "filter"));
     }
 }

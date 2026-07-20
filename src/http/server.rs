@@ -56,10 +56,7 @@ fn router(
     api_key: Option<String>,
     shutdown: watch::Receiver<bool>,
 ) -> Result<Router> {
-    let router = Router::new()
-        .route("/health", get(handlers::health))
-        .route("/v1/models", get(handlers::models))
-        .route("/v1/chat/completions", post(handlers::chat));
+    let router = Router::new().route("/health", get(handlers::health)).nest("/v1", v1_routes());
     let router = if settings.web_enabled {
         router
             .route("/", get(crate::web::redirect))
@@ -105,6 +102,14 @@ fn router(
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
         .layer(cors(settings)?))
+}
+
+fn v1_routes() -> Router<ApiState> {
+    Router::new()
+        .route("/models", get(handlers::models))
+        .route("/embeddings", post(crate::http::task::handlers::embeddings))
+        .route("/rerank", post(crate::http::task::handlers::rerank))
+        .route("/chat/completions", post(handlers::chat))
 }
 
 fn cors(settings: &ServerSettings) -> Result<CorsLayer> {

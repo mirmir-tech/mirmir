@@ -1,5 +1,6 @@
 mod activity;
 mod api;
+mod capabilities;
 mod chat;
 mod configuration;
 mod management;

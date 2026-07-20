@@ -1,20 +1,24 @@
 mod cache;
+mod cancellation;
 mod download;
 mod fit;
 mod hub;
 mod progress;
+mod queue;
 
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
 };
 
-pub use cache::discover_cached_models;
-pub use download::{Removal, TransferUpdate};
+pub use cache::{CachedModel, discover_cached_models, discover_cached_models_in};
+pub use download::{DownloadedModel, Removal, TransferUpdate};
 pub use fit::{CatalogModel, MachineMemory};
+use libmir::CancellationToken;
+use queue::TransferQueue;
 
 use crate::{
-    config::{ModelConfig, Store},
+    config::Store,
     error::{Error, Result},
 };
 
@@ -23,6 +27,7 @@ pub struct Catalog {
     client: reqwest::Client,
     store: Store,
     active_transfers: Arc<Mutex<HashSet<String>>>,
+    transfer_queue: TransferQueue,
 }
 
 pub struct SearchResults {
@@ -38,6 +43,7 @@ impl Catalog {
             client: reqwest::Client::new(),
             store,
             active_transfers: Arc::new(Mutex::new(HashSet::new())),
+            transfer_queue: TransferQueue::serial(),
         }
     }
 
@@ -54,13 +60,18 @@ impl Catalog {
             .into_iter()
             .map(|model| model.repo_id)
             .collect::<HashSet<_>>();
+        let managed = discover_cached_models_in(&self.store.paths().hub_cache_dir)
+            .into_iter()
+            .map(|model| model.repo_id)
+            .collect::<HashSet<_>>();
         let mut models = page
             .models
             .into_iter()
             .map(|candidate| fit::evaluate(candidate, memory))
             .collect::<Vec<_>>();
         for model in &mut models {
-            model.downloaded = self.store.hub_model_downloaded(&model.id)?;
+            model.downloaded =
+                self.store.hub_model_downloaded(&model.id)? || managed.contains(&model.id);
             model.local_source = if model.downloaded {
                 "mirmir"
             } else if external.contains(&model.id) {
@@ -90,10 +101,33 @@ impl Catalog {
         repo_id: &str,
         revision: Option<&str>,
         updates: tokio::sync::mpsc::Sender<TransferUpdate>,
-    ) -> Result<ModelConfig> {
+        cancellation: &CancellationToken,
+    ) -> Result<DownloadedModel> {
+        let managed = discover_cached_models_in(&self.store.paths().hub_cache_dir)
+            .into_iter()
+            .any(|model| model.repo_id == repo_id);
+        if self.store.hub_model_downloaded(repo_id)? || managed {
+            return Err(Error::Config(format!("model `{repo_id}` is already downloaded")));
+        }
         self.start_transfer(repo_id)?;
-        let result = download::pull(&self.store, repo_id, revision, updates).await;
+        let result = self.pull_reserved(repo_id, revision, updates, cancellation).await;
         self.finish_transfer(repo_id);
+        result
+    }
+
+    async fn pull_reserved(
+        &self,
+        repo_id: &str,
+        revision: Option<&str>,
+        updates: tokio::sync::mpsc::Sender<TransferUpdate>,
+        cancellation: &CancellationToken,
+    ) -> Result<DownloadedModel> {
+        download::send(&updates, "queued", 0, None, "waiting for download slot".to_owned()).await;
+        let _permit = self.transfer_queue.acquire(cancellation).await?;
+        let result = download::pull(&self.store, repo_id, revision, updates, cancellation).await;
+        if matches!(result, Err(Error::Cancelled)) {
+            let _ = download::discard_partial(&self.store, repo_id).await?;
+        }
         result
     }
 

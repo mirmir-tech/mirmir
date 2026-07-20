@@ -8,6 +8,7 @@ let runtimeReady = false;
 let localModels = [];
 let currentConfiguration = null;
 let loadSelector = null;
+let loadGeneration = false;
 let removeRepoId = null;
 let chatRunning = false;
 let chatOperationId = null;
@@ -17,6 +18,7 @@ let searching = false;
 let catalogResults = null;
 const activities = new Map();
 const pendingModelOperations = new Map();
+const liveOperationStates = new Set(["queued", "running", "cancelling"]);
 const maxImageBytes = 20 * 1024 * 1024;
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const imageTypeByExtension = new Map([
@@ -25,7 +27,7 @@ const imageTypeByExtension = new Map([
 ]);
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/ui/sw.js?v=3", { scope: "/ui/" }).catch(() => {});
+  navigator.serviceWorker.register("/ui/sw.js?v=6", { scope: "/ui/" }).catch(() => {});
 }
 
 const byId = (id) => document.getElementById(id);
@@ -170,9 +172,13 @@ const action = (label, handler, disabled = false) => {
   button.disabled = disabled;
   button.addEventListener("click", async () => {
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
     try { await handler(); }
     catch (error) { showNotice(error.message, true); }
-    finally { if (button.isConnected) button.disabled = disabled; }
+    finally {
+      button.removeAttribute("aria-busy");
+      if (button.isConnected) button.disabled = disabled;
+    }
   });
   return button;
 };
@@ -202,28 +208,98 @@ const runModelAction = async (path, payload, message) => {
   }
 };
 
+const capability = (list, label, value) => {
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  detail.textContent = value;
+  list.append(term, detail);
+};
+
+const renderLoadCapabilities = (inspection) => {
+  const panel = byId("load-task-contract");
+  const list = byId("load-task-capabilities");
+  list.replaceChildren();
+  panel.hidden = loadGeneration;
+  if (loadGeneration) return;
+  const task = inspection.task || "unknown";
+  const capabilities = inspection.capabilities;
+  capability(list, "Task", task);
+  if (!capabilities) {
+    capability(list, "Load settings", "none");
+    return;
+  }
+  capability(list, task === "rerank" ? "Maximum pair" : "Maximum input",
+    `${capabilities.max_input_tokens.toLocaleString()} tokens`);
+  if (capabilities.embedding) {
+    const embedding = capabilities.embedding;
+    capability(list, "Output", `${embedding.native_dimensions.toLocaleString()} dimensions`);
+    capability(list, "Pooling", `${embedding.pooling.replace("_", " ")} · ${embedding.normalized ? "normalized" : "not normalized"} · prompt ${embedding.includes_prompt ? "included" : "excluded"}`);
+    const prompts = embedding.prompt_names.length === 0 ? "none"
+      : `${embedding.prompt_names.join(", ")}${embedding.default_prompt ? ` · default ${embedding.default_prompt}` : ""}`;
+    capability(list, "Prompt presets", prompts);
+  }
+  if (capabilities.rerank) {
+    const rerank = capabilities.rerank;
+    capability(list, "Classifier", `${rerank.labels} label${rerank.labels === 1 ? "" : "s"} · ${rerank.pooling} pooling`);
+    capability(list, "Scores", rerank.raw_scores ? "relevance score · raw logits available" : "relevance score");
+  }
+};
+
+const enableGenerationFields = (enabled) => {
+  byId("load-generation-fields").querySelectorAll("input")
+    .forEach((input) => { input.disabled = !enabled; });
+};
+
+const setLoadButtonState = (state) => {
+  const button = byId("confirm-load");
+  const busy = state === "inspecting" || state === "submitting";
+  button.disabled = state !== "ready";
+  if (busy) button.setAttribute("aria-busy", "true");
+  else button.removeAttribute("aria-busy");
+  button.textContent = state === "inspecting" ? "Inspecting…"
+    : state === "submitting" ? "Starting…" : "Load model";
+};
+
 const openLoadDialog = async (selector) => {
   loadSelector = selector;
+  loadGeneration = false;
   text("load-target", selector);
+  text("load-settings-kind", "Inspecting model");
   text("load-memory", "Inspecting model and memory…");
-  byId("confirm-load").disabled = true;
+  byId("load-generation-fields").hidden = true;
+  enableGenerationFields(false);
+  byId("load-generation-note").hidden = true;
+  byId("load-task-contract").hidden = true;
+  setLoadButtonState("inspecting");
   byId("load-force").checked = false;
   byId("load-dialog").showModal();
   try {
     const inspection = await request(`/models/inspect?selector=${encodeURIComponent(selector)}`);
     const settings = inspection.settings;
-    byId("load-max-tokens").value = settings.max_tokens;
-    byId("load-temperature").value = settings.temperature;
-    byId("load-top-p").value = settings.top_p;
-    byId("load-top-k").value = settings.top_k;
-    byId("load-repetition").value = settings.repetition_penalty;
+    loadGeneration = inspection.task === "generation" || (!inspection.task && settings != null);
+    if (loadGeneration && !settings) throw new Error("generation settings missing");
+    if (loadGeneration) {
+      byId("load-max-tokens").value = settings.max_tokens;
+      byId("load-temperature").value = settings.temperature;
+      byId("load-top-p").value = settings.top_p;
+      byId("load-top-k").value = settings.top_k;
+      byId("load-repetition").value = settings.repetition_penalty;
+    }
+    byId("load-generation-fields").hidden = !loadGeneration;
+    enableGenerationFields(loadGeneration);
+    byId("load-generation-note").hidden = !loadGeneration;
+    renderLoadCapabilities(inspection);
+    const task = inspection.task || (loadGeneration ? "generation" : "unknown");
+    text("load-settings-kind", loadGeneration ? "Generation defaults" : `${task} model`);
     const memory = inspection.memory;
-    const saved = inspection.has_mirmir_overrides ? "saved MiRMiR defaults" : "model defaults";
-    text("load-memory", `${memory.fit} · ${bytes(memory.required_bytes)} required · ${saved} · ${memory.memory_source}`);
-    byId("confirm-load").disabled = false;
+    const saved = loadGeneration
+      ? ` · ${inspection.has_mirmir_overrides ? "saved MiRMiR defaults" : "model defaults"}` : "";
+    text("load-memory", `${memory.fit} · ${bytes(memory.required_bytes)} required${saved} · ${memory.memory_source}`);
+    setLoadButtonState("ready");
   } catch (error) {
     text("load-memory", error.message);
-    byId("confirm-load").disabled = true;
+    setLoadButtonState("unavailable");
   }
 };
 
@@ -258,7 +334,7 @@ const renderChatModels = (models) => {
 const operationFor = (...targets) => {
   const targetSet = new Set(targets.filter(Boolean));
   const live = [...activities.values()]
-    .filter((event) => targetSet.has(event.target) && ["running", "cancelling"].includes(event.state))
+    .filter((event) => targetSet.has(event.target) && liveOperationStates.has(event.state))
     .sort((left, right) => right.updated_at_unix_ms - left.updated_at_unix_ms)[0];
   if (live) return live;
   return targets.map((target) => pendingModelOperations.get(target)).find(Boolean) || null;
@@ -270,10 +346,22 @@ const pullOperations = () => {
     .filter((operation) => operation.kind === "pull")
     .forEach((operation) => operations.set(operation.target, operation));
   [...activities.values()]
-    .filter((event) => event.kind === "pull" && ["running", "cancelling"].includes(event.state))
+    .filter((event) => event.kind === "pull" && liveOperationStates.has(event.state))
     .sort((left, right) => left.updated_at_unix_ms - right.updated_at_unix_ms)
     .forEach((event) => operations.set(event.target, event));
   return [...operations.values()];
+};
+
+const operationControl = (operation) => {
+  if (!operation.cancellable || !liveOperationStates.has(operation.state)) {
+    return action(`${operation.kind}…`, () => {}, true);
+  }
+  return action("Cancel", async () => {
+    const response = await mutate("/activity/cancel", { operation_id: operation.operation_id });
+    showNotice(response.accepted
+      ? "Cancellation requested; partial download will be removed"
+      : `Cancellation not accepted (${response.state})`);
+  }, operation.state === "cancelling");
 };
 
 const operationProgress = (container, operation) => {
@@ -300,14 +388,14 @@ const appendPullRow = (rows, operation) => {
   row.className = "busy";
   cell(row, operation.target);
   const state = cell(row, "");
-  const stateBadge = badge("loading");
+  const stateBadge = badge(operation.state === "queued" ? "queued" : "loading");
   stateBadge.textContent = operation.stage || operation.state;
   state.appendChild(stateBadge);
   operationProgress(state, operation);
   cell(row, "pending");
   cell(row, operation.detail || "Downloading from Hugging Face", "path");
   const controls = cell(row, "");
-  controls.appendChild(action("pull…", () => {}, true));
+  controls.appendChild(operationControl(operation));
   rows.appendChild(row);
 };
 
@@ -328,31 +416,45 @@ const renderLocalModels = (data) => {
     const operation = operationFor(model.selector, model.id, model.repo_id, model.path);
     if (operation) {
       row.classList.add("busy");
-      const stateBadge = badge("loading");
+      const stateBadge = badge(operation.state === "queued" ? "queued" : "loading");
       stateBadge.textContent = operation.stage || operation.state;
       state.appendChild(stateBadge);
       operationProgress(state, operation);
     } else {
-      state.appendChild(badge(model.state));
+      state.appendChild(badge(model.state === "available" && !model.loadable ? "unavailable" : model.state));
     }
-    cell(row, model.revision || "local");
-    cell(row, model.repo_id || model.path, "path").title = model.path;
+    cell(row, model.model_class || "unknown").title = model.revision || "local";
+    const unavailable = model.state === "available" && !model.loadable;
+    const detail = unavailable ? model.load_unavailable_reason : (model.repo_id || model.path);
+    cell(row, detail, "path").title = unavailable
+      ? `${model.load_unavailable_reason}\n${model.path}`
+      : model.path;
     const controls = cell(row, "");
     if (operation) {
-      controls.appendChild(action(`${operation.kind}…`, () => {}, true));
+      controls.appendChild(operationControl(operation));
     } else if (model.state === "ready") {
       controls.appendChild(action("Unload", () => runModelAction("/models/unload", { selector: model.selector }, "Unload requested")));
     } else if (model.state === "missing") {
       if (model.repo_id) controls.appendChild(action("Remove", () => openRemoveDialog(model.repo_id)));
     } else {
-      controls.appendChild(action("Load", () => openLoadDialog(model.selector), model.state !== "available" || !runtimeReady));
-      controls.appendChild(action("Remove", () => openRemoveDialog(model.repo_id), model.state !== "available"));
+      if (unavailable) {
+        controls.appendChild(action("Why?", () => showNotice(model.load_unavailable_reason, true)));
+      }
+      const load = action("Load", () => openLoadDialog(model.selector), unavailable || model.state !== "available" || !runtimeReady);
+      if (unavailable) load.title = model.load_unavailable_reason;
+      controls.appendChild(load);
+      if (model.repo_id) {
+        controls.appendChild(action("Remove", () => openRemoveDialog(model.repo_id), model.state !== "available"));
+      }
     }
     rows.appendChild(row);
   });
   const missing = data.models.filter((model) => model.state === "missing").length;
   const summary = [`${data.models.length - missing} local`];
-  if (downloads.length > 0) summary.push(`${downloads.length} downloading`);
+  const queued = downloads.filter((operation) => operation.state === "queued").length;
+  const downloading = downloads.length - queued;
+  if (downloading > 0) summary.push(`${downloading} downloading`);
+  if (queued > 0) summary.push(`${queued} queued`);
   if (missing > 0) summary.push(`${missing} missing`);
   text("model-count", summary.join(" · "));
   byId("models-empty").hidden = rows.children.length > 0;
@@ -365,31 +467,36 @@ const renderCatalog = (data) => {
   const showIncompatible = byId("show-incompatible").checked;
   const models = data.models.filter((model) => showIncompatible ||
     model.downloaded || model.local_source !== "remote" ||
-    (model.compatibility === "supported" && model.memory_fit !== "does_not_fit"));
+    (model.compatibility !== "unsupported" && model.memory_fit !== "does_not_fit"));
   models.forEach((model) => {
     const row = document.createElement("tr");
+    const localModel = localModels.find((local) => local.repo_id === model.id);
     cell(row, model.id);
     const fit = cell(row, "");
     const operation = operationFor(model.id);
     if (operation) {
       row.classList.add("busy");
-      const stateBadge = badge("loading");
+      const stateBadge = badge(operation.state === "queued" ? "queued" : "loading");
       stateBadge.textContent = operation.stage || operation.state;
       fit.appendChild(stateBadge);
       operationProgress(fit, operation);
     } else {
-      fit.appendChild(badge(model.downloaded ? "downloaded" : model.memory_fit));
+      fit.appendChild(badge(localModel && !localModel.loadable ? "unavailable" : (model.downloaded ? "downloaded" : model.memory_fit)));
     }
     if (model.gated) fit.appendChild(badge("gated"));
-    cell(row, model.architecture || "unknown");
+    cell(row, model.model_class || "unknown");
     const popularity = `${model.downloads.toLocaleString()} downloads · ${model.likes.toLocaleString()} likes`;
-    cell(row, model.reason || model.local_source, "path").title = `${model.reason}\n${popularity}`;
+    const reason = localModel && !localModel.loadable ? localModel.load_unavailable_reason : model.reason;
+    cell(row, reason || model.local_source, "path").title = `${reason}\n${popularity}`;
     const controls = cell(row, "");
     const local = model.downloaded || model.local_source === "hf_cache";
-    const blocked = model.compatibility !== "supported" || model.memory_fit === "does_not_fit";
+    const blocked = model.compatibility === "unsupported" || model.memory_fit === "does_not_fit";
     if (operation) {
-      controls.appendChild(action(`${operation.kind}…`, () => {}, true));
+      controls.appendChild(operationControl(operation));
     } else if (local) {
+      if (localModel && !localModel.loadable) {
+        controls.appendChild(action("Why?", () => showNotice(localModel.load_unavailable_reason, true)));
+      }
       controls.appendChild(action("Remove", () => openRemoveDialog(model.id)));
     } else {
       controls.appendChild(action("Download", () =>
@@ -489,7 +596,7 @@ const renderActivity = () => {
     const detail = document.createElement("span");
     detail.textContent = `${event.stage} · ${event.detail}`;
     meta.appendChild(detail);
-    if (event.cancellable && ["running", "cancelling"].includes(event.state)) {
+    if (event.cancellable && liveOperationStates.has(event.state)) {
       meta.appendChild(action("Cancel", async () => {
         const response = await mutate("/activity/cancel", { operation_id: event.operation_id });
         showNotice(response.accepted ? "Cancellation requested" : `Cancellation not accepted (${response.state})`);
@@ -877,22 +984,29 @@ byId("show-incompatible").addEventListener("change", () => {
 });
 
 byId("cancel-load").addEventListener("click", () => byId("load-dialog").close());
+byId("load-model-form").addEventListener("invalid", (event) => {
+  showNotice(event.target.validationMessage || "Invalid model setting", true);
+}, true);
 byId("load-model-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!loadSelector) return;
-  const settings = {
+  const settings = loadGeneration ? {
     max_tokens: Number(byId("load-max-tokens").value),
     temperature: Number(byId("load-temperature").value),
     top_p: Number(byId("load-top-p").value),
     top_k: Number(byId("load-top-k").value),
     repetition_penalty: Number(byId("load-repetition").value),
-  };
+  } : null;
+  setLoadButtonState("submitting");
   try {
     await runModelAction("/models/load", {
       selector: loadSelector, settings, force: byId("load-force").checked,
     }, "Load accepted; saved settings will be reused");
     byId("load-dialog").close();
-  } catch (error) { showNotice(error.message, true); }
+  } catch (error) {
+    setLoadButtonState("ready");
+    showNotice(error.message, true);
+  }
 });
 
 byId("cancel-remove").addEventListener("click", () => byId("remove-dialog").close());

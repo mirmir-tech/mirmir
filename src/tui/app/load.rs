@@ -32,6 +32,8 @@ impl App {
         }));
         self.load_dialog = Some(LoadDialog {
             target,
+            task: String::new(),
+            capabilities: None,
             status: LoadStatus::Inspecting,
             fields: std::array::from_fn(|_| String::new()),
             selected: 0,
@@ -89,18 +91,28 @@ impl App {
     }
 
     fn apply_inspection(&mut self, response: proto::InspectModelResponse) {
-        let Some(settings) = response.settings else {
+        let settings = response.settings;
+        let task = if response.task.is_empty() && settings.is_some() {
+            "generation".to_owned()
+        } else {
+            response.task
+        };
+        if task == "generation" && settings.is_none() {
             self.fail_inspection("server returned no model settings".to_owned());
             return;
-        };
+        }
         if let Some(dialog) = self.load_dialog.as_mut() {
-            dialog.fields = [
-                settings.max_tokens.to_string(),
-                settings.temperature.to_string(),
-                settings.top_p.to_string(),
-                settings.top_k.to_string(),
-                settings.repetition_penalty.to_string(),
-            ];
+            dialog.task = task;
+            dialog.capabilities = response.capabilities;
+            if let Some(settings) = settings {
+                dialog.fields = [
+                    settings.max_tokens.to_string(),
+                    settings.temperature.to_string(),
+                    settings.top_p.to_string(),
+                    settings.top_k.to_string(),
+                    settings.repetition_penalty.to_string(),
+                ];
+            }
             dialog.has_mirmir_overrides = response.has_mirmir_overrides;
             dialog.memory = response.memory;
             dialog.status = LoadStatus::Editing;
