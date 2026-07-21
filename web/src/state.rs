@@ -48,6 +48,7 @@ pub struct RuntimeState {
     pub busy: RwSignal<HashMap<String, String>>,
     pub toasts: RwSignal<Vec<Toast>>,
     next_toast: RwSignal<u64>,
+    last_toast: RwSignal<Option<(String, bool)>>,
 }
 
 impl RuntimeState {
@@ -67,14 +68,23 @@ impl RuntimeState {
             busy: RwSignal::new(HashMap::new()),
             toasts: RwSignal::new(Vec::new()),
             next_toast: RwSignal::new(0),
+            last_toast: RwSignal::new(None),
         }
     }
 
     pub fn notify(self, message: impl Into<String>, error: bool) {
+        let message = message.into();
+        if self
+            .last_toast
+            .with_untracked(|last| duplicate_notification(last.as_ref(), &message, error))
+        {
+            return;
+        }
+        self.last_toast.set(Some((message.clone(), error)));
         let id = self.next_toast.get_untracked().saturating_add(1);
         self.next_toast.set(id);
         self.toasts.update(|items| {
-            items.push(Toast { id, message: message.into(), error });
+            items.push(Toast { id, message, error });
             if items.len() > 4 {
                 items.remove(0);
             }
@@ -119,6 +129,10 @@ impl RuntimeState {
     }
 }
 
+fn duplicate_notification(last: Option<&(String, bool)>, message: &str, error: bool) -> bool {
+    last.is_some_and(|(previous, previous_error)| previous == message && *previous_error == error)
+}
+
 pub fn bytes(value: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     let mut size = value as f64;
@@ -132,4 +146,21 @@ pub fn bytes(value: u64) -> String {
 
 pub fn number(value: Option<f64>) -> String {
     value.map_or_else(|| "—".to_owned(), |value| format!("{value:.1}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duplicate_notification;
+
+    #[test]
+    fn suppresses_only_an_identical_consecutive_notification() {
+        let repeated_error = ("TypeError: Load failed".to_owned(), true);
+        assert!(duplicate_notification(Some(&repeated_error), "TypeError: Load failed", true));
+        let intervening_message = ("Connection restored".to_owned(), false);
+        assert!(!duplicate_notification(
+            Some(&intervening_message),
+            "TypeError: Load failed",
+            true
+        ));
+    }
 }

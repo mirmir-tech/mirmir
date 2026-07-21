@@ -114,9 +114,9 @@ fn append_cached(
     let Ok(id) = model_key(&cached.repo_id) else {
         return;
     };
-    let selector = cached.snapshot.display().to_string();
-    let state = state(&selector, &cached.snapshot, models, loading);
     let details = super::presentation::inspect(&cached.snapshot, GenerationConfig::default());
+    let selector = cached.snapshot.display().to_string();
+    let state = state(&selector, &cached.snapshot, details.loadable, models, loading);
     listed.push(proto::LocalModelInfo {
         id,
         repo_id: cached.repo_id.clone(),
@@ -162,7 +162,7 @@ fn configured(
         revision: hub.revision,
         commit: hub.commit,
         path: config.path.display().to_string(),
-        state: state(&config.id, &config.path, models, loading).to_owned(),
+        state: state(&config.id, &config.path, details.loadable, models, loading).to_owned(),
         selector: config.id.clone(),
         managed: config.hub.is_some()
             && config.path.starts_with(&service.store.paths().hub_cache_dir),
@@ -185,6 +185,7 @@ fn configured(
 fn state(
     selector: &str,
     path: &std::path::Path,
+    loadable: bool,
     models: &HashMap<String, super::models::ModelEntry>,
     loading: &HashSet<String>,
 ) -> &'static str {
@@ -192,6 +193,8 @@ fn state(
         "ready"
     } else if loading.contains(selector) {
         "loading"
+    } else if !loadable {
+        "error"
     } else if path.exists() {
         "available"
     } else {

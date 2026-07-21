@@ -7,8 +7,8 @@ use ratatui::{
 };
 
 use super::{
-    app::{App, Screen, WORKSPACE_PREFIX, WORKSPACE_TABS},
-    chat, configuration, confirm, help, load, models, overview, theme,
+    app::{App, InitialRefresh, Screen, WORKSPACE_PREFIX, WORKSPACE_TABS},
+    chat, configuration, confirm, help, load, models, overview, startup, theme,
 };
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -33,6 +33,9 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
         Screen::Settings => Some(configuration::draw(frame, vertical[2], app)),
     };
     app.set_list_view(list_area);
+    if app.initial_refresh == InitialRefresh::Pending {
+        startup::draw(frame, app.animation_tick);
+    }
     if app.load_dialog.is_some() {
         load::draw(frame, app);
     }

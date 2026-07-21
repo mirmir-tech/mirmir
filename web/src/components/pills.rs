@@ -15,7 +15,10 @@ pub fn StatePill(
     #[prop(into)] progress: Signal<Option<f64>>,
 ) -> impl IntoView {
     view! {
-        <span class=move || format!("state-pill {}", state.get().replace([' ', '_'], "-")) title=move || detail.get()>
+        <span
+            class=move || format!("state-pill {}", state.get().replace([' ', '_'], "-"))
+            data-tooltip=move || detail.get()
+        >
             <Show when=move || matches!(state.get().as_str(), "loading" | "unloading" | "downloading")>
                 <span class="progress-ring" style=move || progress.get().map(|value| format!("--progress: {value}%"))></span>
             </Show>
@@ -28,9 +31,9 @@ pub fn StatePill(
 pub fn FeaturePills(tool_use: bool, thinking: bool, vision: bool) -> impl IntoView {
     view! {
         <span class="feature-list">
-            {tool_use.then(|| view! { <span class="feature-pill tools" title="Tool use"><Icon name="tools" /></span> })}
-            {thinking.then(|| view! { <span class="feature-pill thinking" title="Thinking"><Icon name="thinking" /></span> })}
-            {vision.then(|| view! { <span class="feature-pill vision" title="Vision"><Icon name="vision" /></span> })}
+            {tool_use.then(|| view! { <span class="feature-pill tools" data-tooltip="Tool use"><Icon name="tools" /></span> })}
+            {thinking.then(|| view! { <span class="feature-pill thinking" data-tooltip="Thinking"><Icon name="thinking" /></span> })}
+            {vision.then(|| view! { <span class="feature-pill vision" data-tooltip="Vision"><Icon name="vision" /></span> })}
             {(!tool_use && !thinking && !vision).then(|| view! { <span class="feature-empty">"—"</span> })}
         </span>
     }

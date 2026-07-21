@@ -66,7 +66,7 @@ pub fn SearchPopup() -> impl IntoView {
         <div class="model-search-launch" class:open=move || ui.search_open.get()>
             <div class="search-field"><span aria-hidden="true"></span>
                 <input placeholder="Search by owner or model name" aria-label="Search Hugging Face" prop:value=move || query.get() on:focus=move |_| ui.search_open.set(true) on:input=move |event| search(event_target_value(&event)) on:keydown=move |event| { if event.key() == "Escape" { event.prevent_default(); ui.search_open.set(false); } } />
-                <Show when=move || ui.search_open.get()><button class="search-dismiss" type="button" aria-label="Close model search" on:click=move |_| ui.search_open.set(false)>"×"</button></Show>
+                <Show when=move || ui.search_open.get()><button class="search-dismiss" type="button" data-tooltip="Close model search" aria-label="Close model search" on:click=move |_| ui.search_open.set(false)>"×"</button></Show>
             </div>
             <Show when=move || ui.search_open.get()>
                 <button class="catalog-dismiss-layer" type="button" aria-label="Close model search overlay" on:click=move |_| ui.search_open.set(false)></button>
@@ -117,9 +117,9 @@ fn CatalogRow(model: CatalogModel) -> impl IntoView {
     };
     view! { <tr><td><span class="model-name"><strong>{model.id.clone()}</strong><small>{reason.get_value()}</small></span></td><td><TypePill value=model.library.clone() /></td><td class="model-size">{model.estimated_weight_bytes.map_or_else(|| "—".to_owned(), bytes)}</td><td><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
         <Show when=move || operation().is_some_and(|item| item.cancellable) fallback=move || view! {
-            <button class="icon-action" class:downloaded=downloaded disabled=move || downloaded || busy() title=if downloaded { "Downloaded" } else { "Download model" } aria-label=if downloaded { "Downloaded" } else { "Download model" } on:click=move |_| start_download(state, &stored_model.get_value())><Icon name=if downloaded { "downloaded" } else { "download" } /></button>
+            <button class="icon-action" class:downloaded=downloaded disabled=move || downloaded || busy() data-tooltip=if downloaded { "Downloaded" } else { "Download model" } aria-label=if downloaded { "Downloaded" } else { "Download model" } on:click=move |_| start_download(state, &stored_model.get_value())><Icon name=if downloaded { "downloaded" } else { "download" } /></button>
         }>
-            <button class="icon-action" title="Cancel download" aria-label="Cancel download" on:click=move |_| if let Some(item) = operation() { cancel(state, item.operation_id); }><Icon name="cancel" /></button>
+            <button class="icon-action" data-tooltip="Cancel download" aria-label="Cancel download" on:click=move |_| if let Some(item) = operation() { cancel(state, item.operation_id); }><Icon name="cancel" /></button>
         </Show>
     </td></tr> }
 }

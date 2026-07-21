@@ -40,6 +40,12 @@ pub enum Screen {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitialRefresh {
+    Pending,
+    Complete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogFilter {
     Compatible,
     All,
@@ -76,6 +82,7 @@ pub struct App {
     pub help_open: bool,
     pub list_view: Option<ListView>,
     pub animation_tick: u64,
+    pub initial_refresh: InitialRefresh,
     pub server_reused: bool,
     pub server_version: String,
     pub protocol_version: String,
@@ -126,6 +133,7 @@ pub struct App {
     restore_queue: VecDeque<String>,
     restore_total: usize,
     restore_completed: usize,
+    restore_rx: Option<mpsc::Receiver<Result<Vec<String>, String>>>,
     transfer_tx: mpsc::Sender<Result<proto::ModelTransferEvent, String>>,
     transfer_rx: mpsc::Receiver<Result<proto::ModelTransferEvent, String>>,
     catalog_search_rx: Option<mpsc::Receiver<models::CatalogSearchEvent>>,
@@ -148,6 +156,7 @@ impl App {
             help_open: false,
             list_view: None,
             animation_tick: 0,
+            initial_refresh: InitialRefresh::Pending,
             server_reused,
             server_version: "connecting".to_owned(),
             protocol_version: "-".to_owned(),
@@ -198,6 +207,7 @@ impl App {
             restore_queue: VecDeque::new(),
             restore_total: 0,
             restore_completed: 0,
+            restore_rx: None,
             transfer_tx,
             transfer_rx,
             catalog_search_rx: None,

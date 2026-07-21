@@ -1,12 +1,28 @@
 use ratatui::{Terminal, backend::TestBackend};
 
-use super::super::{app::App, render};
+use super::super::{
+    app::{App, InitialRefresh},
+    render,
+};
 
 pub(super) fn rendered(
     app: &mut App,
     width: u16,
     height: u16,
 ) -> Result<String, std::convert::Infallible> {
+    app.initial_refresh = InitialRefresh::Complete;
+    render(app, width, height)
+}
+
+pub(super) fn rendered_starting(
+    app: &mut App,
+    width: u16,
+    height: u16,
+) -> Result<String, std::convert::Infallible> {
+    render(app, width, height)
+}
+
+fn render(app: &mut App, width: u16, height: u16) -> Result<String, std::convert::Infallible> {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend)?;
     terminal.draw(|frame| render::draw(frame, app))?;

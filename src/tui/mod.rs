@@ -7,6 +7,7 @@ mod load;
 mod models;
 mod overview;
 mod render;
+mod startup;
 mod terminal;
 #[cfg(test)]
 mod tests;
@@ -50,7 +51,7 @@ async fn dashboard(client: &mut rpc::Client, server_reused: bool) -> Result<()> 
     let mut chat_telemetry_task = None;
     app.begin_activity(client);
     if !server_reused {
-        app.begin_restore(client).await;
+        app.begin_restore(client);
     }
 
     loop {

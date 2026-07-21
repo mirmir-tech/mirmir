@@ -66,15 +66,15 @@ pub fn LocalRow(model: Model) -> impl IntoView {
             <td><StatePill state=display_state detail=detail progress=progress /></td>
             <td class="model-actions">
                 <Show when=move || can_unload fallback=move || {
-                    view! { <button class="icon-action" title="Load model" aria-label="Load model" disabled=busy on:click=move |_| super::dialogs::inspect(stored_model.get_value())><Icon name="load" /></button> }
+                    view! { <button class="icon-action" data-tooltip="Load model" aria-label="Load model" disabled=busy on:click=move |_| super::dialogs::inspect(stored_model.get_value())><Icon name="load" /></button> }
                 }>
-                    <button class="icon-action" title="Unload model" aria-label="Unload model" disabled=busy on:click=move |_| { let target = selector.get_value(); run_action(state, target.clone(), "/models/unload", json!({"selector": target})); }><Icon name="unload" /></button>
+                    <button class="icon-action" data-tooltip="Unload model" aria-label="Unload model" disabled=busy on:click=move |_| { let target = selector.get_value(); run_action(state, target.clone(), "/models/unload", json!({"selector": target})); }><Icon name="unload" /></button>
                 </Show>
                 <Show when=move || !can_unload && !busy()>
-                    <button class="icon-action danger" title="Remove model" aria-label="Remove model" on:click=move |_| ui.remove_target.set(Some(repo_id.get_value()))><Icon name="remove" /></button>
+                    <button class="icon-action danger" data-tooltip="Remove model" aria-label="Remove model" on:click=move |_| ui.remove_target.set(Some(repo_id.get_value()))><Icon name="remove" /></button>
                 </Show>
                 <Show when=move || operation().is_some_and(|item| item.cancellable)>
-                    <button class="icon-action" title="Cancel operation" aria-label="Cancel operation" on:click=move |_| {
+                    <button class="icon-action" data-tooltip="Cancel operation" aria-label="Cancel operation" on:click=move |_| {
                         if let Some(item) = operation() { cancel(state, item.operation_id); }
                     }><Icon name="cancel" /></button>
                 </Show>

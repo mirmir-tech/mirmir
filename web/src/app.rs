@@ -2,7 +2,7 @@ use leptos::prelude::*;
 
 use crate::{
     cleanup,
-    components::{Header, Navigation, Toasts},
+    components::{Header, Navigation, Toasts, TooltipSurface},
     connection,
     pages::{ChatPage, DashboardPage, ModelsPage, SettingsPage},
     state::{Page, RuntimeState},
@@ -16,18 +16,20 @@ pub fn App() -> impl IntoView {
     connection::connect(state);
 
     view! {
-        <div class="app-shell">
-            <Navigation />
-            <div class="workspace">
-                <Header />
-                <main class="content">
-                    <Show when=move || state.page.get() == Page::Overview><DashboardPage /></Show>
-                    <Show when=move || state.page.get() == Page::Models><ModelsPage /></Show>
-                    <Show when=move || state.page.get() == Page::Chat><ChatPage /></Show>
-                    <Show when=move || state.page.get() == Page::Configuration><SettingsPage /></Show>
-                </main>
+        <TooltipSurface>
+            <div class="app-shell">
+                <Navigation />
+                <div class="workspace">
+                    <Header />
+                    <main class="content">
+                        <Show when=move || state.page.get() == Page::Overview><DashboardPage /></Show>
+                        <Show when=move || state.page.get() == Page::Models><ModelsPage /></Show>
+                        <Show when=move || state.page.get() == Page::Chat><ChatPage /></Show>
+                        <Show when=move || state.page.get() == Page::Configuration><SettingsPage /></Show>
+                    </main>
+                </div>
             </div>
-        </div>
-        <Toasts />
+            <Toasts />
+        </TooltipSurface>
     }
 }

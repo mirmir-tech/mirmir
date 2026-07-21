@@ -330,8 +330,9 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .icon-action.busy:disabled { border-color: rgb(121 215 255 / 48%); background: rgb(121 215 255 / 8%); color: var(--mir-color-glacier); }
 .icon-action.busy.removing:disabled { border-color: rgb(152 167 181 / 35%); background: rgb(152 167 181 / 7%); color: var(--mir-color-muted); }
 .icon-action.busy::after { position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; border: 2px solid rgb(121 215 255 / 28%); border-top-color: currentcolor; border-radius: 50%; content: ""; animation: button-activity .7s linear infinite; }
-.floating-tooltip { position: fixed; z-index: 200; width: max-content; max-width: min(320px, calc(100vw - 24px)); padding: 7px 9px; border: 1px solid var(--mir-color-border); border-radius: 5px; background: #080b0f; color: var(--mir-color-ink); pointer-events: none; font: 10px/1.4 var(--mir-font-mono); letter-spacing: normal; text-align: left; text-transform: none; white-space: normal; box-shadow: 0 8px 30px rgb(0 0 0 / 45%); }
+.floating-tooltip { position: fixed; z-index: 200; width: max-content; max-width: min(320px, calc(100vw - 24px)); padding: 7px 9px; border: 1px solid var(--mir-color-border); border-radius: 5px; background: #080b0f; color: var(--mir-color-ink); pointer-events: none; font: 10px/1.4 var(--mir-font-mono); letter-spacing: normal; text-align: left; text-transform: none; white-space: normal; box-shadow: 0 8px 30px rgb(0 0 0 / 45%); transform: translate(-50%, -100%); }
 .floating-tooltip[hidden] { display: none; }
+.tooltip-surface { display: contents; }
 
 .catalog-popup { position: absolute; z-index: 71; top: calc(100% - 1px); left: 0; width: 100%; max-width: none; max-height: min(720px, calc(100dvh - 180px)); margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--mir-color-border); border-radius: 0 0 12px 12px; background: var(--mir-color-surface); color: var(--mir-color-ink); box-shadow: 0 24px 80px rgb(0 0 0 / 62%); transform-origin: top center; animation: catalog-open .14s ease-out; }
 .catalog-dismiss-layer { position: fixed; z-index: 69; inset: 0; padding: 0; border: 0; background: transparent; }
@@ -435,7 +436,21 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .attachment-remove:hover { background: rgb(255 255 255 / 7%); color: var(--mir-color-ink); }
 
 .configuration-table { margin-bottom: 14px; }
-.configuration-table td:last-child { white-space: nowrap; }
+.configuration-table th:last-child, .configuration-table td:last-child { text-align: right; }
+.configuration-table td { vertical-align: middle; }
+.configuration-table td:last-child { width: 1%; min-width: 238px; white-space: nowrap; }
+.inline-actions { display: inline-flex; min-height: 32px; align-items: center; justify-content: flex-end; gap: 6px; vertical-align: middle; }
+.inline-actions[hidden] { display: none; }
+.settings-action { box-sizing: border-box; display: inline-flex; width: 70px; min-width: 70px; min-height: 32px; height: 32px; padding: 0 10px; align-items: center; justify-content: center; border: 1px solid var(--mir-color-border); border-radius: var(--mir-radius-control); appearance: none; background: var(--mir-color-canvas); color: var(--mir-color-muted); cursor: pointer; font: 600 10px/1 var(--mir-font-mono); letter-spacing: .01em; white-space: nowrap; }
+.settings-action:hover { border-color: rgb(121 215 255 / 48%); background: rgb(121 215 255 / 7%); color: var(--mir-color-ink); }
+.settings-action.primary { border-color: var(--mir-color-signal); background: var(--mir-color-signal); color: #fff; }
+.settings-action.primary:hover { border-color: #659cf8; background: #659cf8; }
+.settings-action.quiet { border-color: var(--mir-color-border); background: transparent; color: var(--mir-color-muted); }
+.settings-action.quiet:hover { border-color: rgb(121 215 255 / 48%); background: rgb(121 215 255 / 7%); color: var(--mir-color-ink); }
+.settings-action.danger { border-color: rgb(240 113 120 / 45%); background: rgb(240 113 120 / 5%); color: var(--mir-color-danger); }
+.settings-action.danger:hover { border-color: rgb(240 113 120 / 65%); background: rgb(240 113 120 / 11%); color: var(--mir-color-danger); }
+.settings-action:focus-visible { outline: 0; box-shadow: var(--mir-focus-ring); }
+.settings-action:disabled { border-color: var(--mir-color-border); background: var(--mir-color-raised); color: var(--mir-color-thought); cursor: not-allowed; }
 .raw-config { overflow: hidden; }
 .raw-config summary { padding: 14px 18px; color: var(--mir-color-muted); cursor: pointer; font-weight: 600; }
 .raw-config[open] summary { border-bottom: 1px solid var(--mir-color-border); color: var(--mir-color-ink); }

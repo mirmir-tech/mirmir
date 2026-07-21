@@ -5,6 +5,7 @@ mod fixtures;
 mod help;
 mod models;
 mod restore;
+mod startup;
 use fixtures::{rendered, telemetry};
 #[test]
 fn renders_identity_dashboard_at_minimum_size() -> Result<(), std::convert::Infallible> {

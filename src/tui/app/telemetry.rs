@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use super::App;
+use super::{App, InitialRefresh};
 use crate::rpc::{Client, PROTOCOL_VERSION, proto};
 
 const HISTORY_LENGTH: u32 = 900;
@@ -56,6 +56,7 @@ impl App {
     }
 
     pub(in crate::tui) fn apply_refresh(&mut self, result: Result<RefreshSnapshot, String>) {
+        self.initial_refresh = InitialRefresh::Complete;
         let snapshot = match result {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -168,5 +169,13 @@ mod tests {
         let points = app.telemetry_history.iter().copied().collect::<Vec<_>>();
         assert_eq!(points[0].e2e, 24);
         assert_eq!(points[0].memory_percent, 75);
+    }
+
+    #[test]
+    fn failed_initial_refresh_removes_the_loading_overlay() {
+        let mut app = App::new(true);
+        app.apply_refresh(Err("runtime unavailable".to_owned()));
+        assert_eq!(app.initial_refresh, InitialRefresh::Complete);
+        assert_eq!(app.last_error.as_deref(), Some("runtime unavailable"));
     }
 }

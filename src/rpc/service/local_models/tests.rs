@@ -21,7 +21,7 @@ fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Resu
     let models = service.local_models().expect("local models should be listed");
     let model = models.iter().find(|model| model.repo_id == "Org/Unsupported").unwrap();
     assert!(model.managed);
-    assert_eq!(model.state, "available");
+    assert_eq!(model.state, "error");
     assert!(!model.loadable);
     assert!(!model.load_unavailable_reason.is_empty());
     std::fs::remove_dir_all(root)?;

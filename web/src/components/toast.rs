@@ -15,7 +15,7 @@ pub fn Toasts() -> impl IntoView {
                     view! {
                         <div class="toast" class:error=toast.error role=if toast.error { "alert" } else { "status" }>
                             <span>{toast.message}</span>
-                            <button type="button" aria-label="Dismiss notification" on:click=move |_| state.dismiss(id)>"×"</button>
+                            <button type="button" data-tooltip="Dismiss notification" aria-label="Dismiss notification" on:click=move |_| state.dismiss(id)>"×"</button>
                         </div>
                     }
                 }
