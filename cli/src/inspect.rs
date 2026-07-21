@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use libmir::models::{
-    execution::ExecutionPlan,
+    execution::DecoderExecutionContract,
     layout::{AttentionLayerType, DecoderConfig, ModelLayout, ModelMetadata},
-    weights::{DecoderTensorSchema, TensorCatalog},
+    weights::TensorCatalog,
 };
 
 use crate::{error::CliError, write_lines};
@@ -13,29 +13,21 @@ pub fn run(path: &Path) -> Result<(), CliError> {
     let metadata = ModelMetadata::from_layout(&layout)?;
     let decoder = DecoderConfig::from_layout(&layout)?;
     let tensors = TensorCatalog::from_layout(&layout)?;
-    let schema = DecoderTensorSchema::discover(&decoder, &tensors);
-    let readiness = schema.readiness(&tensors);
-    let support = native_support(&metadata, &decoder, &tensors);
+    let support = native_support(&layout, &decoder, &tensors);
     let (linear_attention_layers, full_attention_layers) = attention_layer_counts(&decoder);
     let weight_bytes: u64 = layout.weights.iter().map(|weight| weight.bytes).sum();
     tracing::info!(
         root = %layout.root.display(),
-        family = ?metadata.family,
         model_type = metadata.model_type.as_deref().unwrap_or("unknown"),
         context_len = metadata.context_len,
         tensors = tensors.len(),
         weight_files = layout.weights.len(),
         weight_bytes,
-        readiness = %readiness.summary(),
-        execution = %support.summary(),
+        execution_contract = %support.summary(),
         "model inspected"
     );
-    for missing in &readiness.missing {
-        tracing::warn!(root = %layout.root.display(), missing = %missing, "model tensor missing");
-    }
     let mut lines = vec![
         format!("root: {}", layout.root.display()),
-        format!("family: {:?}", metadata.family),
         format!("model_type: {}", metadata.model_type.as_deref().unwrap_or("unknown")),
         format!("architectures: {}", metadata.architectures.join(", ")),
         format!("dtype: {}", metadata.dtype.as_deref().unwrap_or("unknown")),
@@ -85,8 +77,7 @@ pub fn run(path: &Path) -> Result<(), CliError> {
         format!("quantized_weight_tensors: {}", quantized_weight_tensors(&tensors)),
         format!("has_embeddings: {}", has_embeddings(&tensors)),
         format!("has_lm_head: {}", has_lm_head(&tensors)),
-        format!("decoder_readiness: {}", readiness.summary()),
-        format!("execution_plan: {}", support.plan_summary()),
+        format!("execution_contract: {}", support.contract_summary()),
         format!("native_execution: {}", support.summary()),
     ];
     lines.extend(support.blockers.iter().map(|blocker| format!("execution_blocker: {blocker}")));
@@ -94,54 +85,42 @@ pub fn run(path: &Path) -> Result<(), CliError> {
 }
 
 struct NativeSupport {
-    ready: bool,
-    plan: Option<ExecutionPlan>,
+    contract: Option<String>,
     blockers: Vec<String>,
 }
 
 impl NativeSupport {
     fn summary(&self) -> String {
-        if self.ready {
-            format!("native {} decoder path ready", self.plan_summary())
+        if self.blockers.is_empty() {
+            format!("native decoder path ready ({})", self.contract_summary())
         } else {
             format!("blocked by {}", self.blockers.join("; "))
         }
     }
 
-    fn plan_summary(&self) -> String {
-        self.plan.map_or_else(
-            || "unsupported".into(),
-            |plan| format!("{:?} / {:?} / {:?}", plan.decoder, plan.attention, plan.feed_forward),
-        )
+    fn contract_summary(&self) -> &str {
+        self.contract.as_deref().unwrap_or("unsupported")
     }
 }
 
 fn native_support(
-    metadata: &ModelMetadata,
+    layout: &ModelLayout,
     decoder: &DecoderConfig,
     tensors: &TensorCatalog,
 ) -> NativeSupport {
     let mut blockers = Vec::new();
-    let plan = match ExecutionPlan::discover(decoder, tensors) {
-        Ok(plan) => Some(plan),
+    let contract = match DecoderExecutionContract::discover(layout, decoder, tensors) {
+        Ok(contract) => Some(format!(
+            "{} semantic layers / {} logical tensor bindings",
+            contract.semantic.decoder.layers.len(),
+            contract.bindings.tensors.len()
+        )),
         Err(error) => {
             blockers.push(error.to_string());
             None
         },
     };
-    if plan.is_some() && metadata.quantization_group_size.is_none() {
-        blockers.push("native quantized weights need quantization group_size".into());
-    }
-    if plan.is_some_and(|plan| !plan.is_native_implemented()) {
-        blockers.push(
-            "native execution path for the detected hybrid linear MoE decoder is pending".into(),
-        );
-    }
-    NativeSupport {
-        ready: blockers.is_empty(),
-        plan,
-        blockers,
-    }
+    NativeSupport { contract, blockers }
 }
 
 fn has_embeddings(tensors: &TensorCatalog) -> bool {

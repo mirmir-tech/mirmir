@@ -38,7 +38,7 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert!(index.contains("/ui/assets/brand/lockup.svg"));
     assert!(index.contains("/ui/assets/brand/favicon.svg?v=2"));
     assert!(index.contains("/ui/app.css?v=5"));
-    assert!(index.contains("/ui/app.js?v=6"));
+    assert!(index.contains("/ui/app.js?v=7"));
     assert!(index.contains("Starting runtime"));
     assert!(index.contains("id=\"connection-state\""));
     assert!(index.contains("<th>Model class</th>"));
@@ -100,7 +100,7 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     let bootstrap = client.get(format!("{base}/api/mirmir/v1/bootstrap")).send().await?;
     assert_eq!(bootstrap.status(), StatusCode::OK);
     let bootstrap = bootstrap.json::<Value>().await?;
-    assert_eq!(bootstrap["schema_version"], 2);
+    assert_eq!(bootstrap["schema_version"], 3);
     assert_eq!(bootstrap["application"], "mirmir");
     assert_eq!(bootstrap["management_api_base"], "/api/mirmir/v1");
     assert_eq!(bootstrap["capabilities"]["management"], "model-lifecycle");

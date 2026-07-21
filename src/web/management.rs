@@ -18,7 +18,6 @@ use crate::{
 pub struct InspectQuery {
     selector: String,
 }
-
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Settings {
     max_tokens: u64,
@@ -27,30 +26,33 @@ pub struct Settings {
     top_k: u64,
     repetition_penalty: f32,
 }
-
 #[derive(Deserialize)]
 pub struct LoadRequest {
     selector: String,
     settings: Option<Settings>,
     #[serde(default)]
+    config_id: String,
+    #[serde(default)]
+    repo_id: String,
+    #[serde(default)]
+    revision: String,
+    #[serde(default)]
+    commit: String,
+    #[serde(default)]
     force: bool,
 }
-
 #[derive(Deserialize)]
 pub struct SelectorRequest {
     selector: String,
 }
-
 #[derive(Deserialize)]
 pub struct RemoveRequest {
     repo_id: String,
 }
-
 #[derive(Deserialize)]
 pub struct CancelRequest {
     operation_id: String,
 }
-
 #[derive(Serialize)]
 struct Inspection {
     settings: Option<Settings>,
@@ -59,7 +61,6 @@ struct Inspection {
     task: String,
     capabilities: Option<TaskCapabilities>,
 }
-
 #[derive(Serialize)]
 struct Memory {
     required_bytes: u64,
@@ -71,7 +72,6 @@ struct Memory {
     max_safe_context_tokens: Option<u64>,
     configured_cache_tokens: u64,
 }
-
 #[derive(Serialize)]
 struct Accepted {
     accepted: bool,
@@ -130,8 +130,11 @@ pub async fn load(
         .load_model(Request::new(proto::LoadModelRequest {
             selector: request.selector,
             settings: request.settings.map(Into::into),
+            config_id: request.config_id,
+            repo_id: request.repo_id,
+            revision: request.revision,
+            commit: request.commit,
             force: request.force,
-            ..Default::default()
         }))
         .await
         .map_err(WebError::from_status)?

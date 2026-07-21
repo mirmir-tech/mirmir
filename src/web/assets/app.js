@@ -1,5 +1,5 @@
 const base = "/api/mirmir/v1";
-const dashboardSchemaVersion = 2;
+const dashboardSchemaVersion = 3;
 let csrf = null;
 let updatesSocket = null;
 let reconnectTimer = null;
@@ -18,6 +18,7 @@ let searching = false;
 let catalogResults = null;
 const activities = new Map();
 const pendingModelOperations = new Map();
+const initiatedModelOperations = new Set();
 const liveOperationStates = new Set(["queued", "running", "cancelling"]);
 const maxImageBytes = 20 * 1024 * 1024;
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -27,7 +28,7 @@ const imageTypeByExtension = new Map([
 ]);
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/ui/sw.js?v=6", { scope: "/ui/" }).catch(() => {});
+  navigator.serviceWorker.register("/ui/sw.js?v=7", { scope: "/ui/" }).catch(() => {});
 }
 
 const byId = (id) => document.getElementById(id);
@@ -197,12 +198,14 @@ const runModelAction = async (path, payload, message) => {
     total: null,
     updated_at_unix_ms: Date.now(),
   });
+  initiatedModelOperations.add(target);
   renderOperationTarget(target);
   try {
     await mutate(path, payload);
     showNotice(message);
   } catch (error) {
     pendingModelOperations.delete(target);
+    initiatedModelOperations.delete(target);
     renderOperationTarget(target);
     throw error;
   }
@@ -619,6 +622,12 @@ const renderActivity = () => {
 const applyActivity = (event) => {
   activities.set(event.operation_id, event);
   pendingModelOperations.delete(event.target);
+  if (initiatedModelOperations.has(event.target) && !liveOperationStates.has(event.state)) {
+    initiatedModelOperations.delete(event.target);
+    if (event.state === "failed") {
+      showNotice(`${event.kind} failed · ${event.detail}`, true);
+    }
+  }
   renderActivity();
   renderOperationTarget(event.target);
 };
@@ -999,8 +1008,15 @@ byId("load-model-form").addEventListener("submit", async (event) => {
   } : null;
   setLoadButtonState("submitting");
   try {
+    const model = localModels.find((candidate) => candidate.selector === loadSelector);
     await runModelAction("/models/load", {
-      selector: loadSelector, settings, force: byId("load-force").checked,
+      selector: loadSelector,
+      settings,
+      config_id: model?.id || "",
+      repo_id: model?.repo_id || "",
+      revision: model?.revision || "",
+      commit: model?.commit || "",
+      force: byId("load-force").checked,
     }, "Load accepted; saved settings will be reused");
     byId("load-dialog").close();
   } catch (error) {

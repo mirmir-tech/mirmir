@@ -43,7 +43,7 @@ pub(super) fn prepare_chat(
         top_k: args.top_k,
         repetition_penalty: args.repetition_penalty,
     })?;
-    let template = ChatTemplate::from_layout(&layout, &metadata.family)?;
+    let template = ChatTemplate::from_layout(&layout)?;
     let text_tokenizer = TextTokenizer::from_layout(&layout)?;
     progress.finish()?;
     metrics.record_inspect(inspect_started.elapsed());

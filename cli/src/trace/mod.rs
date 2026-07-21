@@ -2,7 +2,7 @@ use std::path::Path;
 
 use libmir::{
     Engine, RuntimeConfig,
-    foundation::model::{BackendTarget, ModelFamily, ModelManifest, Quantization},
+    foundation::model::{BackendTarget, ModelManifest, Quantization},
     runtime::{
         backend::{
             Backend, DecodeRequest, LogitsTrace, ModelHandle, PrefillRequest, SamplingLogits,
@@ -123,7 +123,6 @@ async fn full_prefill_logits(
 fn manifest(path: &Path, model_id: &str) -> ModelManifest {
     ModelManifest {
         id: model_id.to_owned(),
-        family: ModelFamily::Unknown,
         path: path.display().to_string(),
         tokenizer_path: None,
         context_len: 0,

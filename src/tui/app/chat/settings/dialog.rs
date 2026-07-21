@@ -83,8 +83,8 @@ impl ChatParameters {
     }
 
     fn validate(&self) -> Result<(), String> {
-        if self.max_tokens == 0 || self.top_k == 0 || self.repetition_penalty <= 0.0 {
-            return Err("max tokens, top k, and repetition penalty must be positive".to_owned());
+        if self.max_tokens == 0 || self.repetition_penalty <= 0.0 {
+            return Err("max tokens and repetition penalty must be positive".to_owned());
         }
         if !self.temperature.is_finite() || self.temperature < 0.0 {
             return Err("temperature must be finite and non-negative".to_owned());
@@ -133,5 +133,13 @@ mod tests {
         assert_eq!(dialog.parameters().expect("valid settings").seed, None);
         dialog.fields[2] = "1.1".to_owned();
         assert!(dialog.parameters().is_err());
+    }
+
+    #[test]
+    fn accepts_zero_top_k_as_unbounded_sampling() {
+        let mut dialog = ChatSettingsDialog::inspecting("model".to_owned());
+        dialog.fields = ["128", "1", "1", "0", "1", ""].map(str::to_owned);
+
+        assert_eq!(dialog.parameters().expect("unbounded top-k should be valid").top_k, 0);
     }
 }

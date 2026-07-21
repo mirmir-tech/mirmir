@@ -91,7 +91,7 @@ pub async fn asset(Path(path): Path<String>) -> Response {
 
 pub async fn bootstrap() -> Response {
     let bootstrap = Bootstrap {
-        schema_version: 2,
+        schema_version: 3,
         application: "mirmir",
         server_version: env!("CARGO_PKG_VERSION"),
         protocol_version: PROTOCOL_VERSION,

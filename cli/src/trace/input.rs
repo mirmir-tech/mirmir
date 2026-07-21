@@ -2,7 +2,7 @@ use libmir::{
     foundation::protocol::{ChatCompletionRequest, ChatMessage},
     models::{
         chat::ChatTemplate,
-        layout::{ModelLayout, ModelMetadata},
+        layout::ModelLayout,
         tokenizer::TextTokenizer,
     },
 };
@@ -25,8 +25,7 @@ fn prompt_tokens(args: &TraceMetalArgs, prompt: &str) -> Result<Vec<u32>, CliErr
         return Err(CliError::Message("prompt cannot be empty".into()));
     }
     let layout = ModelLayout::inspect(&args.path)?;
-    let metadata = ModelMetadata::from_layout(&layout)?;
-    let template = ChatTemplate::from_layout(&layout, &metadata.family)?;
+    let template = ChatTemplate::from_layout(&layout)?;
     let tokenizer = TextTokenizer::from_layout(&layout)?;
     let request = ChatCompletionRequest {
         model: args.model_id.clone(),

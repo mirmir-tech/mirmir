@@ -86,7 +86,6 @@ pub(super) fn manifest(
 ) -> ModelManifest {
     ModelManifest {
         id: model_id(&args.model),
-        family: metadata.family.clone(),
         path: layout.root.display().to_string(),
         tokenizer_path: layout.tokenizer_path.as_ref().map(|path| path.display().to_string()),
         context_len: metadata.context_len,
@@ -97,7 +96,7 @@ pub(super) fn manifest(
 
 pub(super) fn header_lines(input: &HeaderInput<'_>) -> Vec<String> {
     vec![
-        format!("model: {} ({:?})", model_id(&input.args.model), input.metadata.family),
+        format!("model: {}", model_id(&input.args.model)),
         format!("backend: {} on {}", input.backend.name, input.backend.device),
         format!("prompt_template: {:?} ({:?})", input.template.kind(), input.prompt.source),
         format!(
