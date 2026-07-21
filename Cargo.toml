@@ -9,7 +9,14 @@ readme = "README.md"
 keywords = ["llm", "inference", "grpc", "tui"]
 categories = ["command-line-utilities", "development-tools"]
 build = "build.rs"
-exclude = [".cargo/", "AGENTS.md"]
+include = [
+    "build.rs",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "proto/**",
+    "src/**",
+]
 
 [workspace]
 resolver = "3"

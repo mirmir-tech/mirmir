@@ -27,10 +27,12 @@ pub use socket::updates;
 
 use crate::rpc::PROTOCOL_VERSION;
 
-const INDEX: &str = include_str!("../../web/dist/index.html");
+const INDEX: &str = include_str!(concat!(env!("OUT_DIR"), "/dashboard/index.html"));
 const STYLESHEET: &str = include_str!("assets/app.css");
-const DASHBOARD_MODULE: &str = include_str!("../../web/dist/mirmir-dashboard.js");
-const DASHBOARD_WASM: &[u8] = include_bytes!("../../web/dist/mirmir-dashboard_bg.wasm");
+const DASHBOARD_MODULE: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/dashboard/mirmir-dashboard.js"));
+const DASHBOARD_WASM: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/dashboard/mirmir-dashboard_bg.wasm"));
 const LOCKUP: &[u8] = include_bytes!("assets/brand/lockup.svg");
 const FAVICON: &[u8] = include_bytes!("assets/brand/favicon.svg");
 const TOPOGRAPHY: &[u8] = include_bytes!("assets/brand/topography.svg");

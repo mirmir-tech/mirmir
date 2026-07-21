@@ -1,4 +1,8 @@
-use std::{fs, path::Path, process::Command};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     build_dashboard()?;
@@ -16,6 +20,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn build_dashboard() -> Result<(), Box<dyn std::error::Error>> {
+    let output = PathBuf::from(env::var("OUT_DIR")?).join("dashboard");
+    if !Path::new("web/src").exists() {
+        return copy_dashboard(Path::new("src/web/dashboard"), &output);
+    }
     for path in ["web/Cargo.toml", "web/Cargo.lock", "web/Trunk.toml", "web/index.html"] {
         println!("cargo:rerun-if-changed={path}");
     }
@@ -27,6 +35,15 @@ fn build_dashboard() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|error| format!("Trunk is required to build the Leptos dashboard: {error}"))?;
     if !status.success() {
         return Err("building the Leptos dashboard with Trunk failed".into());
+    }
+    copy_dashboard(Path::new("web/dist"), &output)
+}
+
+fn copy_dashboard(source: &Path, output: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    fs::create_dir_all(output)?;
+    for name in ["index.html", "mirmir-dashboard.js", "mirmir-dashboard_bg.wasm"] {
+        println!("cargo:rerun-if-changed={}", source.join(name).display());
+        fs::copy(source.join(name), output.join(name))?;
     }
     Ok(())
 }
