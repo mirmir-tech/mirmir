@@ -44,7 +44,6 @@ pub async fn pull(
     let pending = repository
         .snapshot_download()
         .revision(revision)
-        .allow_patterns(patterns())
         .max_workers(8)
         .progress(Reporter::new(updates.clone()))
         .send();
@@ -131,22 +130,6 @@ fn client(store: &Store) -> Result<HFClient> {
         builder = builder.token(token);
     }
     Ok(builder.build()?)
-}
-
-fn patterns() -> Vec<String> {
-    [
-        "*.json",
-        "**/*.json",
-        "*.safetensors",
-        "**/*.safetensors",
-        "*.model",
-        "**/*.model",
-        "merges.txt",
-        "vocab.*",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
 }
 
 fn validated_cache_repo(
