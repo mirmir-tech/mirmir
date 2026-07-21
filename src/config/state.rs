@@ -46,13 +46,18 @@ impl Store {
 
     pub fn active_models(&self) -> Result<Vec<String>> {
         let _guard = self.lock_state()?;
-        Ok(self.load_ux_state()?.active_models)
+        let mut state = self.load_ux_state()?;
+        if self.normalize_active_models(&mut state) {
+            write_toml(&self.paths.ux_state_file, &state, false)?;
+        }
+        Ok(state.active_models)
     }
 
     pub fn activate_model(&self, id: &str) -> Result<()> {
         self.paths.ensure_config_dirs()?;
         let _guard = self.lock_state()?;
         let mut state = self.load_ux_state()?;
+        self.normalize_active_models(&mut state);
         if !state.active_models.iter().any(|active| active == id) {
             state.active_models.push(id.to_owned());
             write_toml(&self.paths.ux_state_file, &state, false)?;
@@ -64,12 +69,30 @@ impl Store {
         self.paths.ensure_config_dirs()?;
         let _guard = self.lock_state()?;
         let mut state = self.load_ux_state()?;
-        let previous = state.active_models.len();
+        let previous = state.active_models.clone();
+        self.normalize_active_models(&mut state);
         state.active_models.retain(|active| active != id);
-        if state.active_models.len() != previous {
+        if state.active_models != previous {
             write_toml(&self.paths.ux_state_file, &state, false)?;
         }
         Ok(())
+    }
+
+    fn normalize_active_models(&self, state: &mut UxState) -> bool {
+        let mut normalized = Vec::with_capacity(state.active_models.len());
+        for selector in &state.active_models {
+            let key = self
+                .resolve_model(selector)
+                .map_or_else(|_| selector.clone(), |model| model.key);
+            if !normalized.contains(&key) {
+                normalized.push(key);
+            }
+        }
+        if normalized == state.active_models {
+            return false;
+        }
+        state.active_models = normalized;
+        true
     }
 
     fn load_ux_state(&self) -> Result<UxState> {
@@ -135,81 +158,4 @@ impl Store {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    use super::*;
-    use crate::config::Paths;
-
-    static NEXT_STATE: AtomicU64 = AtomicU64::new(0);
-
-    #[test]
-    fn remembers_models_in_most_recent_order() -> Result<()> {
-        let id = NEXT_STATE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!("mirmir-state-{}-{id}", std::process::id()));
-        let store = Store::new(Paths::from_roots(
-            root.join("config"),
-            root.join("state"),
-            &root.join("runtime"),
-        ));
-        store.remember_model("first")?;
-        store.remember_model("second")?;
-        store.remember_model("first")?;
-        assert_eq!(store.recent_models()?, ["first", "second"]);
-        Ok(())
-    }
-
-    #[test]
-    fn persists_the_active_model_set() -> Result<()> {
-        let id = NEXT_STATE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!("mirmir-active-{}-{id}", std::process::id()));
-        let store = Store::new(Paths::from_roots(
-            root.join("config"),
-            root.join("state"),
-            &root.join("runtime"),
-        ));
-        store.activate_model("first")?;
-        store.activate_model("second")?;
-        store.activate_model("first")?;
-        assert_eq!(store.active_models()?, ["first", "second"]);
-        store.deactivate_model("first")?;
-        assert_eq!(store.active_models()?, ["second"]);
-        Ok(())
-    }
-
-    #[test]
-    fn loads_state_written_before_active_models_existed() -> Result<()> {
-        let id = NEXT_STATE.fetch_add(1, Ordering::Relaxed);
-        let root =
-            std::env::temp_dir().join(format!("mirmir-state-v1-{}-{id}", std::process::id()));
-        let paths =
-            Paths::from_roots(root.join("config"), root.join("state"), &root.join("runtime"));
-        paths.ensure_config_dirs()?;
-        fs::write(&paths.ux_state_file, "schema_version = 1\nrecent_models = ['old']\n")?;
-        let store = Store::new(paths);
-        assert_eq!(store.recent_models()?, ["old"]);
-        assert!(store.active_models()?.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn quarantines_corrupt_managed_state_and_resets_it() -> Result<()> {
-        let id = NEXT_STATE.fetch_add(1, Ordering::Relaxed);
-        let root =
-            std::env::temp_dir().join(format!("mirmir-corrupt-state-{}-{id}", std::process::id()));
-        let paths =
-            Paths::from_roots(root.join("config"), root.join("state"), &root.join("runtime"));
-        paths.ensure_config_dirs()?;
-        fs::write(&paths.ux_state_file, "this is not toml = [")?;
-        let store = Store::new(paths.clone());
-
-        assert!(store.active_models()?.is_empty());
-        let recovery = store.take_state_recovery()?.expect("recovery should be reported");
-        assert_eq!(recovery.original, paths.ux_state_file);
-        assert_eq!(fs::read_to_string(&recovery.quarantine)?, "this is not toml = [");
-        assert!(recovery.reason.contains("TOML parse error"));
-        assert!(store.take_state_recovery()?.is_none());
-        assert!(store.active_models()?.is_empty());
-        Ok(())
-    }
-}
+mod tests;

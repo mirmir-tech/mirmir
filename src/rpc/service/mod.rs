@@ -7,6 +7,7 @@ mod generation;
 mod local_models;
 mod models;
 mod preflight;
+mod presentation;
 mod restore;
 mod settings;
 mod startup;

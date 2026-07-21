@@ -16,8 +16,6 @@ use crate::{
 #[derive(Serialize)]
 pub struct Configuration {
     values: Vec<Setting>,
-    hugging_face_token: Secret,
-    http_api_key: Secret,
     config_path: String,
     secrets_path: String,
     raw_toml: String,
@@ -28,33 +26,39 @@ struct Setting {
     key: String,
     value: String,
     source: String,
-    editable: bool,
     restart_required: bool,
+    kind: SettingKind,
+    actions: Vec<SettingAction>,
 }
 
 #[derive(Serialize)]
-struct Secret {
-    configured: bool,
-    source: String,
+#[serde(rename_all = "snake_case")]
+enum SettingKind {
+    Value,
+    Secret,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SettingAction {
+    Edit,
+    Test,
+    Remove,
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum UpdateRequest {
-    SetValue {
+    #[serde(rename = "set_value")]
+    Set {
         key: String,
         #[serde(rename = "value")]
         new_value: String,
     },
-    SetHfToken {
-        token: String,
-    },
-    RemoveHfToken,
-    TestHfToken,
-    SetHttpApiKey {
-        key: String,
-    },
-    RemoveHttpApiKey,
+    #[serde(rename = "remove_value")]
+    Remove { key: String },
+    #[serde(rename = "test_value")]
+    Test { key: String },
 }
 
 #[derive(Serialize)]
@@ -87,7 +91,7 @@ pub async fn update_configuration(
     let response = state
         .service()
         .update_configuration(Request::new(proto::UpdateConfigurationRequest {
-            operation: Some(update.into()),
+            operation: Some(operation(update).map_err(WebError::from_status)?),
         }))
         .await
         .map_err(WebError::from_status)?
@@ -107,29 +111,51 @@ pub async fn update_configuration(
         .into_response())
 }
 
-impl From<UpdateRequest> for proto::update_configuration_request::Operation {
-    fn from(request: UpdateRequest) -> Self {
-        match request {
-            UpdateRequest::SetValue { key, new_value } => {
-                Self::SetValue(proto::SetConfigurationValue { key, value: new_value })
+fn operation(
+    request: UpdateRequest,
+) -> Result<proto::update_configuration_request::Operation, tonic::Status> {
+    use proto::update_configuration_request::Operation;
+    match request {
+        UpdateRequest::Set { key, new_value } => match key.as_str() {
+            "hugging_face.token" => {
+                Ok(Operation::SetHfToken(proto::SetHfToken { token: new_value }))
             },
-            UpdateRequest::SetHfToken { token } => Self::SetHfToken(proto::SetHfToken { token }),
-            UpdateRequest::RemoveHfToken => Self::RemoveHfToken(proto::RemoveHfToken {}),
-            UpdateRequest::TestHfToken => Self::TestHfToken(proto::TestHfToken {}),
-            UpdateRequest::SetHttpApiKey { key } => {
-                Self::SetHttpApiKey(proto::SetHttpApiKey { key })
+            "server.api_key" => {
+                Ok(Operation::SetHttpApiKey(proto::SetHttpApiKey { key: new_value }))
             },
-            UpdateRequest::RemoveHttpApiKey => Self::RemoveHttpApiKey(proto::RemoveHttpApiKey {}),
-        }
+            _ => Ok(Operation::SetValue(proto::SetConfigurationValue { key, value: new_value })),
+        },
+        UpdateRequest::Remove { key } => match key.as_str() {
+            "hugging_face.token" => Ok(Operation::RemoveHfToken(proto::RemoveHfToken {})),
+            "server.api_key" => Ok(Operation::RemoveHttpApiKey(proto::RemoveHttpApiKey {})),
+            _ => Err(tonic::Status::invalid_argument(format!("cannot remove `{key}`"))),
+        },
+        UpdateRequest::Test { key } if key == "hugging_face.token" => {
+            Ok(Operation::TestHfToken(proto::TestHfToken {}))
+        },
+        UpdateRequest::Test { key } => {
+            Err(tonic::Status::invalid_argument(format!("cannot test `{key}`")))
+        },
     }
 }
 
 impl From<proto::ConfigurationSnapshot> for Configuration {
     fn from(config: proto::ConfigurationSnapshot) -> Self {
+        let mut values: Vec<_> = config.values.into_iter().map(Setting::from).collect();
+        values.push(Setting::secret(
+            "hugging_face.token",
+            config.hugging_face_token.unwrap_or_default(),
+            false,
+            true,
+        ));
+        values.push(Setting::secret(
+            "server.api_key",
+            config.http_api_key.unwrap_or_default(),
+            true,
+            false,
+        ));
         Self {
-            values: config.values.into_iter().map(Setting::from).collect(),
-            hugging_face_token: Secret::from(config.hugging_face_token.unwrap_or_default()),
-            http_api_key: Secret::from(config.http_api_key.unwrap_or_default()),
+            values,
             config_path: config.config_path,
             secrets_path: config.secrets_path,
             raw_toml: config.raw_toml,
@@ -143,17 +169,42 @@ impl From<proto::ConfigurationValue> for Setting {
             key: value.key,
             value: value.value,
             source: value.source,
-            editable: value.editable,
             restart_required: value.restart_required,
+            kind: SettingKind::Value,
+            actions: if value.editable {
+                vec![SettingAction::Edit]
+            } else {
+                Vec::new()
+            },
         }
     }
 }
 
-impl From<proto::SecretState> for Secret {
-    fn from(secret: proto::SecretState) -> Self {
+impl Setting {
+    fn secret(
+        key: &str,
+        secret: proto::SecretState,
+        restart_required: bool,
+        testable: bool,
+    ) -> Self {
+        let mut actions = vec![SettingAction::Edit];
+        if secret.configured && testable {
+            actions.push(SettingAction::Test);
+        }
+        if secret.configured {
+            actions.push(SettingAction::Remove);
+        }
         Self {
-            configured: secret.configured,
+            key: key.to_owned(),
+            value: if secret.configured {
+                "********".to_owned()
+            } else {
+                "—".to_owned()
+            },
             source: secret.source,
+            restart_required,
+            kind: SettingKind::Secret,
+            actions,
         }
     }
 }

@@ -36,14 +36,18 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     let index = index.text().await?;
     assert!(index.contains("MiRMiR · Runtime dashboard"));
     assert!(index.contains("/ui/assets/brand/lockup.svg"));
-    assert!(index.contains("/ui/assets/brand/favicon.svg?v=2"));
-    assert!(index.contains("/ui/app.css?v=5"));
-    assert!(index.contains("/ui/app.js?v=7"));
-    assert!(index.contains("Starting runtime"));
+    assert!(index.contains("/ui/assets/brand/favicon.svg?v=3"));
+    assert_simplified_shell(&index);
+    assert!(index.contains("id=\"toast-region\""));
     assert!(index.contains("id=\"connection-state\""));
-    assert!(index.contains("<th>Model class</th>"));
-    assert!(index.contains("id=\"load-top-k\" type=\"number\" min=\"0\""));
+    assert!(index.contains("<th>Features</th>"));
+    assert!(index.contains("aria-label=\"Close model search\""));
+    assert!(!index.contains("id=\"catalog-query\""));
+    assert!(index.contains("id=\"load-top-k-range\" type=\"range\""));
     assert!(index.contains("id=\"load-task-capabilities\""));
+    assert!(index.contains("class=\"composer-dock\""));
+    assert!(index.contains("aria-label=\"Add attachment\""));
+    assert!(index.contains("aria-label=\"Generation performance\""));
 
     let stylesheet = client.get(format!("{base}/ui/app.css")).send().await?;
     assert_eq!(stylesheet.status(), StatusCode::OK);
@@ -70,12 +74,20 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert!(script.contains("inspection.task === \"generation\""));
     assert!(script.contains("!inspection.task && settings != null"));
     assert!(script.contains("capabilities.max_input_tokens"));
-    assert!(script.contains("input.disabled = !enabled"));
+    assert!(script.contains("optimisticModelStates.clear()"));
+    assert!(script.contains("rangeInput.addEventListener(\"input\""));
     assert!(script.contains("setLoadButtonState(\"inspecting\")"));
     assert!(script.contains("button.setAttribute(\"aria-busy\", \"true\")"));
-    assert!(script.contains("new Set([\"queued\", \"running\", \"cancelling\"])"));
-    assert!(script.contains("partial download will be removed"));
-    assert!(script.contains("model.load_unavailable_reason"));
+    assert!(script.contains("const statePill"));
+    assert!(script.contains("error ? 8000 : 5000"));
+    assert!(script.contains("dialog.show()"));
+    assert!(script.contains("event.key === \"Escape\""));
+    assert!(script.contains("new AbortController()"));
+    assert!(script.contains("[\"load\", \"restore\", \"unload\", \"pull\"]"));
+    assert!(script.contains("const renderMarkdown"));
+    assert!(script.contains("const updateReasoningState"));
+    assert!(script.contains("const submittedImage = chatImage"));
+    assert!(script.contains("chatImage = null"));
 
     let worker = client.get(format!("{base}/ui/sw.js")).send().await?;
     assert_eq!(worker.status(), StatusCode::OK);
@@ -100,7 +112,7 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     let bootstrap = client.get(format!("{base}/api/mirmir/v1/bootstrap")).send().await?;
     assert_eq!(bootstrap.status(), StatusCode::OK);
     let bootstrap = bootstrap.json::<Value>().await?;
-    assert_eq!(bootstrap["schema_version"], 3);
+    assert_eq!(bootstrap["schema_version"], 4);
     assert_eq!(bootstrap["application"], "mirmir");
     assert_eq!(bootstrap["management_api_base"], "/api/mirmir/v1");
     assert_eq!(bootstrap["capabilities"]["management"], "model-lifecycle");
@@ -118,4 +130,15 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert_eq!(inspect.status(), StatusCode::UNAUTHORIZED);
 
     owner.shutdown().await
+}
+
+fn assert_simplified_shell(index: &str) {
+    assert!(index.contains("/ui/app.css?v=20"));
+    assert!(index.contains("/ui/app.js?v=25"));
+    assert!(!index.contains("class=\"page-heading"));
+    assert!(!index.contains("MIRMIR RUNTIME / WEB"));
+    assert!(!index.contains("<footer>"));
+    assert!(!index.contains("startup-banner"));
+    assert!(!index.contains("id=\"more-models\""));
+    assert!(!index.contains("id=\"model-count\""));
 }

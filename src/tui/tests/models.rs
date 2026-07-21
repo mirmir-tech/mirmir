@@ -165,5 +165,6 @@ fn catalog_model(id: &str, local_source: &str) -> CatalogModel {
         reason: "fits test budget".to_owned(),
         downloaded: local_source == "mirmir",
         local_source: local_source.to_owned(),
+        ..Default::default()
     }
 }

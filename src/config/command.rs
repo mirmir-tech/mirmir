@@ -9,6 +9,9 @@ use crate::{
     rpc::{self, proto},
 };
 
+const HF_TOKEN: &str = "hugging_face.token";
+const HTTP_API_KEY: &str = "server.api_key";
+
 pub async fn run(paths: &Paths, store: &Store, command: ConfigCommand) -> Result<()> {
     let mut client = optional_client(paths).await?;
     match command {
@@ -30,79 +33,75 @@ pub async fn run(paths: &Paths, store: &Store, command: ConfigCommand) -> Result
             output::line("configuration is valid")
         },
         ConfigCommand::Set { key, value } => {
+            let value = value.map_or_else(
+                || {
+                    if secret_key(&key) {
+                        output::read_secret()
+                    } else {
+                        Err(Error::Config(format!("value is required for `{key}`")))
+                    }
+                },
+                Ok,
+            )?;
             if let Some(client) = client.as_mut() {
-                remote(
-                    client,
-                    proto::update_configuration_request::Operation::SetValue(
-                        proto::SetConfigurationValue { key, value },
-                    ),
-                )
-                .await
+                remote(client, set_operation(&key, value)).await
             } else {
-                store.set_config_value(&key, &value)?;
+                set_local(store, &key, &value)?;
                 output::line(format!("saved {key}"))
             }
         },
-        ConfigCommand::SetHfToken { token } => {
-            let token = token.map_or_else(output::read_secret, Ok)?;
+        ConfigCommand::Remove { key } => {
             if let Some(client) = client.as_mut() {
-                remote(
-                    client,
-                    proto::update_configuration_request::Operation::SetHfToken(proto::SetHfToken {
-                        token,
-                    }),
-                )
-                .await
+                remote(client, remove_operation(&key)?).await
             } else {
-                store.set_hf_token(token.trim())?;
-                output::line("Hugging Face token saved")
+                remove_local(store, &key)?;
+                output::line(format!("removed {key}"))
             }
         },
-        ConfigCommand::RemoveHfToken => {
-            if let Some(client) = client.as_mut() {
-                remote(
-                    client,
-                    proto::update_configuration_request::Operation::RemoveHfToken(
-                        proto::RemoveHfToken {},
-                    ),
-                )
-                .await
-            } else {
-                store.remove_hf_token()?;
-                output::line("Hugging Face token removed")
-            }
-        },
-        ConfigCommand::TestHfToken => test_hf_token(store, client.as_mut()).await,
-        ConfigCommand::SetHttpApiKey { key } => {
-            let key = key.map_or_else(output::read_secret, Ok)?;
-            if let Some(client) = client.as_mut() {
-                remote(
-                    client,
-                    proto::update_configuration_request::Operation::SetHttpApiKey(
-                        proto::SetHttpApiKey { key },
-                    ),
-                )
-                .await
-            } else {
-                store.set_http_api_key(key.trim())?;
-                output::line("HTTP API key saved")
-            }
-        },
-        ConfigCommand::RemoveHttpApiKey => {
-            if let Some(client) = client.as_mut() {
-                remote(
-                    client,
-                    proto::update_configuration_request::Operation::RemoveHttpApiKey(
-                        proto::RemoveHttpApiKey {},
-                    ),
-                )
-                .await
-            } else {
-                store.remove_http_api_key()?;
-                output::line("HTTP API key removed")
-            }
-        },
+        ConfigCommand::Test { key } => test_value(store, client.as_mut(), &key).await,
     }
+}
+
+fn secret_key(key: &str) -> bool {
+    matches!(key, HF_TOKEN | HTTP_API_KEY)
+}
+
+fn set_operation(key: &str, value: String) -> proto::update_configuration_request::Operation {
+    use proto::update_configuration_request::Operation;
+    match key {
+        HF_TOKEN => Operation::SetHfToken(proto::SetHfToken { token: value }),
+        HTTP_API_KEY => Operation::SetHttpApiKey(proto::SetHttpApiKey { key: value }),
+        _ => Operation::SetValue(proto::SetConfigurationValue { key: key.to_owned(), value }),
+    }
+}
+
+fn set_local(store: &Store, key: &str, value: &str) -> Result<()> {
+    match key {
+        HF_TOKEN => store.set_hf_token(value.trim()),
+        HTTP_API_KEY => store.set_http_api_key(value.trim()),
+        _ => store.set_config_value(key, value),
+    }
+}
+
+fn remove_operation(key: &str) -> Result<proto::update_configuration_request::Operation> {
+    use proto::update_configuration_request::Operation;
+    match key {
+        HF_TOKEN => Ok(Operation::RemoveHfToken(proto::RemoveHfToken {})),
+        HTTP_API_KEY => Ok(Operation::RemoveHttpApiKey(proto::RemoveHttpApiKey {})),
+        _ => Err(unsupported("remove", key)),
+    }
+}
+
+fn remove_local(store: &Store, key: &str) -> Result<()> {
+    match key {
+        HF_TOKEN => store.remove_hf_token(),
+        HTTP_API_KEY => store.remove_http_api_key(),
+        _ => Err(unsupported("remove", key)),
+    }
+}
+
+fn unsupported(operation: &str, key: &str) -> Error {
+    Error::Config(format!("`config {operation}` is not supported for `{key}`"))
 }
 
 fn edit(store: &Store) -> Result<()> {
@@ -149,7 +148,10 @@ async fn show(store: &Store, client: Option<&mut rpc::Client>) -> Result<()> {
     }
 }
 
-async fn test_hf_token(store: &Store, client: Option<&mut rpc::Client>) -> Result<()> {
+async fn test_value(store: &Store, client: Option<&mut rpc::Client>, key: &str) -> Result<()> {
+    if key != HF_TOKEN {
+        return Err(unsupported("test", key));
+    }
     if let Some(client) = client {
         remote(
             client,

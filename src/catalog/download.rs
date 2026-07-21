@@ -1,8 +1,8 @@
-use hf_hub::{HFClient, split_id};
+use hf_hub::HFClient;
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
 
-use super::{cache::discover_cached_models, cancellation, progress::Reporter};
+use super::{cache::discover_cached_models, resumable};
 use crate::{
     config::{ModelConfig, Store, model_key},
     error::{Error, Result},
@@ -37,17 +37,8 @@ pub async fn pull(
 ) -> Result<DownloadedModel> {
     drop(model_key(repo_id)?);
     let revision = revision.unwrap_or("main");
-    let client = client(store)?;
-    let (owner, name) = split_id(repo_id);
     send(&updates, "resolving", 0, None, format!("resolving {repo_id}@{revision}")).await;
-    let repository = client.model(owner, name);
-    let pending = repository
-        .snapshot_download()
-        .revision(revision)
-        .max_workers(8)
-        .progress(Reporter::new(updates.clone()))
-        .send();
-    let snapshot = cancellation::wait(pending, cancellation).await.ok_or(Error::Cancelled)??;
+    let snapshot = resumable::snapshot(store, repo_id, revision, &updates, cancellation).await?;
     send(
         &updates,
         "validating",
@@ -69,7 +60,7 @@ pub async fn pull(
 }
 
 pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
-    drop(model_key(repo_id)?);
+    let key = model_key(repo_id)?;
     let cache = client(store)?.scan_cache().send().await?;
     let managed = cache
         .repos
@@ -81,9 +72,14 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
             .find(|model| model.repo_id == repo_id)
             .map(|model| (model.repo_path, hf_hub::resolve_cache_dir(), None))
     };
-    let target = managed.map_or_else(external, |repo| {
-        Some((repo.repo_path, store.paths().hub_cache_dir.clone(), Some(repo.size_on_disk)))
-    });
+    let target = managed
+        .map(|repo| (repo.repo_path, store.paths().hub_cache_dir.clone(), None))
+        .or_else(external)
+        .or_else(|| {
+            let cache = store.paths().hub_cache_dir.clone();
+            let repo = cache.join(format!("models--{key}"));
+            repo.exists().then_some((repo, cache, None))
+        });
     let removed_cache = target.is_some();
     let freed_bytes = if let Some((path, root, known_size)) = target {
         remove_cache_repo(path, root, known_size).await?
@@ -95,17 +91,6 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
         removed: removed_cache || removed_config,
         freed_bytes,
     })
-}
-
-pub async fn discard_partial(store: &Store, repo_id: &str) -> Result<Removal> {
-    let key = model_key(repo_id)?;
-    let cache = store.paths().hub_cache_dir.clone();
-    let repo = cache.join(format!("models--{key}"));
-    if !repo.exists() {
-        return Ok(Removal { removed: false, freed_bytes: 0 });
-    }
-    let freed_bytes = remove_cache_repo(repo, cache, None).await?;
-    Ok(Removal { removed: true, freed_bytes })
 }
 
 async fn remove_cache_repo(
@@ -122,7 +107,7 @@ async fn remove_cache_repo(
     .await?
 }
 
-fn client(store: &Store) -> Result<HFClient> {
+pub(super) fn client(store: &Store) -> Result<HFClient> {
     let mut builder = HFClient::builder()
         .cache_dir(&store.paths().hub_cache_dir)
         .user_agent(concat!("mirmir/", env!("CARGO_PKG_VERSION")));

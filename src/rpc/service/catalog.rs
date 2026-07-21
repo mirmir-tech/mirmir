@@ -35,6 +35,10 @@ fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
         reason: model.reason,
         downloaded: model.downloaded,
         local_source: model.local_source.to_owned(),
+        library: model.library,
+        tool_use: model.features.tool_use,
+        thinking: model.features.thinking,
+        vision: model.features.vision,
     }
 }
 
@@ -188,8 +192,8 @@ async fn pull(
         },
         Err(crate::error::Error::Cancelled) => {
             drop(task.await);
-            operation.finish("cancelled", "download cancelled and partial files removed");
-            drop(output.send(Err(tonic::Status::cancelled("download cancelled"))).await);
+            operation.finish("cancelled", "download stopped; partial files kept for resume");
+            drop(output.send(Err(tonic::Status::cancelled("download stopped"))).await);
         },
         Err(error) => {
             drop(task.await);

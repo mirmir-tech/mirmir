@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0D1117">
     <title>MiRMiR · Runtime dashboard</title>
-    <link rel="icon" href="/ui/assets/brand/favicon.svg?v=2" type="image/svg+xml">
-    <link rel="stylesheet" href="/ui/app.css?v=5">
-    <script src="/ui/app.js?v=7" defer></script>
+    <link rel="icon" href="/ui/assets/brand/favicon.svg?v=3" type="image/svg+xml">
+    <link rel="stylesheet" href="/ui/app.css?v=20">
+    <script src="/ui/app.js?v=25" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -40,10 +40,7 @@
 
       <div class="workspace">
         <header class="topbar">
-          <div>
-            <p class="topbar-context">MIRMIR RUNTIME / WEB</p>
-            <h1 id="page-title">Overview</h1>
-          </div>
+          <h1 id="page-title">Overview</h1>
           <div class="topbar-meta">
             <span>SERVER <b id="server-version">—</b></span>
             <span>PROTOCOL <b id="protocol-version">—</b></span>
@@ -52,21 +49,7 @@
         </header>
 
         <main class="content" id="main-content">
-          <p class="notice" id="notice" hidden></p>
-          <section class="startup-banner" id="startup-banner" aria-live="polite">
-            <div>
-              <span class="startup-pulse" aria-hidden="true"></span>
-              <p><strong id="startup-title">Starting runtime</strong><span id="startup-detail">Connecting to the MiRMiR server…</span></p>
-              <span class="stage" id="startup-phase">connecting</span>
-            </div>
-            <progress id="startup-progress" max="1" value="0" hidden></progress>
-          </section>
-
-          <section class="view active" id="overview" aria-labelledby="overview-title">
-            <header class="page-heading">
-              <div><h2 id="overview-title">Overview</h2><span class="stage" id="stage">idle</span></div>
-              <p>Live inference telemetry from the MiRMiR server on this machine.</p>
-            </header>
+          <section class="view active" id="overview" aria-label="Overview">
             <div class="cards">
               <article><p>Throughput</p><strong id="throughput">—</strong><small>tok/s</small></article>
               <article><p>Prefill</p><strong id="prefill">—</strong><small>tok/s</small></article>
@@ -75,7 +58,7 @@
             </div>
             <div class="grid">
               <article class="panel">
-                <div class="panel-heading"><h3>Runtime</h3><span>SESSION</span></div>
+                <div class="panel-heading"><h3>Runtime</h3><span class="stage" id="stage">idle</span></div>
                 <dl>
                   <div><dt>Loaded models</dt><dd id="loaded-models">—</dd></div>
                   <div><dt>Active requests</dt><dd id="active-requests">—</dd></div>
@@ -96,87 +79,64 @@
             </div>
           </section>
 
-          <section class="view" id="models" aria-labelledby="models-title">
-            <header class="page-heading compact">
-              <div><h2 id="models-title">Models</h2><span class="stage" id="model-count">0 local</span></div>
-              <p>Inspect local checkpoints or search Hugging Face for models compatible with this machine.</p>
-            </header>
-            <form class="search" id="model-search">
-              <label for="model-query">Search Hugging Face</label>
-              <div><input id="model-query" name="query" autocomplete="off" placeholder="owner/model"><button id="search-models" type="submit">Search</button><button class="quiet" id="more-models" type="button" hidden>More</button><button class="quiet" id="clear-search" type="button">Local</button></div>
-              <label class="search-toggle"><input id="show-incompatible" type="checkbox">Show incompatible models</label>
-            </form>
-            <div class="table-wrap">
+          <section class="view" id="models" aria-label="Models">
+            <div class="model-search-launch" id="model-search-control">
+              <div class="search-field"><span aria-hidden="true"></span><input id="model-query" autocomplete="off" placeholder="Search by owner or model name" aria-label="Find a model on Hugging Face" aria-haspopup="dialog" aria-controls="model-search-dialog" aria-expanded="false"><button class="search-dismiss" id="close-model-search" type="button" aria-label="Close model search" hidden>×</button></div>
+            </div>
+            <div class="table-wrap models-table">
               <table>
-                <thead><tr><th>Model</th><th>State / fit</th><th>Model class</th><th>Source</th><th>Action</th></tr></thead>
+                <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Features</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
                 <tbody id="model-rows"></tbody>
               </table>
-              <p class="empty" id="models-empty">No local models found.</p>
+              <p class="empty loading" id="models-empty" aria-busy="true">Loading local models…</p>
             </div>
           </section>
 
-          <section class="view" id="chat" aria-labelledby="chat-title">
-            <header class="page-heading compact">
-              <div><h2 id="chat-title">Chat</h2><span class="stage" id="chat-state">idle</span></div>
-              <p>Stream a conversation through a loaded model and inspect server-side performance.</p>
-            </header>
-            <div class="chat-toolbar">
-              <label for="chat-model">Loaded model<select id="chat-model"></select></label>
-              <details>
-                <summary>Generation parameters</summary>
-                <div class="chat-parameters">
-                  <label>Max tokens<input id="chat-max-tokens" type="number" min="1" placeholder="model default"></label>
-                  <label>Temperature<input id="chat-temperature" type="number" min="0" step="0.01" placeholder="default"></label>
-                  <label>Top P<input id="chat-top-p" type="number" min="0" max="1" step="0.01" placeholder="default"></label>
-                  <label>Top K<input id="chat-top-k" type="number" min="1" placeholder="default"></label>
-                  <label>Repetition<input id="chat-repetition" type="number" min="0" step="0.01" placeholder="default"></label>
-                  <label>Seed<input id="chat-seed" type="number" min="0" placeholder="random"></label>
+          <section class="view" id="chat" aria-label="Chat">
+            <div class="chat-conversation" id="chat-log">
+              <p class="chat-empty" id="chat-empty"><strong>Start a conversation</strong><span>Choose a loaded model below and send a message.</span></p>
+            </div>
+            <div class="composer-dock">
+              <form class="chat-composer" id="chat-form">
+                <input id="chat-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+                <div class="chat-attachment" id="chat-attachment" hidden>
+                  <span class="file-icon" aria-hidden="true"></span>
+                  <div><strong id="chat-image-name"></strong><span id="chat-image-meta"></span></div>
+                  <button class="attachment-remove" id="remove-chat-image" type="button" aria-label="Remove attached image">×</button>
                 </div>
-              </details>
+                <div class="prompt-row">
+                  <button class="composer-button attach-button" id="attach-chat-image" type="button" aria-label="Add attachment"><span aria-hidden="true">+</span></button>
+                  <textarea id="chat-input" rows="2" aria-label="Message" placeholder="Message MiRMiR…"></textarea>
+                  <button class="composer-button cancel-button" id="cancel-chat" type="button" aria-label="Stop generation" hidden><span aria-hidden="true">■</span></button>
+                  <button class="composer-button send-button" id="send-chat" type="submit" aria-label="Send message"><span aria-hidden="true">↑</span></button>
+                </div>
+                <div class="composer-footer">
+                  <label class="model-picker" for="chat-model"><span>Model</span><select id="chat-model"></select></label>
+                  <details class="chat-settings">
+                    <summary>Parameters</summary>
+                    <div class="chat-parameters">
+                      <label>Max tokens<input id="chat-max-tokens" type="number" min="1" placeholder="model default"></label>
+                      <label>Temperature<input id="chat-temperature" type="number" min="0" step="0.01" placeholder="default"></label>
+                      <label>Top P<input id="chat-top-p" type="number" min="0" max="1" step="0.01" placeholder="default"></label>
+                      <label>Top K<input id="chat-top-k" type="number" min="0" placeholder="default"></label>
+                      <label>Repetition<input id="chat-repetition" type="number" min="0" step="0.01" placeholder="default"></label>
+                      <label>Seed<input id="chat-seed" type="number" min="0" placeholder="random"></label>
+                    </div>
+                  </details>
+                  <div class="composer-metrics" aria-label="Generation performance">
+                    <span>TTFT <b id="chat-ttft">—</b><i>ms</i></span>
+                    <span>PREFILL <b id="chat-prefill">—</b><i>tok/s</i></span>
+                    <span>DECODE <b id="chat-decode">—</b><i>tok/s</i></span>
+                    <span class="metric-e2e">E2E <b id="chat-throughput">—</b><i>tok/s</i></span>
+                  </div>
+                  <span class="stage" id="chat-state">idle</span>
+                </div>
+                <p class="chat-hint" id="chat-hint">Enter sends · Shift+Enter adds a line</p>
+              </form>
             </div>
-            <div class="chat-metrics">
-              <span>TTFT <b id="chat-ttft">—</b> ms</span>
-              <span>PREFILL <b id="chat-prefill">—</b> tok/s</span>
-              <span>DECODE <b id="chat-decode">—</b> tok/s</span>
-              <span>E2E <b id="chat-throughput">—</b> tok/s</span>
-            </div>
-            <div class="chat-log" id="chat-log">
-              <p class="empty" id="chat-empty">Choose a loaded model and send a test prompt.</p>
-            </div>
-            <form class="chat-composer" id="chat-form">
-              <input id="chat-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
-              <div class="chat-attachment" id="chat-attachment" hidden>
-                <img id="chat-image-preview" alt="Attached image preview">
-                <div><strong id="chat-image-name"></strong><span id="chat-image-meta"></span></div>
-                <button class="quiet" id="remove-chat-image" type="button" aria-label="Remove attached image">Remove</button>
-              </div>
-              <label for="chat-input">Message</label>
-              <textarea id="chat-input" rows="3" placeholder="Ask MiRMiR to test this model…"></textarea>
-              <div class="chat-actions"><span id="chat-hint">Drop an image here · Enter sends · Shift+Enter adds a line</span><button class="quiet" id="attach-chat-image" type="button">Attach image</button><button class="danger" id="cancel-chat" type="button" disabled>Cancel</button><button id="send-chat" type="submit">Send</button></div>
-            </form>
           </section>
 
-          <section class="view" id="configuration" aria-labelledby="configuration-title">
-            <header class="page-heading compact">
-              <div><h2 id="configuration-title">Settings</h2><span class="stage">TOML</span></div>
-              <p>Effective MiRMiR values, their source, and write-only local secrets.</p>
-            </header>
-            <div class="secret-grid">
-              <form class="secret-card" id="hf-token-form">
-                <div class="panel-heading"><h3>Hugging Face token</h3><span id="hf-token-state">NOT SET</span></div>
-                <p id="hf-token-source">No effective token.</p>
-                <label for="hf-token">Replace stored token</label>
-                <input id="hf-token" type="password" autocomplete="off" placeholder="hf_…">
-                <div class="form-actions"><button type="submit">Save</button><button class="quiet" id="test-hf-token" type="button">Test</button><button class="danger" id="remove-hf-token" type="button">Remove</button></div>
-              </form>
-              <form class="secret-card" id="http-key-form">
-                <div class="panel-heading"><h3>HTTP API key</h3><span id="http-key-state">NOT SET</span></div>
-                <p id="http-key-source">No effective key.</p>
-                <label for="http-key">Replace stored key</label>
-                <input id="http-key" type="password" autocomplete="off" placeholder="local API key">
-                <div class="form-actions"><button type="submit">Save</button><button class="danger" id="remove-http-key" type="button">Remove</button></div>
-              </form>
-            </div>
+          <section class="view" id="configuration" aria-label="Settings">
             <div class="table-wrap configuration-table">
               <table>
                 <thead><tr><th>Setting</th><th>Effective value</th><th>Source</th><th>Restart</th><th>Action</th></tr></thead>
@@ -190,24 +150,14 @@
             </details>
           </section>
 
-          <section class="view" id="activity" aria-labelledby="activity-title">
-            <header class="page-heading compact">
-              <div><h2 id="activity-title">Activity</h2><span class="stage" id="activity-count">0</span></div>
-              <p>Model lifecycle and generation events streamed directly from the MiRMiR runtime.</p>
-            </header>
+          <section class="view" id="activity" aria-label="Activity">
             <div class="activity-list" id="activity-list">
               <p class="empty" id="activity-empty">No operations recorded in this server session.</p>
             </div>
           </section>
         </main>
 
-        <footer>
-          <span class="footer-brand">MiRMiR</span>
-          <span>THE HIGH-PERFORMANCE LLM RUNTIME.</span>
-          <span id="updated">not sampled</span>
-        </footer>
-
-        <dialog class="modal" id="load-dialog">
+        <dialog class="modal load-modal" id="load-dialog">
           <form id="load-model-form">
             <p class="eyebrow" id="load-settings-kind">Model settings</p>
             <h2>Load model</h2>
@@ -217,12 +167,27 @@
               <dl id="load-task-capabilities"></dl>
               <p>Detected from the checkpoint. Nothing here needs to be configured before loading.</p>
             </div>
-            <div class="field-grid" id="load-generation-fields">
-              <label>Max tokens<input id="load-max-tokens" type="number" min="1" required></label>
-              <label>Temperature<input id="load-temperature" type="number" min="0" step="0.01" required></label>
-              <label>Top P<input id="load-top-p" type="number" min="0" max="1" step="0.01" required></label>
-              <label>Top K<input id="load-top-k" type="number" min="0" required></label>
-              <label>Repetition penalty<input id="load-repetition" type="number" min="0" step="0.01" required></label>
+            <div class="generation-controls" id="load-generation-fields">
+              <div class="parameter-control">
+                <label for="load-max-tokens">Max tokens<input id="load-max-tokens" type="number" min="1" max="32768" step="1" required></label>
+                <input class="parameter-slider" id="load-max-tokens-range" type="range" min="1" max="32768" step="1" aria-label="Max tokens slider">
+              </div>
+              <div class="parameter-control">
+                <label for="load-temperature">Temperature<input id="load-temperature" type="number" min="0" max="2" step="0.01" required></label>
+                <input class="parameter-slider" id="load-temperature-range" type="range" min="0" max="2" step="0.01" aria-label="Temperature slider">
+              </div>
+              <div class="parameter-control">
+                <label for="load-top-p">Top P<input id="load-top-p" type="number" min="0" max="1" step="0.01" required></label>
+                <input class="parameter-slider" id="load-top-p-range" type="range" min="0" max="1" step="0.01" aria-label="Top P slider">
+              </div>
+              <div class="parameter-control">
+                <label for="load-top-k">Top K<input id="load-top-k" type="number" min="0" max="200" step="1" required></label>
+                <input class="parameter-slider" id="load-top-k-range" type="range" min="0" max="200" step="1" aria-label="Top K slider">
+              </div>
+              <div class="parameter-control">
+                <label for="load-repetition">Repetition penalty<input id="load-repetition" type="number" min="0.01" max="2" step="0.01" required></label>
+                <input class="parameter-slider" id="load-repetition-range" type="range" min="0.01" max="2" step="0.01" aria-label="Repetition penalty slider">
+              </div>
             </div>
             <label class="check"><input id="load-force" type="checkbox"> Allow load despite memory-fit rejection</label>
             <p class="modal-note" id="load-generation-note">These values become the MiRMiR defaults for this model.</p>
@@ -239,6 +204,23 @@
             <div class="dialog-actions"><button class="quiet" id="cancel-remove" type="button">Keep model</button><button class="danger" type="submit">Remove model</button></div>
           </form>
         </dialog>
+
+        <dialog class="catalog-popup" id="model-search-dialog" aria-label="Model search results">
+          <div class="catalog-toolbar">
+            <p class="catalog-status" id="catalog-status">Start typing to search Hugging Face.</p>
+            <label class="search-toggle"><input id="show-incompatible" type="checkbox">Show incompatible models</label>
+          </div>
+          <div class="table-wrap catalog-table" id="catalog-table" tabindex="0" aria-label="Model search results">
+            <table>
+              <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Features</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+              <tbody id="catalog-rows"></tbody>
+            </table>
+            <p class="empty" id="catalog-empty" hidden>No results.</p>
+            <p class="catalog-more" id="catalog-more" aria-live="polite" hidden>Loading more results…</p>
+          </div>
+        </dialog>
+        <div class="floating-tooltip" id="floating-tooltip" role="tooltip" hidden></div>
+        <div class="toast-region" id="toast-region" aria-live="polite" aria-relevant="additions"></div>
       </div>
     </div>
   </body>

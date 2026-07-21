@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use libmir::{GenerationOverrides, ModelDescriptor, models::layout::ModelMetadata};
 use tonic::Status;
 
 use super::RuntimeService;
 use crate::{
-    catalog::{CachedModel, discover_cached_models, discover_cached_models_in},
+    catalog::{
+        CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
+        discover_partial_downloads_in,
+    },
     config::{GenerationConfig, HubModelConfig, ModelConfig, model_key},
     rpc::proto,
 };
@@ -47,6 +49,9 @@ impl RuntimeService {
                 &mut listed, cached, true, &mut known_repos, &mut known_paths, &models, &loading,
             );
         }
+        for partial in discover_partial_downloads_in(&self.store.paths().hub_cache_dir) {
+            append_partial(&mut listed, partial, &mut known_repos);
+        }
         for cached in discover_cached_models() {
             append_cached(
                 &mut listed, cached, false, &mut known_repos, &mut known_paths, &models, &loading,
@@ -57,6 +62,41 @@ impl RuntimeService {
         listed.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(listed)
     }
+}
+
+fn append_partial(
+    listed: &mut Vec<proto::LocalModelInfo>,
+    partial: PartialDownload,
+    known_repos: &mut HashSet<String>,
+) {
+    if known_repos.contains(&partial.repo_id) {
+        return;
+    }
+    let Ok(id) = model_key(&partial.repo_id) else {
+        return;
+    };
+    listed.push(proto::LocalModelInfo {
+        id,
+        repo_id: partial.repo_id.clone(),
+        revision: "main".to_owned(),
+        commit: String::new(),
+        path: String::new(),
+        state: "paused".to_owned(),
+        recent_rank: None,
+        selector: partial.repo_id.clone(),
+        managed: true,
+        image_input: false,
+        image_unavailable_reason: String::new(),
+        model_class: String::new(),
+        loadable: false,
+        load_unavailable_reason: "Download incomplete; resume or remove it".to_owned(),
+        library: "Unknown".to_owned(),
+        size_bytes: partial.downloaded_bytes,
+        tool_use: false,
+        thinking: false,
+        vision: false,
+    });
+    known_repos.insert(partial.repo_id);
 }
 
 fn append_cached(
@@ -76,7 +116,7 @@ fn append_cached(
     };
     let selector = cached.snapshot.display().to_string();
     let state = state(&selector, &cached.snapshot, models, loading);
-    let load = loadability(&cached.snapshot, GenerationConfig::default());
+    let details = super::presentation::inspect(&cached.snapshot, GenerationConfig::default());
     listed.push(proto::LocalModelInfo {
         id,
         repo_id: cached.repo_id.clone(),
@@ -89,9 +129,14 @@ fn append_cached(
         managed,
         image_input: false,
         image_unavailable_reason: String::new(),
-        model_class: model_class(&cached.snapshot),
-        loadable: load.allowed,
-        load_unavailable_reason: load.reason,
+        model_class: details.class,
+        loadable: details.loadable,
+        load_unavailable_reason: details.error,
+        library: details.library,
+        size_bytes: details.size_bytes,
+        tool_use: details.features.tool_use,
+        thinking: details.features.thinking,
+        vision: details.features.vision,
     });
     known_repos.insert(cached.repo_id);
     known_paths.insert(cached.snapshot);
@@ -109,7 +154,7 @@ fn configured(
         revision: String::new(),
         commit: String::new(),
     });
-    let load = loadability(&config.path, config.generation);
+    let details = super::presentation::inspect(&config.path, config.generation);
     proto::LocalModelInfo {
         recent_rank: recent.get(&config.id).copied(),
         id: config.id.clone(),
@@ -126,51 +171,15 @@ fn configured(
             .get(&config.id)
             .map(|entry| entry.info.image_unavailable_reason.clone())
             .unwrap_or_default(),
-        model_class: model_class(&config.path),
-        loadable: load.allowed,
-        load_unavailable_reason: load.reason,
+        model_class: details.class,
+        loadable: details.loadable,
+        load_unavailable_reason: details.error,
+        library: details.library,
+        size_bytes: details.size_bytes,
+        tool_use: details.features.tool_use,
+        thinking: details.features.thinking,
+        vision: details.features.vision,
     }
-}
-
-struct Loadability {
-    allowed: bool,
-    reason: String,
-}
-
-fn loadability(path: &std::path::Path, generation: GenerationConfig) -> Loadability {
-    if !path.exists() {
-        return Loadability {
-            allowed: false,
-            reason: format!("model files are missing at {}", path.display()),
-        };
-    }
-    let overrides = GenerationOverrides {
-        max_tokens: generation.max_tokens,
-        temperature: generation.temperature,
-        top_p: generation.top_p,
-        top_k: generation.top_k,
-        repetition_penalty: generation.repetition_penalty,
-    };
-    match ModelDescriptor::inspect(path, overrides) {
-        Ok(_) => Loadability { allowed: true, reason: String::new() },
-        Err(error) => Loadability {
-            allowed: false,
-            reason: error.to_string(),
-        },
-    }
-}
-
-fn model_class(path: &std::path::Path) -> String {
-    ModelMetadata::from_config_path(path.join("config.json")).map_or_else(
-        |_| "unknown".to_owned(),
-        |metadata| {
-            if metadata.architectures.is_empty() {
-                "unknown".to_owned()
-            } else {
-                metadata.architectures.join(", ")
-            }
-        },
-    )
 }
 
 fn state(
@@ -191,33 +200,4 @@ fn state(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::{AppConfig, Paths, Store};
-
-    #[test]
-    fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "mirmir-local-unsupported-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("model")
-        ));
-        let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
-        let snapshot = paths.hub_cache_dir.join("models--Org--Unsupported/snapshots/deadbeef");
-        std::fs::create_dir_all(&snapshot)?;
-        std::fs::write(snapshot.join("config.json"), "{}")?;
-        let service = RuntimeService::new(&AppConfig::default(), Store::new(paths));
-
-        let models = service.local_models().expect("local models should be listed");
-        let model = models
-            .iter()
-            .find(|model| model.repo_id == "Org/Unsupported")
-            .expect("managed snapshot should remain visible");
-        assert!(model.managed);
-        assert_eq!(model.state, "available");
-        assert!(!model.loadable);
-        assert!(!model.load_unavailable_reason.is_empty());
-        std::fs::remove_dir_all(root)?;
-        Ok(())
-    }
-}
+mod tests;

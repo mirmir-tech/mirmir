@@ -1,24 +1,32 @@
 const base = "/api/mirmir/v1";
-const dashboardSchemaVersion = 3;
+const dashboardSchemaVersion = 4;
 let csrf = null;
 let updatesSocket = null;
 let reconnectTimer = null;
 let connectedOnce = false;
-let runtimeReady = false;
+let waitingForServerNotified = false;
+let startupToastState = null;
 let localModels = [];
 let currentConfiguration = null;
 let loadSelector = null;
 let loadGeneration = false;
 let removeRepoId = null;
+const removingModels = new Set();
 let chatRunning = false;
 let chatOperationId = null;
 let chatMessages = [];
 let chatImage = null;
-let searching = false;
+let chatFollowing = true;
 let catalogResults = null;
+let catalogResultsQuery = "";
+let catalogSearchTimer = null;
+let catalogSearchController = null;
+let catalogPageController = null;
+let catalogPageLoading = false;
 const activities = new Map();
 const pendingModelOperations = new Map();
 const initiatedModelOperations = new Set();
+const optimisticModelStates = new Map();
 const liveOperationStates = new Set(["queued", "running", "cancelling"]);
 const maxImageBytes = 20 * 1024 * 1024;
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -28,7 +36,7 @@ const imageTypeByExtension = new Map([
 ]);
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/ui/sw.js?v=7", { scope: "/ui/" }).catch(() => {});
+  navigator.serviceWorker.register("/ui/sw.js?v=25", { scope: "/ui/" }).catch(() => {});
 }
 
 const byId = (id) => document.getElementById(id);
@@ -55,10 +63,29 @@ const mutate = (path, body) => request(path, {
 });
 
 const showNotice = (message, error = false) => {
-  const notice = byId("notice");
-  notice.textContent = message;
-  notice.className = error ? "notice error" : "notice";
-  notice.hidden = false;
+  const region = byId("toast-region");
+  const toast = document.createElement("div");
+  toast.className = error ? "toast error" : "toast";
+  toast.setAttribute("role", error ? "alert" : "status");
+  const content = document.createElement("span");
+  content.textContent = message;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.setAttribute("aria-label", "Dismiss notification");
+  close.textContent = "×";
+  toast.append(content, close);
+  region.appendChild(toast);
+  while (region.children.length > 4) region.firstElementChild.remove();
+  const dismiss = () => {
+    if (!toast.isConnected || toast.classList.contains("dismissing")) return;
+    toast.classList.add("dismissing");
+    window.setTimeout(() => toast.remove(), 180);
+  };
+  const timeout = window.setTimeout(dismiss, error ? 8000 : 5000);
+  close.addEventListener("click", () => {
+    window.clearTimeout(timeout);
+    dismiss();
+  });
 };
 
 const bytes = (value) => {
@@ -77,48 +104,36 @@ const duration = (milliseconds) => {
 
 const percent = (used, total) => total ? Math.min(100, Math.max(0, used / total * 100)) : 0;
 
-const renderConnection = (state, detail = null, phase = "reconnecting") => {
+const renderConnection = (state, detail = null) => {
   const indicator = byId("connection-state");
+  const previous = indicator.dataset.state;
   indicator.dataset.state = state;
   indicator.textContent = state === "connected" ? "CONNECTED"
     : state === "connecting" ? "CONNECTING" : "DISCONNECTED";
-  if (state !== "disconnected") return;
-  runtimeReady = false;
-  const banner = byId("startup-banner");
-  banner.hidden = false;
-  banner.classList.add("connection-lost");
-  text("startup-title", "Connection lost");
-  text("startup-detail", detail || "The dashboard is no longer receiving updates from the MiRMiR server.");
-  text("startup-phase", phase);
-  byId("startup-progress").hidden = true;
+  if (state === "connected") {
+    waitingForServerNotified = false;
+    if (previous === "disconnected") showNotice("Connection restored");
+  } else if (state === "disconnected" && previous !== "disconnected") {
+    showNotice(detail || "Connection lost. Reconnecting…", true);
+  }
 };
 
 const renderWaitingForServer = () => {
   renderConnection("connecting");
-  runtimeReady = false;
-  const banner = byId("startup-banner");
-  banner.hidden = false;
-  banner.classList.remove("connection-lost");
-  text("startup-title", "Starting runtime");
-  text("startup-detail", "Waiting for the MiRMiR server to become available…");
-  text("startup-phase", "connecting");
-  byId("startup-progress").hidden = true;
+  if (waitingForServerNotified) return;
+  waitingForServerNotified = true;
+  showNotice("Waiting for the MiRMiR server to become available…");
 };
 
 const renderStartup = (startup) => {
-  runtimeReady = startup.ready;
-  const banner = byId("startup-banner");
-  banner.classList.remove("connection-lost");
-  banner.hidden = startup.ready;
-  text("startup-title", startup.ready ? "Runtime ready" : `Waiting for ${startup.target}`);
-  text("startup-detail", startup.detail);
-  text("startup-phase", startup.phase);
-  const progress = byId("startup-progress");
-  progress.hidden = startup.total == null || startup.total === 0;
-  progress.max = startup.total || 1;
-  progress.value = startup.current || 0;
-  if (startup.phase === "failed") showNotice(startup.detail, true);
-  if (!searching && localModels.length > 0) renderLocalModels({ models: localModels });
+  const state = startup.phase === "failed" ? `failed:${startup.detail}`
+    : startup.ready ? "ready" : "starting";
+  if (state !== startupToastState) {
+    startupToastState = state;
+    if (startup.phase === "failed") showNotice(startup.detail, true);
+    else showNotice(startup.ready ? "Runtime ready" : "Runtime is starting…");
+  }
+  if (localModels.length > 0) renderLocalModels({ models: localModels });
 };
 
 const renderOverview = (data) => {
@@ -140,7 +155,6 @@ const renderOverview = (data) => {
   byId("kv").value = percent(data.kv_used_blocks, data.kv_total_blocks);
   text("kv-label", `${data.kv_used_blocks} / ${data.kv_total_blocks}`);
   text("memory-source", data.memory_source || "Memory source unavailable");
-  text("updated", `sample ${new Date(data.sampled_at_unix_ms).toLocaleTimeString()}`);
   if (chatRunning) {
     text("chat-ttft", number(data.current_ttft_ms));
     text("chat-prefill", number(data.current_prefill_tokens_per_second));
@@ -183,6 +197,82 @@ const action = (label, handler, disabled = false) => {
   });
   return button;
 };
+
+const icons = {
+  load: '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4Z"/>',
+  unload: '<circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/>',
+  download: '<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/>',
+  stop: '<circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+  downloaded: '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+  tools: '<path d="M14.7 6.3a4 4 0 0 0-5-5L12 3.6 9.6 6 7.3 3.7a4 4 0 0 0 5 5L4 17l3 3 8.3-8.3a4 4 0 0 0-.6-5.4Z"/>',
+  thinking: '<path d="M9 18h6m-5 3h4"/><path d="M8.2 14.5A7 7 0 1 1 15.8 14.5C14.7 15.2 14 16 14 17h-4c0-1-.7-1.8-1.8-2.5Z"/>',
+  vision: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
+};
+
+const icon = (name) => {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = icons[name];
+  return svg;
+};
+
+const iconAction = (label, name, handler, disabled = false, className = "") => {
+  const button = document.createElement("button");
+  button.className = `icon-action ${className}`.trim();
+  button.type = "button";
+  button.disabled = disabled;
+  button.dataset.action = name;
+  button.setAttribute("aria-label", label);
+  button.dataset.tooltip = label;
+  button.appendChild(icon(name));
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try { await handler(); }
+    catch (error) { showNotice(error.message, true); }
+    finally { if (button.isConnected) button.disabled = disabled; }
+  });
+  return button;
+};
+
+const floatingTooltip = byId("floating-tooltip");
+let floatingTooltipTarget = null;
+
+const hideFloatingTooltip = () => {
+  floatingTooltip.hidden = true;
+  floatingTooltipTarget = null;
+};
+
+const showFloatingTooltip = (target) => {
+  const message = target.dataset.tooltip;
+  if (!message) return;
+  floatingTooltipTarget = target;
+  floatingTooltip.textContent = message;
+  floatingTooltip.hidden = false;
+  const anchor = target.getBoundingClientRect();
+  const tooltip = floatingTooltip.getBoundingClientRect();
+  const gap = 8;
+  const below = anchor.bottom + gap + tooltip.height <= window.innerHeight - gap;
+  const top = below ? anchor.bottom + gap : anchor.top - tooltip.height - gap;
+  const centered = anchor.left + (anchor.width - tooltip.width) / 2;
+  const left = Math.max(gap, Math.min(centered, window.innerWidth - tooltip.width - gap));
+  floatingTooltip.style.left = `${left}px`;
+  floatingTooltip.style.top = `${Math.max(gap, top)}px`;
+};
+
+document.addEventListener("pointerover", (event) => {
+  const target = event.target.closest?.("[data-tooltip]");
+  if (target) showFloatingTooltip(target);
+});
+document.addEventListener("pointerout", (event) => {
+  if (floatingTooltipTarget && !floatingTooltipTarget.contains(event.relatedTarget)) hideFloatingTooltip();
+});
+document.addEventListener("focusin", (event) => {
+  const target = event.target.closest?.("[data-tooltip]");
+  if (target) showFloatingTooltip(target);
+});
+document.addEventListener("focusout", hideFloatingTooltip);
 
 const runModelAction = async (path, payload, message) => {
   const target = payload.selector || payload.repo_id;
@@ -254,6 +344,28 @@ const enableGenerationFields = (enabled) => {
     .forEach((input) => { input.disabled = !enabled; });
 };
 
+const generationControls = [
+  ["load-max-tokens", "load-max-tokens-range"],
+  ["load-temperature", "load-temperature-range"],
+  ["load-top-p", "load-top-p-range"],
+  ["load-top-k", "load-top-k-range"],
+  ["load-repetition", "load-repetition-range"],
+];
+
+const setGenerationControl = (numberId, rangeId, value) => {
+  byId(numberId).value = value;
+  byId(rangeId).value = value;
+};
+
+generationControls.forEach(([numberId, rangeId]) => {
+  const numberInput = byId(numberId);
+  const rangeInput = byId(rangeId);
+  numberInput.addEventListener("input", () => {
+    if (numberInput.value !== "" && numberInput.validity.valid) rangeInput.value = numberInput.value;
+  });
+  rangeInput.addEventListener("input", () => { numberInput.value = rangeInput.value; });
+});
+
 const setLoadButtonState = (state) => {
   const button = byId("confirm-load");
   const busy = state === "inspecting" || state === "submitting";
@@ -283,11 +395,16 @@ const openLoadDialog = async (selector) => {
     loadGeneration = inspection.task === "generation" || (!inspection.task && settings != null);
     if (loadGeneration && !settings) throw new Error("generation settings missing");
     if (loadGeneration) {
-      byId("load-max-tokens").value = settings.max_tokens;
-      byId("load-temperature").value = settings.temperature;
-      byId("load-top-p").value = settings.top_p;
-      byId("load-top-k").value = settings.top_k;
-      byId("load-repetition").value = settings.repetition_penalty;
+      const memory = inspection.memory;
+      const tokenLimit = Math.max(settings.max_tokens,
+        memory.max_safe_context_tokens || memory.configured_cache_tokens || 32768);
+      byId("load-max-tokens").max = tokenLimit;
+      byId("load-max-tokens-range").max = tokenLimit;
+      setGenerationControl("load-max-tokens", "load-max-tokens-range", settings.max_tokens);
+      setGenerationControl("load-temperature", "load-temperature-range", settings.temperature);
+      setGenerationControl("load-top-p", "load-top-p-range", settings.top_p);
+      setGenerationControl("load-top-k", "load-top-k-range", settings.top_k);
+      setGenerationControl("load-repetition", "load-repetition-range", settings.repetition_penalty);
     }
     byId("load-generation-fields").hidden = !loadGeneration;
     enableGenerationFields(loadGeneration);
@@ -320,7 +437,7 @@ const renderChatModels = (models) => {
   ready.forEach((model) => {
     const option = document.createElement("option");
     option.value = model.selector;
-    option.textContent = `${model.id || model.repo_id} · ${model.image_input ? "image ready" : "no image"}`;
+    option.textContent = model.id || model.repo_id;
     select.appendChild(option);
   });
   if (ready.some((model) => model.selector === selected)) select.value = selected;
@@ -355,50 +472,133 @@ const pullOperations = () => {
   return [...operations.values()];
 };
 
-const operationControl = (operation) => {
-  if (!operation.cancellable || !liveOperationStates.has(operation.state)) {
-    return action(`${operation.kind}…`, () => {}, true);
-  }
-  return action("Cancel", async () => {
-    const response = await mutate("/activity/cancel", { operation_id: operation.operation_id });
-    showNotice(response.accepted
-      ? "Cancellation requested; partial download will be removed"
-      : `Cancellation not accepted (${response.state})`);
-  }, operation.state === "cancelling");
+const latestOperationFor = (...targets) => {
+  const targetSet = new Set(targets.filter(Boolean));
+  return [...activities.values()]
+    .filter((event) => targetSet.has(event.target) && ["load", "restore", "unload", "pull"].includes(event.kind))
+    .sort((left, right) => right.updated_at_unix_ms - left.updated_at_unix_ms)[0] || null;
 };
 
-const operationProgress = (container, operation) => {
-  if (!operation) return;
-  const progress = document.createElement("progress");
-  progress.className = "model-progress";
-  if (operation.total) {
-    progress.max = operation.total;
-    progress.value = operation.current || 0;
-  }
-  container.appendChild(progress);
+const operationState = (operation) => {
+  if (operation.kind === "pull") return "downloading";
+  if (operation.kind === "unload") return "unloading";
+  return "loading";
 };
+
+const progressDescription = (operation) => {
+  const parts = [operation.detail || operation.stage || operation.state];
+  if (operation.total) {
+    const current = operation.current || 0;
+    const remaining = Math.max(0, operation.total - current);
+    const formatted = operation.kind === "pull" || operation.total > 1024 * 1024;
+    parts.push(`${percent(current, operation.total).toFixed(1)}%`);
+    parts.push(`${formatted ? bytes(remaining) : remaining.toLocaleString()} remaining`);
+  }
+  return parts.filter(Boolean).join(" · ");
+};
+
+const statePill = (state, detail = "", operation = null) => {
+  const pill = document.createElement("span");
+  pill.className = `state-pill ${state}`;
+  const label = state.replaceAll("-", " ");
+  pill.textContent = label;
+  const tooltip = operation ? progressDescription(operation) : detail;
+  if (tooltip) {
+    pill.dataset.tooltip = tooltip;
+    pill.setAttribute("aria-label", `${label}: ${tooltip}`);
+    pill.tabIndex = 0;
+  }
+  if (operation && ["loading", "unloading", "downloading"].includes(state)) {
+    const ring = document.createElement("span");
+    ring.className = "progress-ring";
+    if (operation.total) {
+      ring.style.setProperty("--progress", `${percent(operation.current || 0, operation.total)}%`);
+    } else {
+      pill.classList.add("indeterminate");
+    }
+    pill.prepend(ring);
+  }
+  return pill;
+};
+
+const appendName = (row, name, detail) => {
+  const item = cell(row, "");
+  const content = document.createElement("span");
+  content.className = "model-name";
+  const title = document.createElement("strong");
+  title.textContent = name;
+  const source = document.createElement("small");
+  source.textContent = detail || "local";
+  content.append(title, source);
+  item.appendChild(content);
+};
+
+const appendType = (row, value) => {
+  const item = cell(row, "", "model-type");
+  const type = document.createElement("span");
+  const name = value || "Unknown";
+  const kind = name.toLowerCase().replaceAll("_", "-").replaceAll(" ", "-");
+  type.className = `type-pill ${kind}`;
+  type.textContent = name;
+  item.appendChild(type);
+};
+
+const appendFeatures = (row, model) => {
+  const item = cell(row, "");
+  const list = document.createElement("span");
+  list.className = "feature-list";
+  [["tool_use", "tools", "Tool use"], ["thinking", "thinking", "Thinking"], ["vision", "vision", "Vision"]]
+    .filter(([property]) => model[property])
+    .forEach(([, name, label]) => {
+      const feature = document.createElement("span");
+      feature.className = `feature-pill ${name}`;
+      feature.dataset.tooltip = label;
+      feature.setAttribute("aria-label", label);
+      feature.tabIndex = 0;
+      feature.appendChild(icon(name));
+      list.appendChild(feature);
+    });
+  if (!list.children.length) {
+    const empty = document.createElement("span");
+    empty.className = "feature-empty";
+    empty.textContent = "—";
+    list.appendChild(empty);
+  }
+  item.appendChild(list);
+};
+
+const operationButton = (operation) => {
+  const state = operationState(operation);
+  if (operation.kind === "pull" && operation.operation_id && operation.cancellable) {
+    const stopping = operation.state === "cancelling";
+    return iconAction(stopping ? "Stopping download…" : "Stop download", "stop", async () => {
+      const response = await mutate("/activity/cancel", { operation_id: operation.operation_id });
+      if (!response.accepted) throw new Error(`Download cannot be stopped (${response.state})`);
+    }, stopping, stopping ? "busy" : "stop");
+  }
+  const name = state === "unloading" ? "unload" : state === "downloading" ? "download" : "load";
+  return iconAction(`${state}…`, name, () => {}, true, "busy");
+};
+
+const optimisticStateFor = (...identifiers) => identifiers
+  .map((identifier) => optimisticModelStates.get(identifier))
+  .find(Boolean);
 
 const renderOperationTarget = (target) => {
-  if (searching && catalogResults?.models.some((model) => model.id === target)) {
-    renderCatalog(catalogResults);
-  } else if (!searching) {
-    renderLocalModels({ models: localModels });
-  }
+  renderLocalModels({ models: localModels });
+  if (catalogResults?.models.some((model) => model.id === target)) renderCatalog(catalogResults);
 };
 
 const appendPullRow = (rows, operation) => {
   const row = document.createElement("tr");
   row.className = "busy";
-  cell(row, operation.target);
-  const state = cell(row, "");
-  const stateBadge = badge(operation.state === "queued" ? "queued" : "loading");
-  stateBadge.textContent = operation.stage || operation.state;
-  state.appendChild(stateBadge);
-  operationProgress(state, operation);
-  cell(row, "pending");
-  cell(row, operation.detail || "Downloading from Hugging Face", "path");
-  const controls = cell(row, "");
-  controls.appendChild(operationControl(operation));
+  appendName(row, operation.target, "Hugging Face");
+  appendType(row, "Unknown");
+  cell(row, bytes(operation.total), "model-size");
+  appendFeatures(row, {});
+  cell(row, "").appendChild(statePill("downloading", "", operation));
+  const controls = cell(row, "", "model-actions");
+  controls.appendChild(operationButton(operation));
   rows.appendChild(row);
 };
 
@@ -414,58 +614,69 @@ const renderLocalModels = (data) => {
     .forEach((operation) => appendPullRow(rows, operation));
   data.models.forEach((model) => {
     const row = document.createElement("tr");
-    cell(row, model.id || model.repo_id);
-    const state = cell(row, "");
-    const operation = operationFor(model.selector, model.id, model.repo_id, model.path);
-    if (operation) {
-      row.classList.add("busy");
-      const stateBadge = badge(operation.state === "queued" ? "queued" : "loading");
-      stateBadge.textContent = operation.stage || operation.state;
-      state.appendChild(stateBadge);
-      operationProgress(state, operation);
-    } else {
-      state.appendChild(badge(model.state === "available" && !model.loadable ? "unavailable" : model.state));
+    const removing = Boolean(model.repo_id && removingModels.has(model.repo_id));
+    if (removing) {
+      row.classList.add("removing");
+      row.setAttribute("aria-busy", "true");
     }
-    cell(row, model.model_class || "unknown").title = model.revision || "local";
-    const unavailable = model.state === "available" && !model.loadable;
-    const detail = unavailable ? model.load_unavailable_reason : (model.repo_id || model.path);
-    cell(row, detail, "path").title = unavailable
-      ? `${model.load_unavailable_reason}\n${model.path}`
-      : model.path;
-    const controls = cell(row, "");
-    if (operation) {
-      controls.appendChild(operationControl(operation));
-    } else if (model.state === "ready") {
-      controls.appendChild(action("Unload", () => runModelAction("/models/unload", { selector: model.selector }, "Unload requested")));
-    } else if (model.state === "missing") {
-      if (model.repo_id) controls.appendChild(action("Remove", () => openRemoveDialog(model.repo_id)));
+    appendName(row, model.id || model.repo_id, model.repo_id || model.path);
+    appendType(row, model.library);
+    cell(row, bytes(model.size_bytes), "model-size");
+    appendFeatures(row, model);
+    const operation = operationFor(model.selector, model.id, model.repo_id, model.path);
+    const failed = latestOperationFor(model.selector, model.id, model.repo_id, model.path);
+    const optimistic = optimisticStateFor(model.selector, model.id, model.repo_id, model.path);
+    const active = optimistic ? optimistic === "active" : model.state === "ready";
+    const state = cell(row, "");
+    if (removing) {
+      state.appendChild(statePill("removing", "Removing local model…"));
+    } else if (operation) {
+      row.classList.add("busy");
+      state.appendChild(statePill(operationState(operation), "", operation));
+    } else if (model.state === "paused") {
+      const reason = failed && ["failed", "rejected"].includes(failed.state)
+        ? `${failed.detail} · ` : "";
+      state.appendChild(statePill("paused", `${reason}${bytes(model.size_bytes)} kept on disk · resume or remove`));
+    } else if (failed && ["failed", "rejected"].includes(failed.state)) {
+      state.appendChild(statePill("error", failed.detail || "Model operation failed"));
+    } else if (!model.loadable || model.state === "missing") {
+      state.appendChild(statePill("error", model.load_unavailable_reason || "Model files are missing"));
     } else {
-      if (unavailable) {
-        controls.appendChild(action("Why?", () => showNotice(model.load_unavailable_reason, true)));
-      }
-      const load = action("Load", () => openLoadDialog(model.selector), unavailable || model.state !== "available" || !runtimeReady);
-      if (unavailable) load.title = model.load_unavailable_reason;
-      controls.appendChild(load);
+      state.appendChild(statePill(active ? "active" : "ready"));
+    }
+    const controls = cell(row, "", "model-actions");
+    if (removing) {
+      controls.appendChild(iconAction("Removing model…", "trash", () => {}, true, "busy removing"));
+    } else if (operation) {
+      controls.appendChild(operationButton(operation));
+    } else if (model.state === "paused") {
+      controls.appendChild(iconAction("Resume download", "download", () =>
+        runModelAction("/models/pull", { repo_id: model.repo_id, revision: model.revision || null },
+          `Resuming download for ${model.repo_id}`)));
+      controls.appendChild(iconAction("Remove partial download", "trash", () =>
+        openRemoveDialog(model.repo_id), false, "danger"));
+    } else if (active) {
+      controls.appendChild(iconAction("Unload model", "unload", () =>
+        runModelAction("/models/unload", { selector: model.selector }, "Unload requested")));
+    } else {
+      controls.appendChild(iconAction("Load model", "load", () => openLoadDialog(model.selector),
+        !model.loadable || (!optimistic && model.state !== "available")));
       if (model.repo_id) {
-        controls.appendChild(action("Remove", () => openRemoveDialog(model.repo_id), model.state !== "available"));
+        controls.appendChild(iconAction("Remove model", "trash", () => openRemoveDialog(model.repo_id), false, "danger"));
       }
     }
     rows.appendChild(row);
   });
-  const missing = data.models.filter((model) => model.state === "missing").length;
-  const summary = [`${data.models.length - missing} local`];
-  const queued = downloads.filter((operation) => operation.state === "queued").length;
-  const downloading = downloads.length - queued;
-  if (downloading > 0) summary.push(`${downloading} downloading`);
-  if (queued > 0) summary.push(`${queued} queued`);
-  if (missing > 0) summary.push(`${missing} missing`);
-  text("model-count", summary.join(" · "));
-  byId("models-empty").hidden = rows.children.length > 0;
+  const empty = byId("models-empty");
+  empty.classList.remove("loading");
+  empty.removeAttribute("aria-busy");
+  empty.textContent = "No local models found.";
+  empty.hidden = rows.children.length > 0;
 };
 
 const renderCatalog = (data) => {
   catalogResults = data;
-  const rows = byId("model-rows");
+  const rows = byId("catalog-rows");
   rows.replaceChildren();
   const showIncompatible = byId("show-incompatible").checked;
   const models = data.models.filter((model) => showIncompatible ||
@@ -474,43 +685,47 @@ const renderCatalog = (data) => {
   models.forEach((model) => {
     const row = document.createElement("tr");
     const localModel = localModels.find((local) => local.repo_id === model.id);
-    cell(row, model.id);
+    const presented = localModel || model;
+    appendName(row, model.id, `${model.downloads.toLocaleString()} downloads · ${model.likes.toLocaleString()} likes`);
+    appendType(row, presented.library);
+    cell(row, bytes(localModel?.size_bytes ?? model.estimated_weight_bytes), "model-size");
+    appendFeatures(row, presented);
     const fit = cell(row, "");
     const operation = operationFor(model.id);
-    if (operation) {
-      row.classList.add("busy");
-      const stateBadge = badge(operation.state === "queued" ? "queued" : "loading");
-      stateBadge.textContent = operation.stage || operation.state;
-      fit.appendChild(stateBadge);
-      operationProgress(fit, operation);
-    } else {
-      fit.appendChild(badge(localModel && !localModel.loadable ? "unavailable" : (model.downloaded ? "downloaded" : model.memory_fit)));
-    }
-    if (model.gated) fit.appendChild(badge("gated"));
-    cell(row, model.model_class || "unknown");
-    const popularity = `${model.downloads.toLocaleString()} downloads · ${model.likes.toLocaleString()} likes`;
-    const reason = localModel && !localModel.loadable ? localModel.load_unavailable_reason : model.reason;
-    cell(row, reason || model.local_source, "path").title = `${reason}\n${popularity}`;
-    const controls = cell(row, "");
+    const partial = localModel?.state === "paused" || model.local_source === "partial";
     const local = model.downloaded || model.local_source === "hf_cache";
     const blocked = model.compatibility === "unsupported" || model.memory_fit === "does_not_fit";
     if (operation) {
-      controls.appendChild(operationControl(operation));
+      row.classList.add("busy");
+      fit.appendChild(statePill("downloading", "", operation));
     } else if (local) {
-      if (localModel && !localModel.loadable) {
-        controls.appendChild(action("Why?", () => showNotice(localModel.load_unavailable_reason, true)));
-      }
-      controls.appendChild(action("Remove", () => openRemoveDialog(model.id)));
+      fit.appendChild(statePill("downloaded", model.reason));
+    } else if (partial) {
+      fit.appendChild(statePill("paused", model.reason));
     } else {
-      controls.appendChild(action("Download", () =>
-        runModelAction("/models/pull", { repo_id: model.id }, `Download accepted for ${model.id}`), blocked));
+      const fits = ["fits", "tight"].includes(model.memory_fit);
+      fit.appendChild(statePill(blocked ? "does-not-fit" : fits ? "fits" : "fit-unknown", model.reason));
+    }
+    const controls = cell(row, "", "model-actions");
+    if (operation) {
+      controls.appendChild(operationButton(operation));
+    } else if (local) {
+      controls.appendChild(iconAction("Downloaded", "downloaded", () => {}, true, "downloaded"));
+    } else {
+      const label = partial ? "Resume download" : "Download model";
+      controls.appendChild(iconAction(!partial && blocked ? model.reason : label, "download", () =>
+        runModelAction("/models/pull", { repo_id: model.id },
+          partial ? `Resuming download for ${model.id}` : `Download accepted for ${model.id}`),
+        !partial && blocked));
     }
     rows.appendChild(row);
   });
   const count = models.length === data.models.length ? `${models.length} results` : `${models.length} of ${data.models.length} results`;
-  text("model-count", `${count} · ${data.memory_source}`);
-  byId("models-empty").hidden = models.length > 0;
-  byId("more-models").hidden = !data.next_cursor;
+  byId("catalog-status").classList.remove("loading");
+  byId("catalog-status").removeAttribute("aria-busy");
+  text("catalog-status", `${count} · ${data.memory_source}`);
+  byId("catalog-empty").hidden = models.length > 0;
+  window.requestAnimationFrame(maybeLoadMoreCatalog);
 };
 
 const catalogRank = (model) => {
@@ -523,11 +738,17 @@ const editConfigurationValue = (row, setting) => {
   const actionCell = row.children[4];
   const input = document.createElement("input");
   input.className = "inline-input";
-  input.value = setting.value;
+  const secret = setting.kind === "secret";
+  const configured = setting.actions.includes("remove");
+  input.type = secret ? "password" : "text";
+  input.autocomplete = secret ? "new-password" : "off";
+  input.value = secret ? "" : setting.value;
+  if (secret) input.placeholder = configured ? "Replace stored value" : "Set value";
   input.setAttribute("aria-label", `New value for ${setting.key}`);
   valueCell.replaceChildren(input);
   actionCell.replaceChildren();
   const save = action("Save", async () => {
+    if (secret && !input.value.trim()) throw new Error("Secret value cannot be empty");
     const response = await mutate("/configuration", {
       operation: "set_value", key: setting.key, value: input.value,
     });
@@ -541,7 +762,7 @@ const editConfigurationValue = (row, setting) => {
   cancel.addEventListener("click", () => renderConfiguration(currentConfiguration));
   actionCell.append(save, cancel);
   input.focus();
-  input.select();
+  if (!secret) input.select();
 };
 
 const renderConfiguration = (configuration) => {
@@ -555,15 +776,23 @@ const renderConfiguration = (configuration) => {
     cell(row, setting.source);
     cell(row, setting.restart_required ? "required" : "live");
     const controls = cell(row, "");
-    controls.appendChild(action("Edit", () => editConfigurationValue(row, setting), !setting.editable));
+    if (setting.actions.includes("edit")) {
+      controls.appendChild(action("Edit", () => editConfigurationValue(row, setting)));
+    }
+    if (setting.actions.includes("test")) {
+      controls.appendChild(action("Test", async () => {
+        const response = await updateConfiguration({ operation: "test_value", key: setting.key });
+        return response;
+      }));
+    }
+    if (setting.actions.includes("remove")) {
+      const remove = action("Remove", () =>
+        updateConfiguration({ operation: "remove_value", key: setting.key }));
+      remove.classList.add("danger");
+      controls.appendChild(remove);
+    }
     rows.appendChild(row);
   });
-  const setSecret = (prefix, secret) => {
-    text(`${prefix}-state`, secret.configured ? "CONFIGURED" : "NOT SET");
-    text(`${prefix}-source`, secret.configured ? `Effective source: ${secret.source}` : "No effective secret.");
-  };
-  setSecret("hf-token", configuration.hugging_face_token);
-  setSecret("http-key", configuration.http_api_key);
   text("config-path", `config: ${configuration.config_path}`);
   text("secrets-path", `secrets: ${configuration.secrets_path}`);
   text("raw-config", configuration.raw_toml);
@@ -616,12 +845,15 @@ const renderActivity = () => {
     list.appendChild(item);
   });
   if (sorted.length === 0) list.appendChild(empty);
-  text("activity-count", sorted.length);
 };
 
 const applyActivity = (event) => {
   activities.set(event.operation_id, event);
   pendingModelOperations.delete(event.target);
+  if (event.state === "completed") {
+    if (["load", "restore"].includes(event.kind)) optimisticModelStates.set(event.target, "active");
+    if (event.kind === "unload") optimisticModelStates.set(event.target, "ready");
+  }
   if (initiatedModelOperations.has(event.target) && !liveOperationStates.has(event.state)) {
     initiatedModelOperations.delete(event.target);
     if (event.state === "failed") {
@@ -632,22 +864,215 @@ const applyActivity = (event) => {
   renderOperationTarget(event.target);
 };
 
-const chatNode = (role, content = "") => {
+const appendInlineMarkdown = (parent, source) => {
+  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\([^\s)]+\)|\n)/g;
+  let offset = 0;
+  for (const match of source.matchAll(pattern)) {
+    parent.appendChild(document.createTextNode(source.slice(offset, match.index)));
+    const token = match[0];
+    let node;
+    if (token === "\n") {
+      node = document.createElement("br");
+    } else if (token.startsWith("`")) {
+      node = document.createElement("code");
+      node.textContent = token.slice(1, -1);
+    } else if (token.startsWith("**")) {
+      node = document.createElement("strong");
+      appendInlineMarkdown(node, token.slice(2, -2));
+    } else if (token.startsWith("*")) {
+      node = document.createElement("em");
+      appendInlineMarkdown(node, token.slice(1, -1));
+    } else {
+      const parts = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      const href = parts?.[2] || "";
+      if (/^https?:\/\//i.test(href)) {
+        node = document.createElement("a");
+        node.href = href;
+        node.target = "_blank";
+        node.rel = "noreferrer noopener";
+        appendInlineMarkdown(node, parts[1]);
+      } else {
+        node = document.createTextNode(token);
+      }
+    }
+    parent.appendChild(node);
+    offset = match.index + token.length;
+  }
+  parent.appendChild(document.createTextNode(source.slice(offset)));
+};
+
+const tableCells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((part) => part.trim());
+const tableDivider = (line) => tableCells(line).every((part) => /^:?-{3,}:?$/.test(part));
+const markdownBlock = (line) => /^(#{1,6}\s|```|~~~|>\s?|[-*+]\s|\d+\.\s|---+$)/.test(line.trim());
+
+const renderMarkdown = (container, markdown = "") => {
+  const lines = markdown.replaceAll("\r\n", "\n").split("\n");
+  const fragment = document.createDocumentFragment();
+  let index = 0;
+  const inlineBlock = (tag, value, className = "") => {
+    const block = document.createElement(tag);
+    block.className = className;
+    appendInlineMarkdown(block, value);
+    fragment.appendChild(block);
+  };
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+    const fence = line.trim().match(/^(```|~~~)([^\s]*)/);
+    if (fence) {
+      const code = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith(fence[1])) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const pre = document.createElement("pre");
+      const body = document.createElement("code");
+      const language = fence[2].replace(/[^a-z0-9_-]/gi, "");
+      if (language) body.className = `language-${language}`;
+      body.textContent = code.join("\n");
+      pre.appendChild(body);
+      fragment.appendChild(pre);
+      continue;
+    }
+    if (line.includes("|") && lines[index + 1]?.includes("|") && tableDivider(lines[index + 1])) {
+      const table = document.createElement("table");
+      const head = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      tableCells(line).forEach((value) => {
+        const cell = document.createElement("th");
+        appendInlineMarkdown(cell, value);
+        headRow.appendChild(cell);
+      });
+      head.appendChild(headRow);
+      table.appendChild(head);
+      index += 2;
+      const body = document.createElement("tbody");
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        const row = document.createElement("tr");
+        tableCells(lines[index]).forEach((value) => {
+          const cell = document.createElement("td");
+          appendInlineMarkdown(cell, value);
+          row.appendChild(cell);
+        });
+        body.appendChild(row);
+        index += 1;
+      }
+      table.appendChild(body);
+      fragment.appendChild(table);
+      continue;
+    }
+    const heading = line.trim().match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      inlineBlock(`h${Math.min(4, heading[1].length)}`, heading[2]);
+      index += 1;
+      continue;
+    }
+    if (/^---+$/.test(line.trim())) {
+      fragment.appendChild(document.createElement("hr"));
+      index += 1;
+      continue;
+    }
+    if (/^>\s?/.test(line.trim())) {
+      const quote = [];
+      while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
+        quote.push(lines[index].trim().replace(/^>\s?/, ""));
+        index += 1;
+      }
+      inlineBlock("blockquote", quote.join("\n"));
+      continue;
+    }
+    const list = line.trim().match(/^([-*+]|\d+\.)\s+(.+)$/);
+    if (list) {
+      const ordered = /\d+\./.test(list[1]);
+      const wrapper = document.createElement(ordered ? "ol" : "ul");
+      const itemPattern = ordered ? /^\d+\.\s+(.+)$/ : /^[-*+]\s+(.+)$/;
+      while (index < lines.length) {
+        const item = lines[index].trim().match(itemPattern);
+        if (!item) break;
+        const child = document.createElement("li");
+        appendInlineMarkdown(child, item[1]);
+        wrapper.appendChild(child);
+        index += 1;
+      }
+      fragment.appendChild(wrapper);
+      continue;
+    }
+    const paragraph = [line.trim()];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !markdownBlock(lines[index])
+      && !(lines[index].includes("|") && tableDivider(lines[index + 1] || ""))) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    inlineBlock("p", paragraph.join("\n"));
+  }
+  container.replaceChildren(fragment);
+};
+
+const attachmentChip = (attachment) => {
+  const chip = document.createElement("span");
+  chip.className = "message-attachment";
+  const icon = document.createElement("span");
+  icon.className = "file-icon";
+  icon.setAttribute("aria-hidden", "true");
+  const name = document.createElement("strong");
+  name.textContent = attachment.name;
+  chip.append(icon, name);
+  return chip;
+};
+
+const updateReasoningState = (assistant, active, available = true) => {
+  assistant.reasoning.hidden = !available;
+  assistant.message.classList.toggle("is-thinking", active);
+  assistant.reasoningLabel.textContent = active ? "Thinking" : "Thought process";
+  assistant.reasoningDots.hidden = !active;
+};
+
+const scrollChatToBottom = (force = false) => window.requestAnimationFrame(() => {
+  if (!force && !chatFollowing) return;
+  const log = byId("chat-log");
+  log.scrollTop = log.scrollHeight;
+});
+
+const chatNode = (role, content = "", options = {}) => {
   byId("chat-empty")?.remove();
   const message = document.createElement("article");
   message.className = `chat-message ${role}`;
+  if (role === "assistant") message.classList.add("pending");
   const label = document.createElement("span");
   label.className = "role";
-  label.textContent = role;
-  const reasoning = document.createElement("div");
+  label.textContent = role === "assistant" ? "MiRMiR" : "You";
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble";
+  const reasoning = document.createElement("details");
   reasoning.className = "reasoning";
+  reasoning.hidden = true;
+  const reasoningSummary = document.createElement("summary");
+  const reasoningLabel = document.createElement("span");
+  reasoningLabel.className = "thinking-label";
+  const reasoningDots = document.createElement("span");
+  reasoningDots.className = "thinking-dots";
+  reasoningSummary.append(reasoningLabel, reasoningDots);
+  const reasoningBody = document.createElement("div");
+  reasoningBody.className = "reasoning-bubble markdown-content";
+  reasoning.append(reasoningSummary, reasoningBody);
   const body = document.createElement("div");
-  body.className = "content";
-  body.textContent = content;
-  message.append(label, reasoning, body);
+  body.className = "message-content markdown-content";
+  renderMarkdown(body, content);
+  bubble.append(reasoning, body);
+  if (options.attachment) bubble.appendChild(attachmentChip(options.attachment));
+  message.append(label, bubble);
   byId("chat-log").appendChild(message);
-  byId("chat-log").scrollTop = byId("chat-log").scrollHeight;
-  return { message, reasoning, body };
+  const result = { message, reasoning, reasoningBody, reasoningLabel, reasoningDots, body };
+  if (role === "assistant" && options.thinking) updateReasoningState(result, true);
+  reasoning.addEventListener("toggle", () => scrollChatToBottom());
+  scrollChatToBottom(true);
+  return result;
 };
 
 const consumeSse = async (response, handler) => {
@@ -696,13 +1121,11 @@ const renderChatImage = () => {
   const attachment = byId("chat-attachment");
   attachment.hidden = !chatImage;
   if (!chatImage) {
-    byId("chat-image-preview").removeAttribute("src");
     byId("chat-image-input").value = "";
     return;
   }
-  byId("chat-image-preview").src = chatImage.dataUrl;
   text("chat-image-name", chatImage.name);
-  text("chat-image-meta", `${bytes(chatImage.size)} · attached to each prompt`);
+  text("chat-image-meta", `image · ${bytes(chatImage.size)}`);
 };
 
 const readImage = (file) => new Promise((resolve, reject) => {
@@ -735,10 +1158,13 @@ const runChat = async (prompt) => {
   if (chatImage && !selected?.image_input) {
     throw new Error(selected?.image_unavailable_reason || "Selected model cannot accept images");
   }
+  const submittedImage = chatImage;
   const requestMessages = [...chatMessages, { role: "user", content: prompt }];
   chatMessages.push({ role: "user", content: prompt });
-  chatNode("user", prompt);
-  const assistant = chatNode("assistant");
+  chatNode("user", prompt, { attachment: submittedImage });
+  const assistant = chatNode("assistant", "", { thinking: selected?.thinking });
+  chatImage = null;
+  renderChatImage();
   chatRunning = true;
   chatOperationId = null;
   text("chat-state", "starting");
@@ -747,6 +1173,7 @@ const runChat = async (prompt) => {
   byId("remove-chat-image").disabled = true;
   byId("send-chat").disabled = true;
   byId("cancel-chat").disabled = false;
+  byId("cancel-chat").hidden = false;
   const response = await fetch(`${base}/chat`, {
     method: "POST",
     credentials: "same-origin",
@@ -760,7 +1187,7 @@ const runChat = async (prompt) => {
       top_k: optionalNumber("chat-top-k"),
       repetition_penalty: optionalNumber("chat-repetition"),
       seed: optionalNumber("chat-seed"),
-      image: chatImage?.dataUrl ?? null,
+      image: submittedImage?.dataUrl ?? null,
     }),
   });
   if (!response.ok) {
@@ -768,22 +1195,29 @@ const runChat = async (prompt) => {
     throw new Error(body.error?.message || `HTTP ${response.status}`);
   }
   let completion = null;
-  let receivedToken = false;
+  let streamedText = "";
+  let streamedReasoning = "";
   await consumeSse(response, async (event, data) => {
     if (event === "started") chatOperationId = data.operation_id;
     if (event === "token") {
-      if (!receivedToken) {
-        assistant.message.classList.add("streaming");
-        receivedToken = true;
+      if (data.reasoning) {
+        streamedReasoning += data.text;
+        updateReasoningState(assistant, true);
+        renderMarkdown(assistant.reasoningBody, streamedReasoning);
+      } else {
+        streamedText += data.text;
+        assistant.message.classList.remove("pending");
+        updateReasoningState(assistant, false, Boolean(streamedReasoning));
+        renderMarkdown(assistant.body, streamedText);
       }
-      const target = data.reasoning ? assistant.reasoning : assistant.body;
-      target.textContent += data.text;
-      byId("chat-log").scrollTop = byId("chat-log").scrollHeight;
+      scrollChatToBottom();
     }
     if (event === "completion") {
       completion = data;
-      assistant.body.textContent = data.text;
-      assistant.reasoning.textContent = data.reasoning;
+      assistant.message.classList.remove("pending");
+      renderMarkdown(assistant.body, data.text);
+      renderMarkdown(assistant.reasoningBody, data.reasoning);
+      updateReasoningState(assistant, false, Boolean(data.reasoning));
       text("chat-ttft", number(data.ttft_ms));
       text("chat-prefill", number(data.prefill_tokens_per_second));
       text("chat-decode", number(data.decode_tokens_per_second));
@@ -807,17 +1241,16 @@ const finishChat = () => {
   byId("chat-input").disabled = false;
   byId("remove-chat-image").disabled = false;
   byId("cancel-chat").disabled = true;
+  byId("cancel-chat").hidden = true;
   renderChatModels(localModels);
   byId("chat-input").focus();
 };
 
 const applyModels = (data) => {
+  optimisticModelStates.clear();
   localModels = data.models;
   renderChatModels(data.models);
-  if (!searching) {
-    renderLocalModels(data);
-    return;
-  }
+  renderLocalModels(data);
   if (catalogResults) {
     const downloaded = new Set(data.models.map((model) => model.repo_id));
     catalogResults = {
@@ -889,7 +1322,7 @@ const establishSession = async () => {
 
 const renderConnectionFailure = (error) => {
   if (error?.name === "DashboardCompatibilityError") {
-    renderConnection("disconnected", error.message, "incompatible");
+    renderConnection("disconnected", error.message);
   } else if (connectedOnce) {
     renderConnection("disconnected");
   } else {
@@ -931,63 +1364,161 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
   document.title = `MiRMiR · ${tab.dataset.label}`;
 }));
 
-byId("hf-token-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const input = byId("hf-token");
-  if (!input.value.trim()) return;
-  try { await updateConfiguration({ operation: "set_hf_token", token: input.value }); input.value = ""; }
-  catch (error) { showNotice(error.message, true); }
-});
-
-byId("test-hf-token").addEventListener("click", () =>
-  updateConfiguration({ operation: "test_hf_token" }).catch((error) => showNotice(error.message, true)));
-byId("remove-hf-token").addEventListener("click", () =>
-  updateConfiguration({ operation: "remove_hf_token" }).catch((error) => showNotice(error.message, true)));
-
-byId("http-key-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const input = byId("http-key");
-  if (!input.value.trim()) return;
-  try { await updateConfiguration({ operation: "set_http_api_key", key: input.value }); input.value = ""; }
-  catch (error) { showNotice(error.message, true); }
-});
-byId("remove-http-key").addEventListener("click", () =>
-  updateConfiguration({ operation: "remove_http_api_key" }).catch((error) => showNotice(error.message, true)));
-
-byId("model-search").addEventListener("submit", async (event) => {
-  event.preventDefault();
+const searchCatalog = async () => {
   const query = byId("model-query").value.trim();
-  if (!query) return;
-  searching = true;
-  const button = byId("search-models");
-  button.disabled = true;
-  button.textContent = "Searching…";
-  text("model-count", "searching Hugging Face");
-  try { renderCatalog(await request(`/catalog/search?query=${encodeURIComponent(query)}&limit=20`)); }
-  catch (error) { showNotice(error.message, true); }
-  finally { button.disabled = false; button.textContent = "Search"; }
-});
-
-byId("clear-search").addEventListener("click", () => {
-  searching = false;
-  catalogResults = null;
-  byId("model-query").value = "";
-  renderLocalModels({ models: localModels });
-  byId("more-models").hidden = true;
-});
-byId("more-models").addEventListener("click", async () => {
-  if (!catalogResults?.next_cursor) return;
-  const button = byId("more-models");
-  button.disabled = true;
+  const status = byId("catalog-status");
+  if (!query) {
+    catalogResults = null;
+    catalogResultsQuery = "";
+    byId("catalog-rows").replaceChildren();
+    byId("catalog-empty").hidden = true;
+    byId("catalog-more").hidden = true;
+    status.classList.remove("loading");
+    status.removeAttribute("aria-busy");
+    text("catalog-status", "Start typing to search Hugging Face.");
+    return;
+  }
+  status.classList.add("loading");
+  status.setAttribute("aria-busy", "true");
+  text("catalog-status", "Searching Hugging Face…");
+  if (catalogSearchController) catalogSearchController.abort();
+  if (catalogPageController) catalogPageController.abort();
+  const controller = new AbortController();
+  catalogSearchController = controller;
   try {
-    const query = byId("model-query").value.trim();
-    const page = await request(`/catalog/search?query=${encodeURIComponent(query)}&limit=20&cursor=${encodeURIComponent(catalogResults.next_cursor)}`);
-    const models = [...catalogResults.models, ...page.models].sort((left, right) =>
+    const results = await request(`/catalog/search?query=${encodeURIComponent(query)}&limit=20`, {
+      signal: controller.signal,
+    });
+    if (query === byId("model-query").value.trim()) {
+      catalogResultsQuery = query;
+      renderCatalog(results);
+    }
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    if (query === byId("model-query").value.trim()) {
+      status.classList.remove("loading");
+      status.removeAttribute("aria-busy");
+      text("catalog-status", error.message);
+      showNotice(error.message, true);
+    }
+  } finally {
+    if (catalogSearchController === controller) catalogSearchController = null;
+  }
+};
+
+const scheduleCatalogSearch = () => {
+  if (catalogSearchTimer) window.clearTimeout(catalogSearchTimer);
+  if (catalogSearchController) catalogSearchController.abort();
+  if (catalogPageController) catalogPageController.abort();
+  if (!byId("model-query").value.trim()) {
+    searchCatalog();
+    return;
+  }
+  byId("catalog-status").classList.add("loading");
+  byId("catalog-status").setAttribute("aria-busy", "true");
+  text("catalog-status", "Searching Hugging Face…");
+  catalogSearchTimer = window.setTimeout(() => {
+    catalogSearchTimer = null;
+    searchCatalog();
+  }, 320);
+};
+
+const positionModelSearch = () => {
+  const dialog = byId("model-search-dialog");
+  if (!dialog.open) return;
+  const field = byId("model-query").getBoundingClientRect();
+  const left = Math.max(14, field.left);
+  const top = field.bottom + 8;
+  const width = Math.min(field.width, window.innerWidth - left - 14);
+  dialog.style.setProperty("--catalog-left", `${left}px`);
+  dialog.style.setProperty("--catalog-top", `${top}px`);
+  dialog.style.setProperty("--catalog-width", `${width}px`);
+  dialog.style.setProperty("--catalog-height", `${Math.max(240, window.innerHeight - top - 16)}px`);
+};
+
+const openModelSearch = () => {
+  const dialog = byId("model-search-dialog");
+  if (!dialog.open) dialog.show();
+  byId("model-query").setAttribute("aria-expanded", "true");
+  byId("close-model-search").hidden = false;
+  positionModelSearch();
+  window.requestAnimationFrame(() => byId("model-query").focus({ preventScroll: true }));
+  const query = byId("model-query").value.trim();
+  if (query && catalogResultsQuery !== query && !catalogSearchTimer && !catalogSearchController) {
+    scheduleCatalogSearch();
+  }
+};
+
+byId("model-query").addEventListener("click", openModelSearch);
+byId("close-model-search").addEventListener("click", () => byId("model-search-dialog").close());
+byId("model-search-dialog").addEventListener("close", () => {
+  byId("model-query").setAttribute("aria-expanded", "false");
+  byId("close-model-search").hidden = true;
+  if (catalogSearchTimer) window.clearTimeout(catalogSearchTimer);
+  catalogSearchTimer = null;
+  if (catalogSearchController) catalogSearchController.abort();
+  catalogSearchController = null;
+  if (catalogPageController) catalogPageController.abort();
+  catalogPageController = null;
+  catalogPageLoading = false;
+  byId("catalog-more").hidden = true;
+});
+document.addEventListener("keydown", (event) => {
+  const dialog = byId("model-search-dialog");
+  if (event.key === "Escape" && dialog.open) {
+    event.preventDefault();
+    dialog.close();
+  }
+});
+document.addEventListener("pointerdown", (event) => {
+  const dialog = byId("model-search-dialog");
+  if (dialog.open && !dialog.contains(event.target) && !byId("model-search-control").contains(event.target)) {
+    dialog.close();
+  }
+});
+window.addEventListener("resize", positionModelSearch);
+window.addEventListener("scroll", positionModelSearch, true);
+window.addEventListener("resize", hideFloatingTooltip);
+window.addEventListener("scroll", hideFloatingTooltip, true);
+byId("model-query").addEventListener("input", () => {
+  openModelSearch();
+  scheduleCatalogSearch();
+});
+const loadMoreCatalog = async () => {
+  if (catalogPageLoading || !catalogResults?.next_cursor) return;
+  const query = byId("model-query").value.trim();
+  if (!query || query !== catalogResultsQuery) return;
+  catalogPageLoading = true;
+  byId("catalog-more").hidden = false;
+  const controller = new AbortController();
+  catalogPageController = controller;
+  try {
+    const cursor = catalogResults.next_cursor;
+    const page = await request(`/catalog/search?query=${encodeURIComponent(query)}&limit=20&cursor=${encodeURIComponent(cursor)}`, {
+      signal: controller.signal,
+    });
+    if (query !== byId("model-query").value.trim()) return;
+    const merged = new Map([...catalogResults.models, ...page.models].map((model) => [model.id, model]));
+    const models = [...merged.values()].sort((left, right) =>
       catalogRank(left) - catalogRank(right) || right.downloads - left.downloads || left.id.localeCompare(right.id));
     renderCatalog({ ...page, models });
-  } catch (error) { showNotice(error.message, true); }
-  finally { button.disabled = false; }
-});
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    showNotice(error.message, true);
+  } finally {
+    if (catalogPageController === controller) {
+      catalogPageController = null;
+      catalogPageLoading = false;
+      byId("catalog-more").hidden = true;
+      window.requestAnimationFrame(maybeLoadMoreCatalog);
+    }
+  }
+};
+const maybeLoadMoreCatalog = () => {
+  const list = byId("catalog-table");
+  if (list.scrollHeight - list.scrollTop - list.clientHeight <= 160) loadMoreCatalog();
+};
+byId("catalog-table").addEventListener("scroll", maybeLoadMoreCatalog);
 byId("show-incompatible").addEventListener("change", () => {
   if (catalogResults) renderCatalog(catalogResults);
 });
@@ -1029,12 +1560,21 @@ byId("cancel-remove").addEventListener("click", () => byId("remove-dialog").clos
 byId("remove-model-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!removeRepoId) return;
+  const repoId = removeRepoId;
+  removeRepoId = null;
+  removingModels.add(repoId);
+  byId("remove-dialog").close();
+  renderLocalModels({ models: localModels });
   try {
-    const response = await mutate("/models/remove", { repo_id: removeRepoId });
-    showNotice(response.removed ? `Removed ${removeRepoId}; freed ${bytes(response.freed_bytes)}` : `${removeRepoId} was not found`);
-    byId("remove-dialog").close();
-    searching = false;
-  } catch (error) { showNotice(error.message, true); }
+    const response = await mutate("/models/remove", { repo_id: repoId });
+    if (response.removed) localModels = localModels.filter((model) => model.repo_id !== repoId);
+    showNotice(response.removed ? `Removed ${repoId}; freed ${bytes(response.freed_bytes)}` : `${repoId} was not found`);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    removingModels.delete(repoId);
+    renderLocalModels({ models: localModels });
+  }
 });
 
 byId("chat-form").addEventListener("submit", async (event) => {
@@ -1043,13 +1583,15 @@ byId("chat-form").addEventListener("submit", async (event) => {
   const prompt = input.value.trim();
   if (!prompt || chatRunning) return;
   input.value = "";
+  input.style.height = "auto";
   try { await runChat(prompt); }
   catch (error) {
     if (chatMessages.at(-1)?.role === "user") chatMessages.pop();
     const assistant = byId("chat-log").querySelector(".chat-message.assistant:last-child");
     if (assistant) {
-      assistant.classList.add("streaming");
-      assistant.querySelector(".content").textContent = `Error: ${error.message}`;
+      assistant.classList.remove("pending", "is-thinking");
+      assistant.querySelector(".reasoning").hidden = true;
+      renderMarkdown(assistant.querySelector(".message-content"), `**Error:** ${error.message}`);
     }
     showNotice(error.message, true);
     text("chat-state", "failed");
@@ -1071,6 +1613,10 @@ byId("remove-chat-image").addEventListener("click", () => {
 byId("chat-model").addEventListener("change", renderImageCapability);
 
 const chatForm = byId("chat-form");
+byId("chat-log").addEventListener("scroll", (event) => {
+  const log = event.currentTarget;
+  chatFollowing = log.scrollHeight - log.scrollTop - log.clientHeight < 72;
+});
 ["dragenter", "dragover"].forEach((name) => chatForm.addEventListener(name, (event) => {
   event.preventDefault();
   if (!chatRunning && selectedChatModel()?.image_input) chatForm.classList.add("drag-active");
@@ -1091,6 +1637,10 @@ byId("chat-input").addEventListener("keydown", (event) => {
     event.preventDefault();
     byId("chat-form").requestSubmit();
   }
+});
+byId("chat-input").addEventListener("input", (event) => {
+  event.target.style.height = "auto";
+  event.target.style.height = `${Math.min(event.target.scrollHeight, 180)}px`;
 });
 
 byId("cancel-chat").addEventListener("click", async () => {

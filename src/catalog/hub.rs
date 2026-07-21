@@ -11,6 +11,8 @@ const WHOAMI_ENDPOINT: &str = "https://huggingface.co/api/whoami-v2";
 pub struct HubModel {
     pub id: String,
     #[serde(default)]
+    pub library_name: Option<String>,
+    #[serde(default)]
     pub downloads: u64,
     #[serde(default)]
     pub likes: u64,
@@ -68,7 +70,7 @@ pub async fn search(
     })
 }
 
-const fn search_parameters<'a>(query: &'a str, limit: &'a str) -> [(&'static str, &'a str); 10] {
+const fn search_parameters<'a>(query: &'a str, limit: &'a str) -> [(&'static str, &'a str); 11] {
     [
         ("search", query),
         ("sort", "downloads"),
@@ -80,6 +82,7 @@ const fn search_parameters<'a>(query: &'a str, limit: &'a str) -> [(&'static str
         ("expand[]", "likes"),
         ("expand[]", "gated"),
         ("expand[]", "tags"),
+        ("expand[]", "library_name"),
     ]
 }
 
@@ -132,6 +135,7 @@ mod tests {
     fn decodes_search_metadata_used_by_fit_estimator() -> Result<()> {
         let json = r#"[{
             "id":"Qwen/Qwen2.5-0.5B-Instruct",
+            "library_name":"transformers",
             "downloads":42,
             "likes":7,
             "gated":false,
@@ -141,6 +145,7 @@ mod tests {
         }]"#;
         let models: Vec<HubModel> = serde_json::from_str(json)?;
         assert_eq!(models[0].model_class(), "Qwen2ForCausalLM");
+        assert_eq!(models[0].library_name.as_deref(), Some("transformers"));
         assert_eq!(
             models[0].safetensors.as_ref().map(|value| value.parameters["BF16"]),
             Some(494_032_768)

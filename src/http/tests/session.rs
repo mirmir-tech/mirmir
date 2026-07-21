@@ -188,17 +188,32 @@ async fn assert_configuration(client: &Client, base: &str, cookie: &str, csrf: &
         base,
         cookie,
         csrf,
-        json!({ "operation": "set_hf_token", "token": "hf_test_secret" }),
+        json!({ "operation": "set_value", "key": "hugging_face.token", "value": "hf_test_secret" }),
     )
     .await?;
     assert_eq!(secret.status(), StatusCode::OK);
-    let secret = secret.text().await?;
-    assert!(secret.contains("\"configured\":true"));
-    assert!(!secret.contains("hf_test_secret"));
+    let secret = secret.json::<Value>().await?;
+    let row = secret["configuration"]["values"]
+        .as_array()
+        .and_then(|values| values.iter().find(|value| value["key"] == "hugging_face.token"))
+        .expect("HF token should be an ordinary configuration row");
+    assert_eq!(row["value"], "********");
+    assert_eq!(row["kind"], "secret");
+    assert!(row["actions"].as_array().is_some_and(|actions| {
+        actions.iter().any(|action| action == "edit")
+            && actions.iter().any(|action| action == "test")
+            && actions.iter().any(|action| action == "remove")
+    }));
+    assert!(!secret.to_string().contains("hf_test_secret"));
 
-    let removed =
-        update_configuration(client, base, cookie, csrf, json!({ "operation": "remove_hf_token" }))
-            .await?;
+    let removed = update_configuration(
+        client,
+        base,
+        cookie,
+        csrf,
+        json!({ "operation": "remove_value", "key": "hugging_face.token" }),
+    )
+    .await?;
     assert_eq!(removed.status(), StatusCode::OK);
     Ok(())
 }

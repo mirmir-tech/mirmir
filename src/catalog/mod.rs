@@ -3,15 +3,18 @@ mod cancellation;
 mod download;
 mod fit;
 mod hub;
-mod progress;
 mod queue;
+mod resumable;
 
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
 };
 
-pub use cache::{CachedModel, discover_cached_models, discover_cached_models_in};
+pub use cache::{
+    CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
+    discover_partial_downloads_in,
+};
 pub use download::{DownloadedModel, Removal, TransferUpdate};
 pub use fit::{CatalogModel, MachineMemory};
 use libmir::CancellationToken;
@@ -64,6 +67,10 @@ impl Catalog {
             .into_iter()
             .map(|model| model.repo_id)
             .collect::<HashSet<_>>();
+        let partial = discover_partial_downloads_in(&self.store.paths().hub_cache_dir)
+            .into_iter()
+            .map(|model| model.repo_id)
+            .collect::<HashSet<_>>();
         let mut models = page
             .models
             .into_iter()
@@ -74,6 +81,8 @@ impl Catalog {
                 self.store.hub_model_downloaded(&model.id)? || managed.contains(&model.id);
             model.local_source = if model.downloaded {
                 "mirmir"
+            } else if partial.contains(&model.id) {
+                "partial"
             } else if external.contains(&model.id) {
                 "hf_cache"
             } else {
@@ -124,11 +133,7 @@ impl Catalog {
     ) -> Result<DownloadedModel> {
         download::send(&updates, "queued", 0, None, "waiting for download slot".to_owned()).await;
         let _permit = self.transfer_queue.acquire(cancellation).await?;
-        let result = download::pull(&self.store, repo_id, revision, updates, cancellation).await;
-        if matches!(result, Err(Error::Cancelled)) {
-            let _ = download::discard_partial(&self.store, repo_id).await?;
-        }
-        result
+        download::pull(&self.store, repo_id, revision, updates, cancellation).await
     }
 
     pub async fn remove(&self, repo_id: &str) -> Result<Removal> {

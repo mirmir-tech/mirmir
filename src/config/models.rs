@@ -14,9 +14,22 @@ impl Store {
     pub(crate) fn resolve_model(&self, selector: &str) -> Result<ResolvedModel> {
         let direct = Path::new(selector);
         if direct.exists() {
+            let canonical = fs::canonicalize(direct)?;
+            if let Some(model) = self
+                .list_model_configs()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|model| fs::canonicalize(&model.path).is_ok_and(|path| path == canonical))
+            {
+                return Ok(ResolvedModel {
+                    key: model.id,
+                    path: model.path,
+                    generation: model.generation,
+                });
+            }
             return Ok(ResolvedModel {
-                key: direct.display().to_string(),
-                path: direct.to_owned(),
+                key: canonical.display().to_string(),
+                path: canonical,
                 generation: GenerationConfig::default(),
             });
         }
@@ -169,10 +182,11 @@ mod tests {
         ));
         let snapshot = root.join("cache/snapshots/0123456789");
         fs::create_dir_all(&snapshot)?;
-        let model = store.save_hub_model("Qwen/Test", "main", snapshot)?;
+        let model = store.save_hub_model("Qwen/Test", "main", snapshot.clone())?;
         assert_eq!(model.hub.as_ref().map(|hub| hub.commit.as_str()), Some("0123456789"));
         assert!(store.hub_model_downloaded("Qwen/Test")?);
         assert_eq!(store.resolve_model("Qwen/Test")?.key, "Qwen--Test");
+        assert_eq!(store.resolve_model(snapshot.to_str().unwrap())?.key, "Qwen--Test");
         assert!(store.remove_hub_model_config("Qwen/Test")?);
         assert!(!store.hub_model_downloaded("Qwen/Test")?);
         Ok(())

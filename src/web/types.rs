@@ -47,6 +47,10 @@ pub struct Model {
     pub load_unavailable_reason: String,
     #[serde(rename = "model_class")]
     pub class: String,
+    pub library: String,
+    pub size_bytes: u64,
+    #[serde(flatten)]
+    pub features: Features,
 }
 
 #[derive(Serialize)]
@@ -73,6 +77,17 @@ pub struct CatalogModel {
     pub reason: String,
     pub downloaded: bool,
     pub local_source: String,
+    pub estimated_weight_bytes: Option<u64>,
+    pub library: String,
+    #[serde(flatten)]
+    pub features: Features,
+}
+
+#[derive(Serialize)]
+pub struct Features {
+    pub tool_use: bool,
+    pub thinking: bool,
+    pub vision: bool,
 }
 
 #[derive(Serialize)]
@@ -132,6 +147,13 @@ impl From<proto::LocalModelInfo> for Model {
             loadable: model.loadable,
             load_unavailable_reason: model.load_unavailable_reason,
             class: model.model_class,
+            library: model.library,
+            size_bytes: model.size_bytes,
+            features: Features {
+                tool_use: model.tool_use,
+                thinking: model.thinking,
+                vision: model.vision,
+            },
         }
     }
 }
@@ -164,6 +186,13 @@ impl From<proto::CatalogModel> for CatalogModel {
             reason: model.reason,
             downloaded: model.downloaded,
             local_source: model.local_source,
+            estimated_weight_bytes: model.estimated_weight_bytes,
+            library: model.library,
+            features: Features {
+                tool_use: model.tool_use,
+                thinking: model.thinking,
+                vision: model.vision,
+            },
         }
     }
 }

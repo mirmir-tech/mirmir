@@ -6,6 +6,7 @@ use crate::catalog::hub::{HubConfig, SafeTensors};
 fn model(dtype: &str, parameters: u64) -> HubModel {
     HubModel {
         id: "Qwen/Test".to_owned(),
+        library_name: Some("transformers".to_owned()),
         downloads: 10,
         likes: 2,
         gated: serde_json::Value::Bool(false),
@@ -45,6 +46,26 @@ fn refuses_to_guess_unknown_dtype() {
     assert_eq!(result.weight_bytes, None);
     assert_eq!(result.memory_fit, "unknown");
     assert_eq!(result.confidence, "low");
+}
+
+#[test]
+fn exposes_qwen3_search_capabilities_before_download() {
+    let mut candidate = model("BF16", 1_000_000_000);
+    candidate.id = "Qwen/Qwen3-8B".to_owned();
+    let result = evaluate(
+        candidate,
+        MachineMemory {
+            total: None,
+            available: None,
+            budget: None,
+            source: "test",
+        },
+    );
+
+    assert_eq!(result.library, "Transformers");
+    assert!(result.features.tool_use);
+    assert!(result.features.thinking);
+    assert!(!result.features.vision);
 }
 
 #[test]

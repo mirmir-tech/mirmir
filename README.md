@@ -87,13 +87,13 @@ top_p = 0.9
 Set an HF token without exposing it in shell history by piping it on stdin:
 
 ```sh
-printf '%s' "$HF_TOKEN" | cargo run -- config set-hf-token
+printf '%s' "$HF_TOKEN" | cargo run -- config set hugging_face.token
 ```
 
 The optional HTTP bearer token is stored in the same protected secrets file:
 
 ```sh
-printf '%s' "$MIRMIR_HTTP_API_KEY" | cargo run -- config set-http-api-key
+printf '%s' "$MIRMIR_HTTP_API_KEY" | cargo run -- config set server.api_key
 ```
 
 The current implementation includes the versioned TOML foundation, protected HF
@@ -314,15 +314,16 @@ usage, so Hub fit ranking accounts for allocations owned by other processes.
 Settings reads configuration through protocol v1 and shows persisted values,
 their TOML/default source, configuration paths, and restart requirements. Values
 can be edited in place; optional runtime fields accept `auto`. HF tokens and HTTP
-API keys are write-only over gRPC, masked while typing, and returned only as a
-configured/source status. On the HF token row, `t` verifies the current effective
-token against the Hub and `r` removes the value stored in `secrets.toml`. When a
-server is running, `mirmir config show`, `set`, and secret operations use that
-server as the sole writer. For example:
+API keys use the same settings list and generic commands, but remain write-only
+over gRPC: configured values are shown only as `********`, and their edit fields
+start empty. On the HF token row, `t` verifies the current effective token against
+the Hub and `r` removes the value stored in `secrets.toml`. When a server is
+running, `mirmir config show`, `set`, `remove`, and `test` use that server as the
+sole writer. For example:
 
 ```sh
 mirmir config set server.request_timeout_seconds 600
-mirmir config test-hf-token
+mirmir config test hugging_face.token
 ```
 
 Activity is a server-owned, protocol-v1 stream shared by every attached client.

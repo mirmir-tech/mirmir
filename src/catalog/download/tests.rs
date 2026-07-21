@@ -42,7 +42,7 @@ async fn removes_verified_external_cache_repository() -> Result<()> {
 }
 
 #[tokio::test]
-async fn discards_the_managed_partial_repository() -> Result<()> {
+async fn removes_the_managed_partial_repository() -> Result<()> {
     let root = root("discard-partial");
     let paths = crate::config::Paths::from_roots(
         root.join("config"),
@@ -53,7 +53,7 @@ async fn discards_the_managed_partial_repository() -> Result<()> {
     let incomplete = repo.join("blobs/weights.incomplete");
     std::fs::create_dir_all(incomplete.parent().unwrap_or(&repo))?;
     std::fs::write(&incomplete, b"partial")?;
-    let removal = discard_partial(&Store::new(paths), "Qwen/Partial").await?;
+    let removal = remove(&Store::new(paths), "Qwen/Partial").await?;
     assert!(removal.removed);
     assert_eq!(removal.freed_bytes, 7);
     assert!(!repo.exists());

@@ -30,6 +30,15 @@ pub struct CatalogModel {
     pub reason: String,
     pub downloaded: bool,
     pub local_source: &'static str,
+    pub library: String,
+    pub features: Features,
+}
+
+#[derive(Debug, Default)]
+pub struct Features {
+    pub tool_use: bool,
+    pub thinking: bool,
+    pub vision: bool,
 }
 
 impl MachineMemory {
@@ -85,6 +94,16 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     };
     let reason = reason(compatibility, memory_fit);
     let gated = model.is_gated();
+    let library = library(&model);
+    let identity = format!("{} {model_class}", model.id).to_ascii_lowercase();
+    let generation = !identity.contains("embedding") && !identity.contains("rerank");
+    let qwen3 = identity.contains("qwen3");
+    let tool_use = feature(&model, &["tool-use", "tool-calling", "function-calling"])
+        || generation && (qwen3 || identity.contains("qwen2.5") && identity.contains("instruct"));
+    let thinking = feature(&model, &["reasoning", "thinking"])
+        || generation && (qwen3 || identity.contains("qwq") || identity.contains("deepseek-r1"));
+    let vision = feature(&model, &["image-text-to-text", "multimodal", "vision"])
+        || model_class.to_ascii_lowercase().contains("vision");
     CatalogModel {
         id: model.id,
         downloads: model.downloads,
@@ -100,7 +119,31 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         reason,
         downloaded: false,
         local_source: "remote",
+        library,
+        features: Features { tool_use, thinking, vision },
     }
+}
+
+fn library(model: &HubModel) -> String {
+    if model.tags.iter().any(|tag| tag.eq_ignore_ascii_case("gguf")) {
+        return "GGUF".to_owned();
+    }
+    match model.library_name.as_deref() {
+        Some(value) if value.eq_ignore_ascii_case("mlx") => "MLX".to_owned(),
+        Some(value) if value.eq_ignore_ascii_case("transformers") => "Transformers".to_owned(),
+        Some(value) => value.to_owned(),
+        None if model.tags.iter().any(|tag| tag.eq_ignore_ascii_case("safetensors")) => {
+            "SafeTensors".to_owned()
+        },
+        None => "Unknown".to_owned(),
+    }
+}
+
+fn feature(model: &HubModel, tags: &[&str]) -> bool {
+    model
+        .tags
+        .iter()
+        .any(|tag| tags.iter().any(|candidate| tag.eq_ignore_ascii_case(candidate)))
 }
 
 pub fn compare(left: &CatalogModel, right: &CatalogModel) -> Ordering {

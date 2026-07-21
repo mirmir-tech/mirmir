@@ -72,6 +72,11 @@ message LocalModelInfo {
   string model_class = 12;
   bool loadable = 13;
   string load_unavailable_reason = 14;
+  string library = 15;
+  uint64 size_bytes = 16;
+  bool tool_use = 17;
+  bool thinking = 18;
+  bool vision = 19;
 }
 
 message InspectModelRequest {
@@ -195,6 +200,10 @@ message CatalogModel {
   string reason = 12;
   bool downloaded = 13;
   string local_source = 14;
+  string library = 15;
+  bool tool_use = 16;
+  bool thinking = 17;
+  bool vision = 18;
 }
 
 message PullModelRequest {
