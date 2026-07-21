@@ -336,6 +336,7 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .chat-composer textarea { width: 100%; min-height: 52px; max-height: 180px; padding: 8px 4px 5px; resize: none; border: 0; outline: 0; background: transparent; color: var(--mir-color-ink); font: 14px/1.5 var(--mir-font-body); }
 .chat-composer textarea::placeholder { color: var(--mir-color-thought); }
 .composer-button { display: inline-flex; width: 38px; height: 38px; min-width: 38px; padding: 0; align-items: center; justify-content: center; border: 1px solid var(--mir-color-border); border-radius: 50%; background: transparent; color: var(--mir-color-muted); cursor: pointer; font: 22px/1 var(--mir-font-body); }
+.attach-button svg { display: block; width: 18px; height: 18px; fill: none; stroke: currentcolor; stroke-width: 1.8; stroke-linecap: round; }
 .composer-button:hover { border-color: var(--mir-color-glacier); color: var(--mir-color-ink); }
 .composer-button.send-button { border-color: var(--mir-color-signal); background: var(--mir-color-signal); color: #fff; font-size: 23px; }
 .composer-button.cancel-button { border-color: rgb(240 113 120 / 48%); color: var(--mir-color-danger); font-size: 12px; }

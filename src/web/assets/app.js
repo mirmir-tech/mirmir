@@ -36,7 +36,7 @@ const imageTypeByExtension = new Map([
 ]);
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/ui/sw.js?v=25", { scope: "/ui/" }).catch(() => {});
+  navigator.serviceWorker.register("/ui/sw.js?v=26", { scope: "/ui/" }).catch(() => {});
 }
 
 const byId = (id) => document.getElementById(id);
@@ -1223,6 +1223,12 @@ const runChat = async (prompt) => {
       text("chat-decode", number(data.decode_tokens_per_second));
       text("chat-throughput", number(data.tokens_per_second));
       text("chat-state", data.finish_reason);
+      if (data.finish_reason === "max_tokens") {
+        showNotice(
+          `Response stopped at the ${data.completion_tokens}-token limit. Increase Max tokens in Parameters or in the model load settings.`,
+          true,
+        );
+      }
     }
     if (event === "error") throw new Error(data.message);
   });

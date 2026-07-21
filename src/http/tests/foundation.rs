@@ -47,47 +47,18 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert!(index.contains("id=\"load-task-capabilities\""));
     assert!(index.contains("class=\"composer-dock\""));
     assert!(index.contains("aria-label=\"Add attachment\""));
+    assert!(index.contains("M12 5v14M5 12h14"));
     assert!(index.contains("aria-label=\"Generation performance\""));
 
     let stylesheet = client.get(format!("{base}/ui/app.css")).send().await?;
     assert_eq!(stylesheet.status(), StatusCode::OK);
     let stylesheet = stylesheet.text().await?;
-    assert!(stylesheet.contains("#79d7ff"));
-    assert!(stylesheet.contains("Space Grotesk"));
-    assert!(!stylesheet.contains(".badge.loading::before"));
-    assert!(stylesheet.contains(".dialog-actions button[aria-busy=\"true\"]::before"));
-    assert!(stylesheet.contains(".badge.loading, .badge.queued, .badge.running"));
-    assert!(stylesheet.contains(".badge.unavailable"));
+    assert_stylesheet(&stylesheet);
 
     let script = client.get(format!("{base}/ui/app.js")).send().await?;
     assert_eq!(script.status(), StatusCode::OK);
     let script = script.text().await?;
-    assert!(script.contains("/api/mirmir/v1"));
-    assert!(script.contains("new WebSocket"));
-    assert!(script.contains("Connection lost"));
-    assert!(!script.contains("new EventSource"));
-    assert!(!script.contains("setInterval"));
-    assert!(script.contains("serviceWorker.register"));
-    assert!(script.contains("pullOperations"));
-    assert!(script.contains("appendPullRow"));
-    assert!(script.contains("addEventListener(\"invalid\""));
-    assert!(script.contains("inspection.task === \"generation\""));
-    assert!(script.contains("!inspection.task && settings != null"));
-    assert!(script.contains("capabilities.max_input_tokens"));
-    assert!(script.contains("optimisticModelStates.clear()"));
-    assert!(script.contains("rangeInput.addEventListener(\"input\""));
-    assert!(script.contains("setLoadButtonState(\"inspecting\")"));
-    assert!(script.contains("button.setAttribute(\"aria-busy\", \"true\")"));
-    assert!(script.contains("const statePill"));
-    assert!(script.contains("error ? 8000 : 5000"));
-    assert!(script.contains("dialog.show()"));
-    assert!(script.contains("event.key === \"Escape\""));
-    assert!(script.contains("new AbortController()"));
-    assert!(script.contains("[\"load\", \"restore\", \"unload\", \"pull\"]"));
-    assert!(script.contains("const renderMarkdown"));
-    assert!(script.contains("const updateReasoningState"));
-    assert!(script.contains("const submittedImage = chatImage"));
-    assert!(script.contains("chatImage = null"));
+    assert_script(&script);
 
     let worker = client.get(format!("{base}/ui/sw.js")).send().await?;
     assert_eq!(worker.status(), StatusCode::OK);
@@ -132,9 +103,51 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     owner.shutdown().await
 }
 
+fn assert_script(script: &str) {
+    assert!(script.contains("/api/mirmir/v1"));
+    assert!(script.contains("new WebSocket"));
+    assert!(script.contains("Connection lost"));
+    assert!(!script.contains("new EventSource"));
+    assert!(!script.contains("setInterval"));
+    assert!(script.contains("serviceWorker.register"));
+    assert!(script.contains("pullOperations"));
+    assert!(script.contains("appendPullRow"));
+    assert!(script.contains("addEventListener(\"invalid\""));
+    assert!(script.contains("inspection.task === \"generation\""));
+    assert!(script.contains("!inspection.task && settings != null"));
+    assert!(script.contains("capabilities.max_input_tokens"));
+    assert!(script.contains("optimisticModelStates.clear()"));
+    assert!(script.contains("rangeInput.addEventListener(\"input\""));
+    assert!(script.contains("setLoadButtonState(\"inspecting\")"));
+    assert!(script.contains("button.setAttribute(\"aria-busy\", \"true\")"));
+    assert!(script.contains("const statePill"));
+    assert!(script.contains("error ? 8000 : 5000"));
+    assert!(script.contains("dialog.show()"));
+    assert!(script.contains("event.key === \"Escape\""));
+    assert!(script.contains("new AbortController()"));
+    assert!(script.contains("[\"load\", \"restore\", \"unload\", \"pull\"]"));
+    assert!(script.contains("const renderMarkdown"));
+    assert!(script.contains("const updateReasoningState"));
+    assert!(script.contains("const submittedImage = chatImage"));
+    assert!(script.contains("chatImage = null"));
+    assert!(script.contains("Response stopped at the ${data.completion_tokens}-token limit"));
+    assert!(script.contains("log.scrollTop = log.scrollHeight"));
+    assert!(!script.contains("scrollIntoView"));
+}
+
+fn assert_stylesheet(stylesheet: &str) {
+    assert!(stylesheet.contains("#79d7ff"));
+    assert!(stylesheet.contains("Space Grotesk"));
+    assert!(!stylesheet.contains(".badge.loading::before"));
+    assert!(stylesheet.contains(".dialog-actions button[aria-busy=\"true\"]::before"));
+    assert!(stylesheet.contains(".badge.loading, .badge.queued, .badge.running"));
+    assert!(stylesheet.contains(".badge.unavailable"));
+    assert!(stylesheet.contains("overscroll-behavior: contain"));
+}
+
 fn assert_simplified_shell(index: &str) {
-    assert!(index.contains("/ui/app.css?v=20"));
-    assert!(index.contains("/ui/app.js?v=25"));
+    assert!(index.contains("/ui/app.css?v=21"));
+    assert!(index.contains("/ui/app.js?v=26"));
     assert!(!index.contains("class=\"page-heading"));
     assert!(!index.contains("MIRMIR RUNTIME / WEB"));
     assert!(!index.contains("<footer>"));

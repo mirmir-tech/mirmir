@@ -1,8 +1,8 @@
-const cacheName = "mirmir-dashboard-shell-v25";
+const cacheName = "mirmir-dashboard-shell-v26";
 const shellPaths = [
   "/ui/",
-  "/ui/app.css?v=20",
-  "/ui/app.js?v=25",
+  "/ui/app.css?v=21",
+  "/ui/app.js?v=26",
   "/ui/assets/brand/lockup.svg",
   "/ui/assets/brand/favicon.svg?v=3",
   "/ui/assets/brand/topography.svg",
