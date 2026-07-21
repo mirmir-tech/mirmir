@@ -43,6 +43,9 @@ impl App {
         let model = self
             .selected_local_model()
             .ok_or_else(|| "no local model is selected".to_owned())?;
+        if model.state == "ready" {
+            return Err("unload the model before removing it".to_owned());
+        }
         if model.repo_id.is_empty() {
             return Err("this local path is not a Hugging Face cache entry".to_owned());
         }
@@ -62,6 +65,9 @@ impl App {
             return Err("model is not downloaded".to_owned());
         }
         let local = self.local_catalog_model(model);
+        if local.is_some_and(|model| model.state == "ready") {
+            return Err("unload the model before removing it".to_owned());
+        }
         Ok(RemoveDialog {
             id: model.id.clone(),
             repo_id: model.id.clone(),
@@ -74,6 +80,7 @@ impl App {
     }
 
     fn start_removal(&mut self, client: &Client, target: RemoveDialog) {
+        self.set_local_state(&target.id, "removing");
         let request = proto::RemoveModelRequest { repo_id: target.repo_id.clone() };
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();
@@ -96,7 +103,13 @@ impl App {
         };
         match result {
             Ok(Ok(response)) => self.finish_removal(response),
-            Ok(Err(error)) => self.action_message = Some(error),
+            Ok(Err(error)) => {
+                if let Some(target) = self.pending_removal.as_ref() {
+                    let id = target.id.clone();
+                    self.set_local_state(&id, "available");
+                }
+                self.action_message = Some(error);
+            },
             Err(mpsc::error::TryRecvError::Empty) => return,
             Err(mpsc::error::TryRecvError::Disconnected) => {
                 self.action_message = Some("model removal ended unexpectedly".to_owned());

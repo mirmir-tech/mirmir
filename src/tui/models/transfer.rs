@@ -10,10 +10,15 @@ use super::super::{app::App, theme};
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let Some(repo) = app.transfer_repo.as_deref() else {
+        let selected_error = app
+            .selected_local_model()
+            .filter(|model| !model.loadable)
+            .map(|model| model.load_unavailable_reason.as_str());
         let text = app
             .action_message
             .as_deref()
-            .unwrap_or("Select a model to inspect or manage it");
+            .or(selected_error)
+            .unwrap_or("Enter action · l load · u unload · r remove · / search");
         frame.render_widget(Paragraph::new(text).style(Style::new().fg(theme::MUTED)), area);
         return;
     };

@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
-use super::App;
+use super::{App, ConfigurationView};
 use crate::rpc::{Client, proto};
 
 #[derive(Debug, Clone)]
@@ -29,6 +29,12 @@ impl ConfigurationEdit {
 impl App {
     pub(super) async fn handle_configuration_key(&mut self, key: KeyEvent, client: &mut Client) {
         match key.code {
+            KeyCode::Char('v' | 'V') => {
+                self.configuration_view = match self.configuration_view {
+                    ConfigurationView::Table => ConfigurationView::Raw,
+                    ConfigurationView::Raw => ConfigurationView::Table,
+                };
+            },
             KeyCode::Up => self.previous_configuration(),
             KeyCode::Down => self.next_configuration(),
             KeyCode::Enter => self.begin_configuration_edit(),

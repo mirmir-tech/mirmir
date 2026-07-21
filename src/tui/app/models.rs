@@ -1,50 +1,108 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use tokio::sync::mpsc;
 
 use super::{App, CatalogFilter};
 use crate::rpc::{Client, proto};
 
+pub(super) struct CatalogSearchEvent {
+    query: String,
+    append: bool,
+    result: Result<proto::SearchModelsResponse, String>,
+}
+
 impl App {
     pub(super) async fn handle_search_key(&mut self, key: KeyEvent, client: &mut Client) {
         match key.code {
-            KeyCode::Esc => self.editing_search = false,
-            KeyCode::Enter => {
-                self.editing_search = false;
-                self.search(client).await;
-            },
+            KeyCode::Esc => self.close_search(),
+            KeyCode::Enter if self.catalog.is_empty() => self.queue_search(client, false),
+            KeyCode::Enter => self.activate_selected_model(client).await,
             KeyCode::Backspace => {
                 self.search_query.pop();
                 self.reset_search_results();
+                self.queue_search(client, false);
             },
             KeyCode::Char(character) => {
                 self.search_query.push(character);
                 self.reset_search_results();
+                self.queue_search(client, false);
             },
             _ => {},
         }
     }
 
-    async fn search(&mut self, client: &mut Client) {
+    fn queue_search(&mut self, client: &Client, append: bool) {
         if self.search_query.trim().is_empty() {
             return;
         }
+        let query = self.search_query.trim().to_owned();
         let request = proto::SearchModelsRequest {
-            query: self.search_query.trim().to_owned(),
+            query: query.clone(),
             limit: 25,
-            cursor: None,
+            cursor: append.then(|| self.catalog_next_cursor.clone()).flatten(),
         };
-        match client.search_models(request).await {
-            Ok(response) => {
-                let response = response.into_inner();
-                self.catalog = response.models;
-                self.catalog_selected = 0;
-                self.catalog_error = None;
-                self.catalog_next_cursor = response.next_cursor;
-                self.memory_source = response.memory_source;
-                self.total_memory_bytes = response.total_memory_bytes;
-                self.available_memory_bytes = response.available_memory_bytes;
+        let (sender, receiver) = mpsc::channel(1);
+        let mut client = client.clone();
+        drop(tokio::spawn(async move {
+            if !append {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            let result = client
+                .search_models(request)
+                .await
+                .map(tonic::Response::into_inner)
+                .map_err(|error| error.to_string());
+            drop(sender.send(CatalogSearchEvent { query, append, result }).await);
+        }));
+        self.catalog_search_rx = Some(receiver);
+    }
+
+    pub(super) fn poll_catalog_search(&mut self) {
+        let Some(result) = self.catalog_search_rx.as_mut().map(mpsc::Receiver::try_recv) else {
+            return;
+        };
+        let event = match result {
+            Ok(event) => event,
+            Err(mpsc::error::TryRecvError::Empty) => return,
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                self.catalog_search_rx = None;
+                return;
             },
-            Err(error) => self.catalog_error = Some(error.to_string()),
+        };
+        self.catalog_search_rx = None;
+        if event.query != self.search_query.trim() {
+            return;
         }
+        match event.result {
+            Ok(response) => self.apply_search_response(response, event.append),
+            Err(error) => self.catalog_error = Some(error),
+        }
+    }
+
+    fn apply_search_response(&mut self, response: proto::SearchModelsResponse, append: bool) {
+        if append {
+            self.catalog.extend(response.models);
+        } else {
+            self.catalog = response.models;
+            self.catalog_selected = 0;
+        }
+        self.catalog.sort_by(|left, right| {
+            catalog_rank(left)
+                .cmp(&catalog_rank(right))
+                .then_with(|| right.downloads.cmp(&left.downloads))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        self.catalog_error = None;
+        self.catalog_next_cursor = response.next_cursor;
+        self.memory_source = response.memory_source;
+        self.total_memory_bytes = response.total_memory_bytes;
+        self.available_memory_bytes = response.available_memory_bytes;
+    }
+
+    fn close_search(&mut self) {
+        self.editing_search = false;
+        self.search_query.clear();
+        self.reset_search_results();
+        self.catalog_search_rx = None;
     }
 
     pub(crate) fn searching_models(&self) -> bool {
@@ -92,9 +150,9 @@ impl App {
         match key.code {
             KeyCode::Char('/') => self.editing_search = true,
             KeyCode::Char('i' | 'I') => self.toggle_incompatible_models(),
-            KeyCode::Char('n' | 'N') => self.load_next_catalog_page(client).await,
             KeyCode::Enter => self.activate_selected_model(client).await,
             KeyCode::Char('d') => self.start_pull(client),
+            KeyCode::Char('x' | 'X') => self.cancel_selected_model_operation(client).await,
             KeyCode::Char('r') => self.open_remove_dialog(),
             KeyCode::Char('l') => self.open_load_dialog(client),
             KeyCode::Char('u') => self.unload_selected(client).await,
@@ -102,30 +160,40 @@ impl App {
         }
     }
 
-    async fn load_next_catalog_page(&mut self, client: &mut Client) {
-        let Some(cursor) = self.catalog_next_cursor.clone() else {
-            self.action_message = Some("no more Hugging Face results".to_owned());
+    async fn cancel_selected_model_operation(&mut self, client: &mut Client) {
+        let targets = self
+            .selected_local_model()
+            .map(|model| [model.id.clone(), model.repo_id.clone()]);
+        let Some(event) = targets.as_ref().and_then(|targets| {
+            self.activities.iter().find(|event| {
+                targets.contains(&event.target)
+                    && event.cancellable
+                    && matches!(event.state.as_str(), "queued" | "running")
+            })
+        }) else {
+            self.action_message = Some("selected model has no cancellable operation".to_owned());
             return;
         };
-        let request = proto::SearchModelsRequest {
-            query: self.search_query.trim().to_owned(),
-            limit: 25,
-            cursor: Some(cursor),
-        };
-        match client.search_models(request).await {
-            Ok(response) => {
-                let response = response.into_inner();
-                self.catalog.extend(response.models);
-                self.catalog.sort_by(|left, right| {
-                    catalog_rank(left)
-                        .cmp(&catalog_rank(right))
-                        .then_with(|| right.downloads.cmp(&left.downloads))
-                        .then_with(|| left.id.cmp(&right.id))
-                });
-                self.catalog_next_cursor = response.next_cursor;
-                self.action_message = Some(format!("{} search results", self.catalog.len()));
+        let request = proto::CancelOperationRequest { operation_id: event.operation_id.clone() };
+        match client.cancel_operation(request).await {
+            Ok(response) if response.get_ref().accepted => {
+                self.action_message = Some("cancellation requested".to_owned());
             },
-            Err(error) => self.catalog_error = Some(error.to_string()),
+            Ok(response) => {
+                self.action_message =
+                    Some(format!("cancellation rejected: {}", response.get_ref().state));
+            },
+            Err(error) => self.action_message = Some(error.to_string()),
+        }
+    }
+
+    pub(super) fn load_more_if_needed(&mut self, client: &Client) {
+        if self.searching_models()
+            && !self.catalog_loading()
+            && self.catalog_next_cursor.is_some()
+            && self.catalog_selected.saturating_add(4) >= self.visible_catalog_count()
+        {
+            self.queue_search(client, true);
         }
     }
 
@@ -141,6 +209,10 @@ impl App {
         self.catalog_selected = 0;
         self.catalog_error = None;
         self.catalog_next_cursor = None;
+    }
+
+    pub(crate) const fn catalog_loading(&self) -> bool {
+        self.catalog_search_rx.is_some()
     }
 }
 

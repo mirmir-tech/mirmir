@@ -13,7 +13,9 @@ pub fn draw(frame: &mut Frame<'_>, screen: Screen) {
     frame.render_widget(Clear, area);
     let mut lines = vec![
         shortcut("Tab / Shift+Tab", "next / previous tab"),
-        shortcut("F1 … F6", "open a tab directly"),
+        shortcut("F1 … F4", "open a tab directly"),
+        shortcut("q", "quit outside the chat input"),
+        shortcut("Ctrl+C", "quit immediately from any view"),
         shortcut("? / Esc", "close this help"),
         Line::default(),
     ];
@@ -33,7 +35,11 @@ pub fn draw(frame: &mut Frame<'_>, screen: Screen) {
 
 fn screen_help(screen: Screen) -> Vec<Line<'static>> {
     match screen {
-        Screen::Overview => vec![shortcut("Esc", "close Mirmir")],
+        Screen::Dashboard => vec![
+            shortcut("↑/↓ · PgUp/PgDn", "move through recent operations"),
+            shortcut("Home / End", "first / last operation"),
+            shortcut("X", "cancel selected operation when supported"),
+        ],
         Screen::Models => vec![
             shortcut("↑/↓ · PgUp/PgDn", "move through models"),
             shortcut("Home / End", "first / last model"),
@@ -41,11 +47,11 @@ fn screen_help(screen: Screen) -> Vec<Line<'static>> {
             shortcut("Enter / click", "download, load, or unload selected model"),
             shortcut("/", "search Hugging Face"),
             shortcut("i", "show or hide incompatible models"),
-            shortcut("n", "load the next page of Hub results"),
             shortcut("d", "download"),
             shortcut("l", "load"),
             shortcut("u", "unload"),
             shortcut("r", "remove"),
+            shortcut("x", "cancel active model operation"),
             shortcut("f", "toggle forced load in the load dialog"),
         ],
         Screen::Chat => vec![
@@ -57,6 +63,7 @@ fn screen_help(screen: Screen) -> Vec<Line<'static>> {
             shortcut("Ctrl+K", "clear conversation"),
             shortcut("Ctrl+D", "remove attached image"),
             shortcut("Ctrl+P", "edit one-off generation parameters"),
+            shortcut("Ctrl+T / click", "expand or collapse model reasoning"),
             shortcut("X", "cancel active generation"),
         ],
         Screen::Settings => vec![
@@ -65,21 +72,7 @@ fn screen_help(screen: Screen) -> Vec<Line<'static>> {
             shortcut("Enter / click", "select or edit a setting"),
             shortcut("t", "test Hugging Face token"),
             shortcut("r", "remove selected secret"),
-        ],
-        Screen::Activity => vec![
-            shortcut("↑/↓ · PgUp/PgDn", "move through operations"),
-            shortcut("Home / End", "first / last operation"),
-            shortcut("click", "select operation"),
-            shortcut("X", "cancel selected operation when supported"),
-        ],
-        Screen::Benchmarks => vec![
-            shortcut("Enter", "run benchmark"),
-            shortcut("← / →", "select loaded model"),
-            shortcut("↑ / ↓", "increase / decrease samples"),
-            shortcut("PgUp / PgDn", "increase / decrease warm-up"),
-            shortcut("Ctrl+K", "clear prompt"),
-            shortcut("Ctrl+E", "export latest run to JSON and CSV"),
-            shortcut("X", "cancel active sample"),
+            shortcut("v", "toggle settings table / raw TOML"),
         ],
     }
 }
@@ -96,12 +89,10 @@ fn shortcut(key: &str, action: &str) -> Line<'static> {
 
 const fn title(screen: Screen) -> &'static str {
     match screen {
-        Screen::Overview => "OVERVIEW",
+        Screen::Dashboard => "DASHBOARD",
         Screen::Models => "MODELS",
         Screen::Chat => "CHAT",
         Screen::Settings => "SETTINGS",
-        Screen::Activity => "ACTIVITY",
-        Screen::Benchmarks => "BENCHMARKS",
     }
 }
 

@@ -49,6 +49,9 @@ impl App {
                 KeyCode::Char('k' | 'K') => self.clear_chat(),
                 KeyCode::Char('d' | 'D') => self.chat_image = None,
                 KeyCode::Char('p' | 'P') => self.open_chat_settings(client),
+                KeyCode::Char('t' | 'T') => {
+                    self.chat_reasoning = self.chat_reasoning.toggled();
+                },
                 _ => {},
             }
             return;
@@ -64,24 +67,24 @@ impl App {
     }
 
     pub fn poll_chat(&mut self) {
-        let Some(result) = self.chat_rx.as_mut().map(mpsc::Receiver::try_recv) else {
-            return;
-        };
-        match result {
-            Ok(Ok(event)) => self.apply_chat_event(event),
-            Ok(Err(error)) => {
-                self.chat_error = Some(error);
-                self.chat_status = ChatStatus::Idle;
-                self.chat_operation_id = None;
-                self.chat_live_metrics = None;
-            },
-            Err(mpsc::error::TryRecvError::Empty) => {},
-            Err(mpsc::error::TryRecvError::Disconnected) => {
-                self.chat_rx = None;
-                self.chat_status = ChatStatus::Idle;
-                self.chat_operation_id = None;
-                self.chat_live_metrics = None;
-            },
+        const MAX_EVENTS_PER_FRAME: usize = 256;
+        for _ in 0..MAX_EVENTS_PER_FRAME {
+            let Some(result) = self.chat_rx.as_mut().map(mpsc::Receiver::try_recv) else {
+                return;
+            };
+            match result {
+                Ok(Ok(event)) => self.apply_chat_event(event),
+                Ok(Err(error)) => {
+                    self.chat_error = Some(error);
+                    self.finish_chat_stream();
+                    return;
+                },
+                Err(mpsc::error::TryRecvError::Empty) => return,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    self.finish_chat_stream();
+                    return;
+                },
+            }
         }
     }
 
@@ -89,6 +92,9 @@ impl App {
         match kind {
             MouseEventKind::ScrollUp => self.scroll_chat_up(3),
             MouseEventKind::ScrollDown => self.scroll_chat_down(3),
+            MouseEventKind::Down(_) => {
+                self.chat_reasoning = self.chat_reasoning.toggled();
+            },
             _ => {},
         }
     }
@@ -110,6 +116,7 @@ impl App {
             self.chat_metrics = None;
             self.chat_live_metrics = None;
             self.chat_error = None;
+            self.chat_reasoning = super::ReasoningView::Collapsed;
         }
     }
 
@@ -179,6 +186,13 @@ impl App {
             },
             None => {},
         }
+    }
+
+    fn finish_chat_stream(&mut self) {
+        self.chat_rx = None;
+        self.chat_status = ChatStatus::Idle;
+        self.chat_operation_id = None;
+        self.chat_live_metrics = None;
     }
 
     const fn scroll_chat_up(&mut self, lines: usize) {

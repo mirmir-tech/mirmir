@@ -21,6 +21,7 @@ impl App {
                 match model.state.as_str() {
                     "ready" => ModelAction::Unload,
                     "available" => ModelAction::Load,
+                    "paused" | "partial" | "failed" => ModelAction::Resume,
                     _ => ModelAction::None,
                 }
             })
@@ -29,6 +30,7 @@ impl App {
             ModelAction::Download => self.start_pull(client),
             ModelAction::Load => self.open_load_dialog(client),
             ModelAction::Unload => self.unload_selected(client).await,
+            ModelAction::Resume => self.resume_selected_pull(client),
             ModelAction::None => {},
         }
     }
@@ -43,12 +45,16 @@ impl App {
         let Some(selector) = selector.map(ToOwned::to_owned) else {
             return;
         };
+        self.set_local_state(&selector, "unloading");
         match client
             .unload_model(proto::UnloadModelRequest { selector: selector.clone() })
             .await
         {
             Ok(response) => self.apply_unload(response.into_inner().unloaded, &selector),
-            Err(error) => self.action_message = Some(error.to_string()),
+            Err(error) => {
+                self.set_local_state(&selector, "ready");
+                self.action_message = Some(error.to_string());
+            },
         }
     }
 
@@ -68,12 +74,21 @@ impl App {
         }
         self.action_message = Some(format!("unloaded {selector}"));
     }
+
+    pub(super) fn set_local_state(&mut self, selector: &str, state: &str) {
+        if let Some(local) = self.local_models.iter_mut().find(|model| {
+            model.id == selector || model.selector == selector || model.repo_id == selector
+        }) {
+            state.clone_into(&mut local.state);
+        }
+    }
 }
 
 enum ModelAction {
     Download,
     Load,
     Unload,
+    Resume,
     None,
 }
 

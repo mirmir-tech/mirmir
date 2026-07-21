@@ -1,12 +1,13 @@
 mod capabilities;
 mod memory;
+mod slider;
 
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, Gauge, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Clear, Gauge, Paragraph},
 };
 
 use self::memory::memory_summary;
@@ -15,8 +16,7 @@ use super::{
     theme,
 };
 
-const LABELS: [&str; 5] = ["max tokens", "temperature", "top p", "top k", "repetition penalty"];
-const GENERATION_HINT: &str = "↑/↓ · type · f force · Enter save & load";
+const GENERATION_HINT: &str = "↑/↓ field · ←/→ slider · type value · f force · Enter load";
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let Some(dialog) = app.load_dialog.as_ref() else {
@@ -45,7 +45,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     ])
     .split(inner);
     header(frame, rows[0], dialog);
-    fields(frame, rows[1], dialog);
+    slider::draw(frame, rows[1], dialog);
     progress(frame, rows[2], dialog);
     error(frame, rows[3], dialog);
     hint(frame, rows[4], dialog);
@@ -163,25 +163,6 @@ fn header(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
             Span::styled(format!("  ·  {source}"), Style::new().fg(theme::MUTED)),
         ])),
         area,
-    );
-}
-
-fn fields(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
-    if capabilities::draw(frame, area, dialog) {
-        return;
-    }
-    let items = LABELS.iter().zip(&dialog.fields).map(|(label, value)| {
-        ListItem::new(Line::from(vec![
-            Span::styled(format!("{label:<20}"), Style::new().fg(theme::MUTED)),
-            Span::styled(value, Style::new().fg(theme::INK).add_modifier(Modifier::BOLD)),
-        ]))
-    });
-    let selected = (dialog.status == LoadStatus::Editing).then_some(dialog.selected);
-    let mut state = ListState::default().with_selected(selected);
-    frame.render_stateful_widget(
-        List::new(items).highlight_style(Style::new().fg(theme::GLACIER).bg(theme::RAISED)),
-        area,
-        &mut state,
     );
 }
 

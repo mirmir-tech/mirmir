@@ -1,5 +1,4 @@
 use super::app::{App, Message, Screen};
-mod benchmarks;
 mod chat;
 mod configuration;
 mod fixtures;
@@ -11,25 +10,36 @@ use fixtures::{rendered, telemetry};
 fn renders_identity_dashboard_at_minimum_size() -> Result<(), std::convert::Infallible> {
     let mut app = App::new(false);
     app.telemetry = Some(telemetry());
-    app.throughput_history.extend([12, 24, 18]);
-    app.memory_history.extend([40, 42, 41]);
+    app.telemetry_history.extend([
+        super::app::TelemetryPoint {
+            e2e: 12,
+            prefill: 30,
+            decode: 10,
+            memory_percent: 40,
+            kv_percent: 20,
+        },
+        super::app::TelemetryPoint {
+            e2e: 24,
+            prefill: 40,
+            decode: 18,
+            memory_percent: 42,
+            kv_percent: 25,
+        },
+    ]);
     let text = rendered(&mut app, 100, 28)?;
     assert!(text.contains("MiRMiR"));
     assert!(text.contains("THROUGHPUT"));
     assert!(text.contains("24.5 tok/s"));
-    assert!(text.contains("LAST E2E"));
-    assert!(text.contains("ACTIVE") && text.contains("decode · 250.0 ms"));
+    assert!(text.contains("PREFILL"));
+    assert!(text.contains("DECODE"));
     assert!(text.contains("mean 20.0 tok/s"));
-    assert!(text.contains("live 20p/6c"));
-    assert!(text.contains("KV 32/128 blocks"));
+    assert!(text.contains("32/128"));
     assert!(text.contains("HEALTHY"));
     assert!(text.contains("LOCAL OWNER"));
-    assert!(text.contains("[F1] Overview"));
+    assert!(text.contains("[F1] Dashboard"));
     assert!(text.contains("[F2] Models"));
     assert!(text.contains("[F3] Chat"));
     assert!(text.contains("[F4] Settings"));
-    assert!(text.contains("[F5] Activity"));
-    assert!(text.contains("[F6] Bench"));
     assert!(!text.contains("Ctrl"));
     assert!(text.contains("? help"));
     Ok(())
@@ -38,7 +48,7 @@ fn renders_identity_dashboard_at_minimum_size() -> Result<(), std::convert::Infa
 #[test]
 fn renders_activity_and_cancellation_capability() -> Result<(), std::convert::Infallible> {
     let mut app = App::new(true);
-    app.screen = Screen::Activity;
+    app.screen = Screen::Dashboard;
     app.activities.push(crate::rpc::proto::ActivityEvent {
         operation_id: "op-7".to_owned(),
         kind: "generate".to_owned(),
@@ -53,9 +63,9 @@ fn renders_activity_and_cancellation_capability() -> Result<(), std::convert::In
         total: None,
     });
     let text = rendered(&mut app, 110, 28)?;
-    assert!(text.contains("ACTIVITY"));
+    assert!(text.contains("RECENT ACTIVITY"));
     assert!(text.contains("Qwen--Test"));
-    assert!(text.contains("CANCELLABLE yes"));
+    assert!(text.contains("decode"));
     Ok(())
 }
 

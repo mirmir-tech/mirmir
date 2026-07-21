@@ -54,6 +54,7 @@ impl App {
             thought: String::new(),
         });
         let messages = self.messages_for_request();
+        let image = self.chat_image.take().map(|image| image.bytes);
         self.chat_messages.push(Message {
             role: "assistant".to_owned(),
             content: String::new(),
@@ -69,7 +70,7 @@ impl App {
             repetition_penalty: None,
             seed: None,
             messages,
-            image: self.chat_image.as_ref().map(|image| image.bytes.clone()),
+            image,
         };
         self.apply_chat_parameters(&mut request);
         self.spawn_chat(client, request);

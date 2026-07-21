@@ -8,3 +8,4 @@
 .env.*.local
 /bench-results/
 /web/dist/
+/web/target/

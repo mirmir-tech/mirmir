@@ -7,9 +7,8 @@ use ratatui::{
 };
 
 use super::{
-    activity,
     app::{App, Screen, WORKSPACE_PREFIX, WORKSPACE_TABS},
-    benchmarks, chat, configuration, confirm, help, load, models, overview, theme,
+    chat, configuration, confirm, help, load, models, overview, theme,
 };
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -22,23 +21,16 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     ])
     .split(frame.area());
     header(frame, vertical[0], app);
+    app.set_workspace_area(vertical[1]);
     workspace(frame, vertical[1], app);
     let list_area = match app.screen {
-        Screen::Overview => {
-            overview::draw(frame, vertical[2], app);
-            None
-        },
+        Screen::Dashboard => Some(overview::draw(frame, vertical[2], app)),
         Screen::Models => Some(models::draw(frame, vertical[2], app)),
         Screen::Chat => {
             chat::draw(frame, vertical[2], app);
             None
         },
         Screen::Settings => Some(configuration::draw(frame, vertical[2], app)),
-        Screen::Activity => Some(activity::draw(frame, vertical[2], app)),
-        Screen::Benchmarks => {
-            benchmarks::draw(frame, vertical[2], app);
-            None
-        },
     };
     app.set_list_view(list_area);
     if app.load_dialog.is_some() {
@@ -119,7 +111,7 @@ fn footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
         "LOCAL OWNER"
     };
     let text = format!(
-        " v{} · gRPC {}  ·  ? help  ·  Esc close  ·  {ownership}",
+        " v{} · gRPC {}  ·  ? help  ·  Esc close  ·  q quit  ·  {ownership}",
         app.server_version, app.protocol_version,
     );
     frame.render_widget(

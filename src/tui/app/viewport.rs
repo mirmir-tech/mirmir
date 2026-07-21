@@ -37,9 +37,31 @@ impl App {
             self.handle_chat_mouse(mouse.kind);
             return;
         }
+        if self.screen == Screen::Models
+            && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && self.search_field_contains(mouse.column, mouse.row)
+        {
+            if self.editing_search
+                && self
+                    .list_view
+                    .is_some_and(|view| mouse.column >= view.area.right().saturating_sub(6))
+            {
+                self.search_query.clear();
+                self.reset_search_results();
+                self.editing_search = false;
+            } else {
+                self.editing_search = true;
+            }
+            return;
+        }
         match mouse.kind {
             MouseEventKind::ScrollUp => self.move_list(-3),
-            MouseEventKind::ScrollDown => self.move_list(3),
+            MouseEventKind::ScrollDown => {
+                self.move_list(3);
+                if self.screen == Screen::Models {
+                    self.load_more_if_needed(client);
+                }
+            },
             MouseEventKind::Down(MouseButton::Left) => {
                 let Some(index) = self.list_view.and_then(|view| view.row(mouse.column, mouse.row))
                 else {
@@ -47,13 +69,26 @@ impl App {
                 };
                 self.select_list(index);
                 match self.screen {
-                    Screen::Models => self.activate_selected_model(client).await,
+                    Screen::Models
+                        if self.list_view.is_some_and(|view| {
+                            mouse.column >= view.area.right().saturating_sub(19)
+                        }) =>
+                    {
+                        self.activate_selected_model(client).await;
+                    },
+                    Screen::Models | Screen::Dashboard | Screen::Chat => {},
                     Screen::Settings => self.begin_configuration_edit(),
-                    Screen::Overview | Screen::Chat | Screen::Activity | Screen::Benchmarks => {},
                 }
             },
             _ => {},
         }
+    }
+
+    fn search_field_contains(&self, column: u16, row: u16) -> bool {
+        self.list_view.is_some_and(|view| {
+            let top = view.area.y.saturating_sub(3);
+            (top..view.area.y).contains(&row) && (view.area.x..view.area.right()).contains(&column)
+        })
     }
 
     pub(super) fn handle_list_navigation(&mut self, code: KeyCode) -> bool {
@@ -85,8 +120,8 @@ impl App {
             Screen::Models if self.searching_models() => self.catalog_selected = selected,
             Screen::Models => self.local_selected = selected,
             Screen::Settings => self.configuration_selected = selected,
-            Screen::Activity => self.activity_selected = selected,
-            Screen::Overview | Screen::Chat | Screen::Benchmarks => {},
+            Screen::Dashboard => self.activity_selected = selected,
+            Screen::Chat => {},
         }
     }
 
@@ -97,8 +132,8 @@ impl App {
             },
             Screen::Models => (self.local_selected, self.local_model_count()),
             Screen::Settings => (self.configuration_selected, self.configuration_count()),
-            Screen::Activity => (self.activity_selected, self.activities.len()),
-            Screen::Overview | Screen::Chat | Screen::Benchmarks => (0, 0),
+            Screen::Dashboard => (self.activity_selected, self.activities.len()),
+            Screen::Chat => (0, 0),
         }
     }
 }

@@ -12,14 +12,13 @@ fn empty_search_renders_only_local_models() -> Result<(), std::convert::Infallib
     app.catalog.push(catalog_model("Remote/Hidden", ""));
 
     let text = rendered(&mut app, 120, 36)?;
-    assert!(text.contains("MODELS — LOCAL"));
+    assert!(text.contains("LOCAL MODELS"));
     assert!(text.contains("Qwen--Local"));
-    assert!(text.contains("available"));
-    assert!(text.contains("Qwen/Local"));
-    assert!(text.contains("Qwen2ForCausalLM"));
+    assert!(text.contains("AVAILABLE"));
+    assert!(text.contains("▶ load"));
     assert!(!text.contains("Remote/Hidden"));
     assert!(!text.contains("Missing--Hidden"));
-    assert!(!text.contains("SEARCH RESULTS"));
+    assert!(!text.contains("HUGGING FACE RESULTS"));
     Ok(())
 }
 
@@ -34,7 +33,7 @@ fn unsupported_download_stays_visible_with_its_reason() -> Result<(), std::conve
 
     let text = rendered(&mut app, 120, 36)?;
     assert!(text.contains("Org--Unsupported"));
-    assert!(text.contains("unavailable"));
+    assert!(text.contains("ERROR"));
     assert!(text.contains("unsupported execution contract"));
     Ok(())
 }
@@ -44,15 +43,16 @@ fn search_replaces_local_list_and_marks_cached_models() -> Result<(), std::conve
     let mut app = App::new(true);
     app.screen = Screen::Models;
     app.search_query = "Qwen".to_owned();
+    app.editing_search = true;
     app.local_models.push(local_model("Local--Hidden", "Local/Hidden"));
     app.catalog.push(catalog_model("Qwen/Test", "hf_cache"));
 
     let text = rendered(&mut app, 120, 36)?;
-    assert!(text.contains("MODELS — SEARCH RESULTS"));
+    assert!(text.contains("HUGGING FACE RESULTS"));
     assert!(text.contains("Qwen/Test"));
-    assert!(text.contains("HF CACHE"));
+    assert!(text.contains("downloaded"));
     assert!(!text.contains("Local--Hidden"));
-    assert!(!text.contains("MODELS — LOCAL"));
+    assert!(!text.contains("LOCAL MODELS"));
     Ok(())
 }
 
@@ -61,11 +61,12 @@ fn search_marks_mirmir_downloads() -> Result<(), std::convert::Infallible> {
     let mut app = App::new(true);
     app.screen = Screen::Models;
     app.search_query = "Qwen".to_owned();
+    app.editing_search = true;
     app.catalog.push(catalog_model("Qwen/Managed", "mirmir"));
 
     let text = rendered(&mut app, 120, 36)?;
     assert!(text.contains("Qwen/Managed"));
-    assert!(text.contains("MIRMIR"));
+    assert!(text.contains("downloaded"));
     Ok(())
 }
 
@@ -74,6 +75,7 @@ fn incompatible_remote_models_are_hidden_until_requested() -> Result<(), std::co
     let mut app = App::new(true);
     app.screen = Screen::Models;
     app.search_query = "encoder".to_owned();
+    app.editing_search = true;
     let mut incompatible = catalog_model("BAAI/Encoder", "remote");
     incompatible.compatibility = "unsupported".to_owned();
     incompatible.memory_fit = "unknown".to_owned();
@@ -90,6 +92,7 @@ fn unknown_remote_contracts_remain_visible_for_download() -> Result<(), std::con
     let mut app = App::new(true);
     app.screen = Screen::Models;
     app.search_query = "reranker".to_owned();
+    app.editing_search = true;
     let mut candidate = catalog_model("Alibaba-NLP/Reranker", "remote");
     candidate.compatibility = "unknown".to_owned();
     app.catalog.push(candidate);
@@ -103,6 +106,7 @@ fn local_gated_results_remain_visible_and_marked() -> Result<(), std::convert::I
     let mut app = App::new(true);
     app.screen = Screen::Models;
     app.search_query = "gated".to_owned();
+    app.editing_search = true;
     let mut model = catalog_model("Org/Gated", "hf_cache");
     model.compatibility = "unsupported".to_owned();
     model.gated = true;
@@ -110,7 +114,7 @@ fn local_gated_results_remain_visible_and_marked() -> Result<(), std::convert::I
 
     let text = rendered(&mut app, 120, 36)?;
     assert!(text.contains("Org/Gated"));
-    assert!(text.contains("GATED"));
+    assert!(text.contains("downloaded"));
     Ok(())
 }
 

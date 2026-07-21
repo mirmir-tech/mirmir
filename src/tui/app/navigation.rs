@@ -1,24 +1,22 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use ratatui::layout::Rect;
 
 use super::{App, Screen};
 
 pub const WORKSPACE_PREFIX: &str = " WORKSPACE  ";
-pub const WORKSPACE_TABS: [(Screen, u8, &str, u16); 6] = [
-    (Screen::Overview, 1, "Overview", 16),
+pub const WORKSPACE_TABS: [(Screen, u8, &str, u16); 4] = [
+    (Screen::Dashboard, 1, "Dashboard", 17),
     (Screen::Models, 2, "Models", 14),
     (Screen::Chat, 3, "Chat", 12),
     (Screen::Settings, 4, "Settings", 16),
-    (Screen::Activity, 5, "Activity", 16),
-    (Screen::Benchmarks, 6, "Bench", 13),
 ];
 
-const WORKSPACE_ROW: u16 = 4;
-const WORKSPACE_CONTENT_X: u16 = 1;
 const WORKSPACE_PREFIX_WIDTH: u16 = 12;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NavigationState {
     pub exit_dialog: bool,
+    workspace_area: Option<Rect>,
 }
 
 impl App {
@@ -40,11 +38,7 @@ impl App {
             && self.load_dialog.is_none()
             && self.chat_settings_dialog.is_none()
             && !self.editing_search
-            && match self.screen {
-                Screen::Chat => self.chat_input.is_empty(),
-                Screen::Benchmarks => self.benchmark.prompt.is_empty(),
-                _ => true,
-            }
+            && (self.screen != Screen::Chat || self.chat_input.is_empty())
         {
             self.help_open = true;
             return true;
@@ -56,9 +50,6 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return Some(false);
         }
-        if key.kind != KeyEventKind::Press {
-            return Some(false);
-        }
         if self.navigation.exit_dialog {
             return Some(self.handle_exit_dialog(key.code));
         }
@@ -67,6 +58,7 @@ impl App {
             return Some(false);
         }
         match key.code {
+            KeyCode::Char('q' | 'Q') if self.screen != Screen::Chat => Some(true),
             KeyCode::Tab => {
                 self.select_screen(self.next_screen());
                 Some(false)
@@ -84,10 +76,13 @@ impl App {
     }
 
     pub(super) fn handle_workspace_click(&mut self, column: u16, row: u16) -> bool {
-        if row != WORKSPACE_ROW {
+        let Some(area) = self.navigation.workspace_area else {
+            return false;
+        };
+        if !(area.y..area.bottom()).contains(&row) {
             return false;
         }
-        let mut left = WORKSPACE_CONTENT_X + WORKSPACE_PREFIX_WIDTH;
+        let mut left = area.x.saturating_add(1).saturating_add(WORKSPACE_PREFIX_WIDTH);
         for (screen, _, _, width) in WORKSPACE_TABS {
             let right = left + width;
             if (left..right).contains(&column) {
@@ -99,41 +94,39 @@ impl App {
         false
     }
 
+    pub(crate) const fn set_workspace_area(&mut self, area: Rect) {
+        self.navigation.workspace_area = Some(area);
+    }
+
     pub const fn advance_animation(&mut self) {
         self.animation_tick = self.animation_tick.wrapping_add(1);
     }
 
     const fn function_key_screen(code: KeyCode) -> Option<Screen> {
         match code {
-            KeyCode::F(1) => Some(Screen::Overview),
+            KeyCode::F(1) => Some(Screen::Dashboard),
             KeyCode::F(2) => Some(Screen::Models),
             KeyCode::F(3) => Some(Screen::Chat),
             KeyCode::F(4) => Some(Screen::Settings),
-            KeyCode::F(5) => Some(Screen::Activity),
-            KeyCode::F(6) => Some(Screen::Benchmarks),
             _ => None,
         }
     }
 
     const fn next_screen(&self) -> Screen {
         match self.screen {
-            Screen::Overview => Screen::Models,
+            Screen::Dashboard => Screen::Models,
             Screen::Models => Screen::Chat,
             Screen::Chat => Screen::Settings,
-            Screen::Settings => Screen::Activity,
-            Screen::Activity => Screen::Benchmarks,
-            Screen::Benchmarks => Screen::Overview,
+            Screen::Settings => Screen::Dashboard,
         }
     }
 
     const fn previous_screen(&self) -> Screen {
         match self.screen {
-            Screen::Overview => Screen::Benchmarks,
-            Screen::Models => Screen::Overview,
+            Screen::Dashboard => Screen::Settings,
+            Screen::Models => Screen::Dashboard,
             Screen::Chat => Screen::Models,
             Screen::Settings => Screen::Chat,
-            Screen::Activity => Screen::Settings,
-            Screen::Benchmarks => Screen::Activity,
         }
     }
 
@@ -176,17 +169,20 @@ mod tests {
         app.handle_navigation_key(KeyEvent::from(KeyCode::Tab));
         assert_eq!(app.screen, Screen::Models);
         app.handle_navigation_key(KeyEvent::from(KeyCode::BackTab));
-        assert_eq!(app.screen, Screen::Overview);
+        assert_eq!(app.screen, Screen::Dashboard);
         app.handle_navigation_key(KeyEvent::from(KeyCode::BackTab));
-        assert_eq!(app.screen, Screen::Benchmarks);
+        assert_eq!(app.screen, Screen::Settings);
     }
 
     #[test]
     fn clicking_workspace_selects_tab() {
         let mut app = App::new(true);
-        assert!(app.handle_workspace_click(31, WORKSPACE_ROW));
-        assert_eq!(app.screen, Screen::Models);
-        assert!(!app.handle_workspace_click(31, WORKSPACE_ROW + 1));
+        app.set_workspace_area(Rect::new(0, 3, 100, 3));
+        for row in 3..6 {
+            assert!(app.handle_workspace_click(31, row));
+            assert_eq!(app.screen, Screen::Models);
+        }
+        assert!(!app.handle_workspace_click(31, 6));
     }
 
     #[test]
@@ -196,6 +192,23 @@ mod tests {
         assert!(app.navigation.exit_dialog);
         assert_eq!(app.handle_navigation_key(KeyEvent::from(KeyCode::Char('n'))), Some(false));
         assert!(!app.navigation.exit_dialog);
+    }
+
+    #[test]
+    fn repeated_escape_event_opens_exit_confirmation() {
+        let mut app = App::new(true);
+        let escape =
+            KeyEvent::new_with_kind(KeyCode::Esc, KeyModifiers::NONE, KeyEventKind::Repeat);
+        assert_eq!(app.handle_navigation_key(escape), Some(false));
+        assert!(app.navigation.exit_dialog);
+    }
+
+    #[test]
+    fn q_quits_outside_chat_input() {
+        let mut app = App::new(true);
+        assert_eq!(app.handle_navigation_key(KeyEvent::from(KeyCode::Char('q'))), Some(true));
+        app.screen = Screen::Chat;
+        assert_eq!(app.handle_navigation_key(KeyEvent::from(KeyCode::Char('q'))), None);
     }
 
     #[test]

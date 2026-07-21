@@ -1,11 +1,57 @@
 [package]
-name = "web"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+name = "mirmir-dashboard"
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
 
 [dependencies]
-leptos.workspace = true
+futures-util = "0.3"
+gloo-file = { version = "0.3", features = ["futures"] }
+gloo-net = { version = "0.6", features = ["http", "json", "websocket"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+leptos = { version = "0.8", features = ["csr"] }
+pulldown-cmark = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+urlencoding = "2"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+wasm-streams = "0.5"
+web-sys = { version = "0.3", features = [
+  "DataTransfer",
+  "Document",
+  "DragEvent",
+  "Element",
+  "Event",
+  "File",
+  "FileList",
+  "HtmlDialogElement",
+  "HtmlElement",
+  "HtmlInputElement",
+  "HtmlSelectElement",
+  "HtmlTextAreaElement",
+  "KeyboardEvent",
+  "Location",
+  "Navigator",
+  "ServiceWorkerContainer",
+  "ServiceWorkerRegistration",
+  "Window",
+] }
 
-[lints]
-workspace = true
+[lints.rust]
+future_incompatible = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+rust_2021_compatibility = { level = "deny", priority = -1 }
+rust_2024_compatibility = { level = "deny", priority = -1 }
+unsafe_code = "deny"
+unused = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"

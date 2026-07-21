@@ -31,46 +31,34 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert_eq!(index.headers()["x-frame-options"], "DENY");
     assert_eq!(
         index.headers()["content-security-policy"],
-        "default-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
     );
     let index = index.text().await?;
     assert!(index.contains("MiRMiR · Runtime dashboard"));
-    assert!(index.contains("/ui/assets/brand/lockup.svg"));
-    assert!(index.contains("/ui/assets/brand/favicon.svg?v=3"));
-    assert_simplified_shell(&index);
-    assert!(index.contains("id=\"toast-region\""));
-    assert!(index.contains("id=\"connection-state\""));
-    assert!(index.contains("<th>Features</th>"));
-    assert!(index.contains("aria-label=\"Close model search\""));
-    assert!(!index.contains("id=\"catalog-query\""));
-    assert!(index.contains("id=\"load-top-k-range\" type=\"range\""));
-    assert!(index.contains("id=\"load-task-capabilities\""));
-    assert!(index.contains("class=\"composer-dock\""));
-    assert!(index.contains("aria-label=\"Add attachment\""));
-    assert!(index.contains("M12 5v14M5 12h14"));
-    assert!(index.contains("aria-label=\"Generation performance\""));
-    assert!(index.contains("id=\"throughput-chart\""));
-    assert!(index.contains("id=\"memory-chart\""));
-    assert!(index.contains("id=\"kv-chart\""));
-    assert!(index.contains("id=\"activity-list\""));
-    assert!(!index.contains("data-view=\"activity\""));
+    assert!(index.contains("/ui/assets/brand/favicon.svg"));
+    assert!(index.contains("/ui/app.css"));
+    assert!(index.contains("/ui/mirmir-dashboard.js"));
+    assert!(index.contains("/ui/mirmir-dashboard_bg.wasm"));
+    assert!(!index.contains("/ui/app.js"));
+    assert!(!index.contains("/ui/sw.js"));
 
     let stylesheet = client.get(format!("{base}/ui/app.css")).send().await?;
     assert_eq!(stylesheet.status(), StatusCode::OK);
     let stylesheet = stylesheet.text().await?;
     assert_stylesheet(&stylesheet);
 
-    let script = client.get(format!("{base}/ui/app.js")).send().await?;
+    let script = client.get(format!("{base}/ui/mirmir-dashboard.js")).send().await?;
     assert_eq!(script.status(), StatusCode::OK);
     let script = script.text().await?;
-    assert_script(&script);
+    assert!(script.len() > 10_000);
+    assert!(script.contains("WebAssembly.instantiate"));
 
-    let worker = client.get(format!("{base}/ui/sw.js")).send().await?;
-    assert_eq!(worker.status(), StatusCode::OK);
-    assert_eq!(worker.headers()["content-type"], "text/javascript; charset=utf-8");
-    let worker = worker.text().await?;
-    assert!(worker.contains("mirmir-dashboard-shell"));
-    assert!(worker.contains("x-mirmir-dashboard"));
+    let wasm = client.get(format!("{base}/ui/mirmir-dashboard_bg.wasm")).send().await?;
+    assert_eq!(wasm.status(), StatusCode::OK);
+    assert_eq!(wasm.headers()["content-type"], "application/wasm");
+    let wasm = wasm.bytes().await?;
+    assert!(wasm.len() > 1_000_000);
+    assert_eq!(&wasm[..4], b"\0asm");
 
     let logo = client.get(format!("{base}/ui/assets/brand/lockup.svg")).send().await?;
     assert_eq!(logo.status(), StatusCode::OK);
@@ -108,41 +96,6 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     owner.shutdown().await
 }
 
-fn assert_script(script: &str) {
-    assert!(script.contains("/api/mirmir/v1"));
-    assert!(script.contains("new WebSocket"));
-    assert!(script.contains("Connection lost"));
-    assert!(!script.contains("new EventSource"));
-    assert!(!script.contains("setInterval"));
-    assert!(script.contains("serviceWorker.register"));
-    assert!(script.contains("pullOperations"));
-    assert!(script.contains("appendPullRow"));
-    assert!(script.contains("addEventListener(\"invalid\""));
-    assert!(script.contains("inspection.task === \"generation\""));
-    assert!(script.contains("!inspection.task && settings != null"));
-    assert!(script.contains("capabilities.max_input_tokens"));
-    assert!(script.contains("optimisticModelStates.clear()"));
-    assert!(script.contains("rangeInput.addEventListener(\"input\""));
-    assert!(script.contains("setLoadButtonState(\"inspecting\")"));
-    assert!(script.contains("button.setAttribute(\"aria-busy\", \"true\")"));
-    assert!(script.contains("const statePill"));
-    assert!(script.contains("error ? 8000 : 5000"));
-    assert!(script.contains("dialog.show()"));
-    assert!(script.contains("event.key === \"Escape\""));
-    assert!(script.contains("new AbortController()"));
-    assert!(script.contains("[\"load\", \"restore\", \"unload\", \"pull\"]"));
-    assert!(script.contains("const renderMarkdown"));
-    assert!(script.contains("const updateReasoningState"));
-    assert!(script.contains("const renderTimeChart"));
-    assert!(script.contains("/telemetry/history?limit=900"));
-    assert!(script.contains("dashboardWindowMinutes"));
-    assert!(script.contains("const submittedImage = chatImage"));
-    assert!(script.contains("chatImage = null"));
-    assert!(script.contains("Response stopped at the ${data.completion_tokens}-token limit"));
-    assert!(script.contains("log.scrollTop = log.scrollHeight"));
-    assert!(!script.contains("scrollIntoView"));
-}
-
 fn assert_stylesheet(stylesheet: &str) {
     assert!(stylesheet.contains("#79d7ff"));
     assert!(stylesheet.contains("Space Grotesk"));
@@ -154,15 +107,4 @@ fn assert_stylesheet(stylesheet: &str) {
     assert!(stylesheet.contains(".dashboard-grid"));
     assert!(stylesheet.contains(".telemetry-chart"));
     assert!(stylesheet.contains(".activity-timeline"));
-}
-
-fn assert_simplified_shell(index: &str) {
-    assert!(index.contains("/ui/app.css?v=22"));
-    assert!(index.contains("/ui/app.js?v=28"));
-    assert!(!index.contains("class=\"page-heading"));
-    assert!(!index.contains("MIRMIR RUNTIME / WEB"));
-    assert!(!index.contains("<footer>"));
-    assert!(!index.contains("startup-banner"));
-    assert!(!index.contains("id=\"more-models\""));
-    assert!(!index.contains("id=\"model-count\""));
 }

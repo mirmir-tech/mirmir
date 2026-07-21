@@ -1,8 +1,8 @@
 mod dialog;
+mod slider;
 mod target;
 
 use crossterm::event::{KeyCode, KeyEvent};
-use dialog::FIELD_COUNT;
 pub use dialog::{LoadDialog, LoadStatus, LoadTarget, RestorePosition};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
@@ -67,6 +67,8 @@ impl App {
             KeyCode::Char('f') => self.toggle_force_load(),
             KeyCode::Up => self.select_previous_setting(),
             KeyCode::Down | KeyCode::Tab => self.select_next_setting(),
+            KeyCode::Left => self.adjust_setting(-1),
+            KeyCode::Right => self.adjust_setting(1),
             KeyCode::Backspace => self.edit_setting(None),
             KeyCode::Char(character) if character.is_ascii_digit() || character == '.' => {
                 self.edit_setting(Some(character));
@@ -142,6 +144,7 @@ impl App {
     }
 
     pub(super) fn start_load_request(&mut self, client: &Client, request: proto::LoadModelRequest) {
+        self.set_local_state(&request.selector, "loading");
         let (sender, receiver) = mpsc::channel(64);
         let mut client = client.clone();
         drop(tokio::spawn(async move {
@@ -183,6 +186,11 @@ impl App {
     }
 
     pub(super) fn fail_load(&mut self, error: String) {
+        if let Some(selector) =
+            self.load_dialog.as_ref().map(|dialog| dialog.target.selector.clone())
+        {
+            self.set_local_state(&selector, "available");
+        }
         self.action_message = Some(error.clone());
         if self.load_dialog.as_ref().is_some_and(|dialog| dialog.restore.is_some()) {
             self.restore_completed = self.restore_completed.saturating_add(1);
@@ -202,36 +210,6 @@ impl App {
             .is_some_and(|dialog| dialog.status == LoadStatus::Loading)
         {
             self.fail_load("model load ended before the model became ready".to_owned());
-        }
-    }
-
-    const fn select_previous_setting(&mut self) {
-        if let Some(dialog) = self.load_dialog.as_mut() {
-            dialog.selected = dialog.selected.saturating_sub(1);
-        }
-    }
-
-    fn select_next_setting(&mut self) {
-        if let Some(dialog) = self.load_dialog.as_mut() {
-            dialog.selected = dialog.selected.saturating_add(1).min(FIELD_COUNT - 1);
-        }
-    }
-
-    fn edit_setting(&mut self, character: Option<char>) {
-        if let Some(dialog) = self.load_dialog.as_mut() {
-            let field = &mut dialog.fields[dialog.selected];
-            if let Some(character) = character {
-                field.push(character);
-            } else {
-                let _removed = field.pop();
-            }
-        }
-    }
-
-    fn toggle_force_load(&mut self) {
-        if let Some(dialog) = self.load_dialog.as_mut() {
-            dialog.force = !dialog.force;
-            dialog.error = None;
         }
     }
 }

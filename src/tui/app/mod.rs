@@ -1,6 +1,5 @@
 mod actions;
 mod activity;
-mod benchmark;
 mod chat;
 mod configuration;
 mod events;
@@ -15,7 +14,6 @@ mod viewport;
 
 use std::collections::VecDeque;
 
-pub use benchmark::{BenchmarkState, BenchmarkStatus};
 use chat::settings::ChatSettingsEvent;
 pub use chat::{
     ChatLiveMetrics, ChatParameters, ChatSettingsDialog, ChatSettingsStatus, ChatStatus, Message,
@@ -26,6 +24,8 @@ pub use load::{LoadDialog, LoadStatus};
 pub use load::{LoadTarget, RestorePosition};
 pub use navigation::{NavigationState, WORKSPACE_PREFIX, WORKSPACE_TABS};
 pub use removal::RemoveDialog;
+pub(super) use telemetry::RefreshSnapshot;
+pub use telemetry::TelemetryPoint;
 use tokio::sync::mpsc;
 pub use viewport::ListView;
 
@@ -33,18 +33,41 @@ use crate::{media::AttachedImage, rpc::proto};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
-    Overview,
+    Dashboard,
     Models,
     Chat,
     Settings,
-    Activity,
-    Benchmarks,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogFilter {
     Compatible,
     All,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigurationView {
+    Table,
+    Raw,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasoningView {
+    Collapsed,
+    Expanded,
+}
+
+impl ReasoningView {
+    pub const fn expanded(self) -> bool {
+        matches!(self, Self::Expanded)
+    }
+
+    pub const fn toggled(self) -> Self {
+        match self {
+            Self::Collapsed => Self::Expanded,
+            Self::Expanded => Self::Collapsed,
+        }
+    }
 }
 
 pub struct App {
@@ -80,6 +103,7 @@ pub struct App {
     pub chat_input: String,
     pub chat_image: Option<AttachedImage>,
     pub chat_scroll: usize,
+    pub chat_reasoning: ReasoningView,
     pub chat_model_index: usize,
     pub chat_messages: Vec<Message>,
     pub chat_metrics: Option<proto::Completion>,
@@ -95,16 +119,16 @@ pub struct App {
     pub telemetry: Option<proto::TelemetrySnapshot>,
     pub configuration: Option<proto::ConfigurationSnapshot>,
     pub configuration_selected: usize,
+    pub configuration_view: ConfigurationView,
     pub configuration_edit: Option<ConfigurationEdit>,
     pub configuration_message: Option<String>,
-    pub throughput_history: VecDeque<u64>,
-    pub memory_history: VecDeque<u64>,
-    pub benchmark: BenchmarkState,
+    pub telemetry_history: VecDeque<TelemetryPoint>,
     restore_queue: VecDeque<String>,
     restore_total: usize,
     restore_completed: usize,
     transfer_tx: mpsc::Sender<Result<proto::ModelTransferEvent, String>>,
     transfer_rx: mpsc::Receiver<Result<proto::ModelTransferEvent, String>>,
+    catalog_search_rx: Option<mpsc::Receiver<models::CatalogSearchEvent>>,
     removal_rx: Option<mpsc::Receiver<Result<proto::RemoveModelResponse, String>>>,
     pending_removal: Option<RemoveDialog>,
     lifecycle_rx: Option<mpsc::Receiver<Result<proto::ModelLifecycleEvent, String>>>,
@@ -119,7 +143,7 @@ impl App {
     pub fn new(server_reused: bool) -> Self {
         let (transfer_tx, transfer_rx) = mpsc::channel(256);
         Self {
-            screen: Screen::Overview,
+            screen: Screen::Dashboard,
             navigation: NavigationState::default(),
             help_open: false,
             list_view: None,
@@ -151,6 +175,7 @@ impl App {
             chat_input: String::new(),
             chat_image: None,
             chat_scroll: 0,
+            chat_reasoning: ReasoningView::Collapsed,
             chat_model_index: 0,
             chat_messages: Vec::new(),
             chat_metrics: None,
@@ -166,16 +191,16 @@ impl App {
             telemetry: None,
             configuration: None,
             configuration_selected: 0,
+            configuration_view: ConfigurationView::Table,
             configuration_edit: None,
             configuration_message: None,
-            throughput_history: VecDeque::new(),
-            memory_history: VecDeque::new(),
-            benchmark: BenchmarkState::default(),
+            telemetry_history: VecDeque::new(),
             restore_queue: VecDeque::new(),
             restore_total: 0,
             restore_completed: 0,
             transfer_tx,
             transfer_rx,
+            catalog_search_rx: None,
             removal_rx: None,
             pending_removal: None,
             lifecycle_rx: None,

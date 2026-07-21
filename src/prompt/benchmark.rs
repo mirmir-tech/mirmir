@@ -2,7 +2,7 @@ mod csv;
 mod report;
 mod statistics;
 
-use std::{fs, path::Path};
+use std::path::Path;
 
 pub use report::{Aggregate, BenchmarkReport, SampleReport};
 pub use statistics::Distribution;
@@ -59,14 +59,6 @@ pub async fn execute(
 
 pub fn write_csv(path: &Path, report: &BenchmarkReport) -> Result<()> {
     csv::write(path, report)
-}
-
-pub fn write_json(path: &Path, report: &BenchmarkReport) -> Result<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, serde_json::to_vec_pretty(report)?)?;
-    Ok(())
 }
 
 async fn check_protocol(client: &mut rpc::Client) -> Result<()> {

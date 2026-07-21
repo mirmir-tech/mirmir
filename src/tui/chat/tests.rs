@@ -34,8 +34,8 @@ fn input_shows_the_attached_image() -> Result<(), std::convert::Infallible> {
         name: "sample.png".to_owned(),
         bytes: vec![0; 2048],
     });
-    let mut terminal = Terminal::new(TestBackend::new(60, 4))?;
-    terminal.draw(|frame| input(frame, frame.area(), &app))?;
+    let mut terminal = Terminal::new(TestBackend::new(60, 7))?;
+    terminal.draw(|frame| composer(frame, frame.area(), &app))?;
     let rendered: String = terminal
         .backend()
         .buffer()
@@ -43,7 +43,7 @@ fn input_shows_the_attached_image() -> Result<(), std::convert::Infallible> {
         .iter()
         .map(ratatui::buffer::Cell::symbol)
         .collect();
-    assert!(rendered.contains("sample.png · 2 KiB"));
+    assert!(rendered.contains("sample.png"));
     Ok(())
 }
 

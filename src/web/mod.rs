@@ -27,10 +27,10 @@ pub use socket::updates;
 
 use crate::rpc::PROTOCOL_VERSION;
 
-const INDEX: &str = include_str!("assets/index.html");
+const INDEX: &str = include_str!("../../web/dist/index.html");
 const STYLESHEET: &str = include_str!("assets/app.css");
-const SCRIPT: &str = include_str!("assets/app.js");
-const SERVICE_WORKER: &str = include_str!("assets/sw.js");
+const DASHBOARD_MODULE: &str = include_str!("../../web/dist/mirmir-dashboard.js");
+const DASHBOARD_WASM: &[u8] = include_bytes!("../../web/dist/mirmir-dashboard_bg.wasm");
 const LOCKUP: &[u8] = include_bytes!("assets/brand/lockup.svg");
 const FAVICON: &[u8] = include_bytes!("assets/brand/favicon.svg");
 const TOPOGRAPHY: &[u8] = include_bytes!("assets/brand/topography.svg");
@@ -74,12 +74,12 @@ pub async fn stylesheet() -> Response {
     (asset_headers("text/css; charset=utf-8"), STYLESHEET).into_response()
 }
 
-pub async fn script() -> Response {
-    (asset_headers("text/javascript; charset=utf-8"), SCRIPT).into_response()
+pub async fn dashboard_module() -> Response {
+    (asset_headers("text/javascript; charset=utf-8"), DASHBOARD_MODULE).into_response()
 }
 
-pub async fn service_worker() -> Response {
-    (asset_headers("text/javascript; charset=utf-8"), SERVICE_WORKER).into_response()
+pub async fn dashboard_wasm() -> Response {
+    (asset_headers("application/wasm"), DASHBOARD_WASM).into_response()
 }
 
 pub async fn asset(Path(path): Path<String>) -> Response {
@@ -141,7 +141,7 @@ fn security_headers() -> HeaderMap {
     headers.insert(
         "content-security-policy",
         HeaderValue::from_static(
-            "default-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
     );
     headers

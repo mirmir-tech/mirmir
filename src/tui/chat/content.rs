@@ -24,7 +24,11 @@ fn styled_line(mut content: &str, in_thought: &mut bool) -> Line<'static> {
             "<think>"
         };
         let Some(index) = content.find(marker) else {
-            spans.push(styled(content, *in_thought));
+            if *in_thought {
+                spans.push(styled(content, true));
+            } else {
+                spans.extend(markdown_spans(content));
+            }
             break;
         };
         if index > 0 {
@@ -34,6 +38,78 @@ fn styled_line(mut content: &str, in_thought: &mut bool) -> Line<'static> {
         *in_thought = !*in_thought;
     }
     Line::from(spans)
+}
+
+fn markdown_spans(content: &str) -> Vec<Span<'static>> {
+    let heading = Style::new().fg(theme::GLACIER).add_modifier(Modifier::BOLD);
+    let block = content
+        .strip_prefix("### ")
+        .map(|body| ("", body, heading))
+        .or_else(|| content.strip_prefix("## ").map(|body| ("", body, heading)))
+        .or_else(|| {
+            content
+                .strip_prefix("# ")
+                .map(|body| ("", body, Style::new().fg(theme::SIGNAL).add_modifier(Modifier::BOLD)))
+        })
+        .or_else(|| {
+            content
+                .strip_prefix("- ")
+                .or_else(|| content.strip_prefix("* "))
+                .map(|body| ("• ", body, Style::new().fg(theme::INK)))
+        })
+        .or_else(|| {
+            content.strip_prefix("> ").map(|body| {
+                ("│ ", body, Style::new().fg(theme::MUTED).add_modifier(Modifier::ITALIC))
+            })
+        })
+        .or_else(|| {
+            content
+                .strip_prefix("```")
+                .map(|body| ("┄ ", body, Style::new().fg(theme::SIGNAL)))
+        });
+    let (prefix, body, block_style) =
+        block.unwrap_or_else(|| ("", content, Style::new().fg(theme::INK)));
+    let mut spans = Vec::new();
+    if !prefix.is_empty() {
+        spans.push(Span::styled(prefix.to_owned(), block_style));
+    }
+    spans.extend(inline_spans(body, block_style));
+    spans
+}
+
+fn inline_spans(mut content: &str, base: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    while !content.is_empty() {
+        let markers = [("**", Modifier::BOLD), ("`", Modifier::DIM)];
+        let Some((index, marker, modifier)) = markers
+            .iter()
+            .filter_map(|(marker, modifier)| {
+                content.find(marker).map(|index| (index, *marker, *modifier))
+            })
+            .min_by_key(|(index, _, _)| *index)
+        else {
+            spans.push(Span::styled(content.to_owned(), base));
+            break;
+        };
+        if index > 0 {
+            spans.push(Span::styled(content[..index].to_owned(), base));
+        }
+        let rest = &content[index + marker.len()..];
+        let Some(end) = rest.find(marker) else {
+            spans.push(Span::styled(content[index..].to_owned(), base));
+            break;
+        };
+        spans.push(Span::styled(
+            rest[..end].to_owned(),
+            base.add_modifier(modifier).fg(if marker == "`" {
+                theme::SIGNAL
+            } else {
+                theme::INK
+            }),
+        ));
+        content = &rest[end + marker.len()..];
+    }
+    spans
 }
 
 fn styled(content: &str, thought: bool) -> Span<'static> {

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn applies_one_stream_event_per_render_poll() {
+fn drains_ready_stream_events_before_the_next_render() {
     let mut app = App::new(true);
     app.chat_messages.push(Message {
         role: "assistant".to_owned(),
@@ -15,7 +15,6 @@ fn applies_one_stream_event_per_render_poll() {
 
     app.poll_chat();
     assert_eq!(app.chat_messages[0].thought, "A");
-    app.poll_chat();
     assert_eq!(app.chat_messages[0].content, "B");
 }
 

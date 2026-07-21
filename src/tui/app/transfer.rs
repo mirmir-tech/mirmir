@@ -33,6 +33,17 @@ impl App {
             return;
         }
         let repo_id = model.id.clone();
+        self.start_pull_repo(client, repo_id);
+    }
+
+    pub(super) fn resume_selected_pull(&mut self, client: &Client) {
+        let Some(repo_id) = self.selected_local_model().map(|model| model.repo_id.clone()) else {
+            return;
+        };
+        self.start_pull_repo(client, repo_id);
+    }
+
+    fn start_pull_repo(&mut self, client: &Client, repo_id: String) {
         let request = proto::PullModelRequest { repo_id: repo_id.clone(), revision: None };
         let sender = self.transfer_tx.clone();
         let mut client = client.clone();
@@ -50,6 +61,7 @@ impl App {
     }
 
     pub fn poll_operations(&mut self, client: &Client) {
+        self.poll_catalog_search();
         self.poll_load_settings();
         self.poll_download();
         self.poll_removal();

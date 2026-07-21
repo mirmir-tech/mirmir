@@ -1,42 +1,33 @@
 use leptos::prelude::*;
 
+use crate::{
+    cleanup,
+    components::{Header, Navigation, Toasts},
+    connection,
+    pages::{ChatPage, DashboardPage, ModelsPage, SettingsPage},
+    state::{Page, RuntimeState},
+};
+
 #[component]
 pub fn App() -> impl IntoView {
-    let (model, set_model) = signal(String::from("local-model"));
-    let (prompt, set_prompt) = signal(String::new());
-    let (output, set_output) = signal(String::from("runtime not connected"));
-
-    let submit = move |_| {
-        let text = format!("queued prompt for {}", model.get());
-        set_output.set(text);
-    };
+    let state = RuntimeState::new();
+    provide_context(state);
+    cleanup::remove_legacy_service_workers();
+    connection::connect(state);
 
     view! {
-        <main class="shell">
-            <section class="toolbar">
-                <h1>"Mirmir"</h1>
-                <span>"native Rust runtime shell"</span>
-            </section>
-            <section class="panel">
-                <label>
-                    "Model"
-                    <input
-                        prop:value=model
-                        on:input=move |event| set_model.set(event_target_value(&event))
-                    />
-                </label>
-                <label>
-                    "Prompt"
-                    <textarea
-                        prop:value=prompt
-                        on:input=move |event| set_prompt.set(event_target_value(&event))
-                    />
-                </label>
-                <button on:click=submit>"Send"</button>
-            </section>
-            <section class="output">
-                <pre>{output}</pre>
-            </section>
-        </main>
+        <div class="app-shell">
+            <Navigation />
+            <div class="workspace">
+                <Header />
+                <main class="content">
+                    <Show when=move || state.page.get() == Page::Overview><DashboardPage /></Show>
+                    <Show when=move || state.page.get() == Page::Models><ModelsPage /></Show>
+                    <Show when=move || state.page.get() == Page::Chat><ChatPage /></Show>
+                    <Show when=move || state.page.get() == Page::Configuration><SettingsPage /></Show>
+                </main>
+            </div>
+        </div>
+        <Toasts />
     }
 }

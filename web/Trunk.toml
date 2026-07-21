@@ -1,0 +1,9 @@
+[build]
+target = "index.html"
+dist = "dist"
+public_url = "/ui/"
+filehash = false
+minify = "never"
+
+[watch]
+ignore = ["dist"]
