@@ -1,9 +1,5 @@
-use std::{
-    sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use futures_util::StreamExt;
 use reqwest::{Client, StatusCode, header};
 use serde_json::{Value, json};
 
@@ -13,6 +9,12 @@ use crate::{
     http::start,
     rpc::RuntimeService,
 };
+
+mod activity;
+mod telemetry;
+
+use activity::assert_activity_event;
+use telemetry::assert_telemetry_history;
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(0);
 
@@ -36,7 +38,12 @@ async fn isolates_web_sessions_and_requires_csrf_for_mutations() -> Result<()> {
         .send()
         .await?;
     assert_eq!(overview.status(), StatusCode::OK);
-    assert_eq!(overview.json::<Value>().await?["loaded_models"], 0);
+    let overview = overview.json::<Value>().await?;
+    assert_eq!(overview["loaded_models"], 0);
+    assert!(overview.get("last_prefill_tokens_per_second").is_some());
+    assert!(overview.get("last_decode_tokens_per_second").is_some());
+
+    assert_telemetry_history(&client, &base, &cookie).await?;
 
     let models = client
         .get(format!("{base}/api/mirmir/v1/models"))
@@ -138,25 +145,6 @@ async fn create_session(client: &Client, base: &str) -> Result<(String, String)>
         .expect("session should contain a CSRF token")
         .to_owned();
     Ok((cookie, csrf))
-}
-
-async fn assert_activity_event(client: &Client, base: &str, cookie: &str) -> Result<()> {
-    let activity = client
-        .get(format!("{base}/api/mirmir/v1/activity"))
-        .header(header::COOKIE, cookie)
-        .send()
-        .await?;
-    assert_eq!(activity.status(), StatusCode::OK);
-    let mut activity = activity.bytes_stream();
-    let event = tokio::time::timeout(Duration::from_secs(2), activity.next())
-        .await
-        .expect("activity event should arrive")
-        .expect("activity stream should remain open")?;
-    let event = String::from_utf8_lossy(&event);
-    assert!(event.contains("event: activity"));
-    assert!(event.contains("\"kind\":\"unload\""));
-    assert!(event.contains("\"state\":\"completed\""));
-    Ok(())
 }
 
 async fn assert_configuration(client: &Client, base: &str, cookie: &str, csrf: &str) -> Result<()> {

@@ -50,5 +50,9 @@ pub fn telemetry() -> crate::rpc::proto::TelemetrySnapshot {
         active_prompt_tokens: 20,
         active_completion_tokens: 6,
         active_stage: "decode".to_owned(),
+        last_prefill_tokens_per_second: Some(120.0),
+        mean_prefill_tokens_per_second: Some(110.0),
+        last_decode_tokens_per_second: Some(31.0),
+        mean_decode_tokens_per_second: Some(29.0),
     }
 }

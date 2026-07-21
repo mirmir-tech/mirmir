@@ -49,6 +49,11 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert!(index.contains("aria-label=\"Add attachment\""));
     assert!(index.contains("M12 5v14M5 12h14"));
     assert!(index.contains("aria-label=\"Generation performance\""));
+    assert!(index.contains("id=\"throughput-chart\""));
+    assert!(index.contains("id=\"memory-chart\""));
+    assert!(index.contains("id=\"kv-chart\""));
+    assert!(index.contains("id=\"activity-list\""));
+    assert!(!index.contains("data-view=\"activity\""));
 
     let stylesheet = client.get(format!("{base}/ui/app.css")).send().await?;
     assert_eq!(stylesheet.status(), StatusCode::OK);
@@ -83,14 +88,14 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     let bootstrap = client.get(format!("{base}/api/mirmir/v1/bootstrap")).send().await?;
     assert_eq!(bootstrap.status(), StatusCode::OK);
     let bootstrap = bootstrap.json::<Value>().await?;
-    assert_eq!(bootstrap["schema_version"], 4);
+    assert_eq!(bootstrap["schema_version"], 6);
     assert_eq!(bootstrap["application"], "mirmir");
     assert_eq!(bootstrap["management_api_base"], "/api/mirmir/v1");
     assert_eq!(bootstrap["capabilities"]["management"], "model-lifecycle");
     assert_eq!(bootstrap["capabilities"]["updates"], "websocket");
     assert_eq!(
         bootstrap["capabilities"]["views"],
-        json!(["overview", "models", "chat", "configuration", "activity"])
+        json!(["overview", "models", "chat", "configuration"])
     );
     assert!(bootstrap["protocol_version"].is_string());
 
@@ -128,6 +133,9 @@ fn assert_script(script: &str) {
     assert!(script.contains("[\"load\", \"restore\", \"unload\", \"pull\"]"));
     assert!(script.contains("const renderMarkdown"));
     assert!(script.contains("const updateReasoningState"));
+    assert!(script.contains("const renderTimeChart"));
+    assert!(script.contains("/telemetry/history?limit=900"));
+    assert!(script.contains("dashboardWindowMinutes"));
     assert!(script.contains("const submittedImage = chatImage"));
     assert!(script.contains("chatImage = null"));
     assert!(script.contains("Response stopped at the ${data.completion_tokens}-token limit"));
@@ -143,11 +151,14 @@ fn assert_stylesheet(stylesheet: &str) {
     assert!(stylesheet.contains(".badge.loading, .badge.queued, .badge.running"));
     assert!(stylesheet.contains(".badge.unavailable"));
     assert!(stylesheet.contains("overscroll-behavior: contain"));
+    assert!(stylesheet.contains(".dashboard-grid"));
+    assert!(stylesheet.contains(".telemetry-chart"));
+    assert!(stylesheet.contains(".activity-timeline"));
 }
 
 fn assert_simplified_shell(index: &str) {
-    assert!(index.contains("/ui/app.css?v=21"));
-    assert!(index.contains("/ui/app.js?v=26"));
+    assert!(index.contains("/ui/app.css?v=22"));
+    assert!(index.contains("/ui/app.js?v=28"));
     assert!(!index.contains("class=\"page-heading"));
     assert!(!index.contains("MIRMIR RUNTIME / WEB"));
     assert!(!index.contains("<footer>"));

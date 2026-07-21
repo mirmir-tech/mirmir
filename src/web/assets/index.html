@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#0D1117">
     <title>MiRMiR · Runtime dashboard</title>
     <link rel="icon" href="/ui/assets/brand/favicon.svg?v=3" type="image/svg+xml">
-    <link rel="stylesheet" href="/ui/app.css?v=21">
-    <script src="/ui/app.js?v=26" defer></script>
+    <link rel="stylesheet" href="/ui/app.css?v=22">
+    <script src="/ui/app.js?v=28" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -31,9 +31,6 @@
           <button class="tab" data-view="configuration" data-label="Settings" type="button">
             <span class="nav-dot" aria-hidden="true"></span><span>Settings</span>
           </button>
-          <button class="tab" data-view="activity" data-label="Activity" type="button">
-            <span class="nav-dot" aria-hidden="true"></span><span>Activity</span>
-          </button>
         </nav>
 
       </aside>
@@ -50,31 +47,80 @@
 
         <main class="content" id="main-content">
           <section class="view active" id="overview" aria-label="Overview">
-            <div class="cards">
-              <article><p>Throughput</p><strong id="throughput">—</strong><small>tok/s</small></article>
-              <article><p>Prefill</p><strong id="prefill">—</strong><small>tok/s</small></article>
-              <article><p>Decode</p><strong id="decode">—</strong><small>tok/s</small></article>
-              <article><p>Time to first token</p><strong id="ttft">—</strong><small>ms</small></article>
+            <div class="dashboard-toolbar">
+              <div class="live-indicator"><span aria-hidden="true"></span><strong>Live telemetry</strong><small id="telemetry-age">waiting for data</small></div>
+              <div class="time-range" aria-label="Chart time range">
+                <button type="button" data-dashboard-minutes="1">1m</button>
+                <button class="active" type="button" data-dashboard-minutes="5" aria-pressed="true">5m</button>
+                <button type="button" data-dashboard-minutes="15">15m</button>
+              </div>
             </div>
-            <div class="grid">
-              <article class="panel">
-                <div class="panel-heading"><h3>Runtime</h3><span class="stage" id="stage">idle</span></div>
-                <dl>
-                  <div><dt>Loaded models</dt><dd id="loaded-models">—</dd></div>
-                  <div><dt>Active requests</dt><dd id="active-requests">—</dd></div>
-                  <div><dt>Total requests</dt><dd id="total-requests">—</dd></div>
-                  <div><dt>Failed requests</dt><dd id="failed-requests">—</dd></div>
-                  <div><dt>Tokens</dt><dd id="tokens">—</dd></div>
-                  <div><dt>Uptime</dt><dd id="uptime">—</dd></div>
-                </dl>
+
+            <div class="metric-cards">
+              <article><div><p>Throughput</p><span class="metric-signal live"></span></div><strong id="throughput">—</strong><small>tok/s</small><em id="throughput-context">No completed request</em></article>
+              <article><div><p>Prefill</p><span class="metric-signal prefill"></span></div><strong id="prefill">—</strong><small>tok/s</small><em id="prefill-context">Waiting for generation</em></article>
+              <article><div><p>Decode</p><span class="metric-signal decode"></span></div><strong id="decode">—</strong><small>tok/s</small><em id="decode-context">Waiting for generation</em></article>
+              <article><div><p>TTFT</p><span class="metric-signal ttft"></span></div><strong id="ttft">—</strong><small>ms</small><em id="ttft-context">No completed request</em></article>
+              <article><div><p>Memory</p><span class="metric-signal memory"></span></div><strong id="memory-used">—</strong><small>GiB</small><em id="memory-percent">Waiting for telemetry</em></article>
+              <article><div><p>K/V cache</p><span class="metric-signal kv"></span></div><strong id="kv-used">—</strong><small>blocks</small><em id="kv-percent">No cache allocated</em></article>
+            </div>
+
+            <div class="dashboard-grid">
+              <article class="dashboard-panel throughput-panel">
+                <header class="dashboard-panel-heading">
+                  <div><p>Generation performance</p><h3>Tokens per second</h3></div>
+                  <div class="chart-legend"><span class="e2e">E2E</span><span class="prefill">Prefill</span><span class="decode">Decode</span></div>
+                </header>
+                <div class="chart-frame">
+                  <svg class="telemetry-chart" id="throughput-chart" role="img" aria-label="Throughput over time"></svg>
+                  <p class="chart-empty" id="throughput-chart-empty">Collecting throughput samples…</p>
+                  <div class="chart-tooltip" id="throughput-chart-tooltip" hidden></div>
+                </div>
               </article>
-              <article class="panel">
-                <div class="panel-heading"><h3>Capacity</h3><span>HOST</span></div>
-                <label for="memory">Memory <span id="memory-label">—</span></label>
-                <progress id="memory" max="100" value="0"></progress>
-                <label for="kv">KV blocks <span id="kv-label">—</span></label>
-                <progress id="kv" max="100" value="0"></progress>
-                <p class="muted" id="memory-source">Waiting for telemetry</p>
+
+              <article class="dashboard-panel memory-panel">
+                <header class="dashboard-panel-heading">
+                  <div><p>Unified memory</p><h3>Memory occupancy</h3></div>
+                  <strong id="memory-label">—</strong>
+                </header>
+                <div class="chart-frame compact">
+                  <svg class="telemetry-chart" id="memory-chart" role="img" aria-label="Memory occupancy over time"></svg>
+                  <p class="chart-empty" id="memory-chart-empty">Collecting memory samples…</p>
+                  <div class="chart-tooltip" id="memory-chart-tooltip" hidden></div>
+                </div>
+                <p class="panel-footnote" id="memory-source">Waiting for telemetry</p>
+              </article>
+
+              <article class="dashboard-panel kv-panel">
+                <header class="dashboard-panel-heading">
+                  <div><p>Attention state</p><h3>K/V cache occupancy</h3></div>
+                  <strong id="kv-label">—</strong>
+                </header>
+                <div class="chart-frame compact">
+                  <svg class="telemetry-chart" id="kv-chart" role="img" aria-label="K/V cache occupancy over time"></svg>
+                  <p class="chart-empty" id="kv-chart-empty">Collecting K/V cache samples…</p>
+                  <div class="chart-tooltip" id="kv-chart-tooltip" hidden></div>
+                </div>
+                <p class="panel-footnote" id="kv-detail">No cache activity yet</p>
+              </article>
+
+              <article class="dashboard-panel activity-panel">
+                <header class="dashboard-panel-heading">
+                  <div><p>Runtime log</p><h3>Recent activity</h3></div>
+                  <span class="stage" id="stage">idle</span>
+                </header>
+                <div class="activity-timeline" id="activity-list" aria-live="polite">
+                  <p class="empty" id="activity-empty">No operations recorded in this server session.</p>
+                </div>
+              </article>
+
+              <article class="dashboard-panel runtime-strip">
+                <div><span>Loaded models</span><strong id="loaded-models">—</strong></div>
+                <div><span>Active requests</span><strong id="active-requests">—</strong></div>
+                <div><span>Requests</span><strong id="total-requests">—</strong><small id="request-summary">completed</small></div>
+                <div><span>Failures</span><strong id="failed-requests">—</strong><small id="failure-rate">0%</small></div>
+                <div><span>Tokens</span><strong id="tokens">—</strong><small>prompt / completion</small></div>
+                <div><span>Uptime</span><strong id="uptime">—</strong></div>
               </article>
             </div>
           </section>
@@ -150,11 +196,6 @@
             </details>
           </section>
 
-          <section class="view" id="activity" aria-label="Activity">
-            <div class="activity-list" id="activity-list">
-              <p class="empty" id="activity-empty">No operations recorded in this server session.</p>
-            </div>
-          </section>
         </main>
 
         <dialog class="modal load-modal" id="load-dialog">

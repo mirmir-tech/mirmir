@@ -1,5 +1,5 @@
 const base = "/api/mirmir/v1";
-const dashboardSchemaVersion = 4;
+const dashboardSchemaVersion = 6;
 let csrf = null;
 let updatesSocket = null;
 let reconnectTimer = null;
@@ -17,6 +17,8 @@ let chatOperationId = null;
 let chatMessages = [];
 let chatImage = null;
 let chatFollowing = true;
+let telemetryHistory = [];
+let dashboardWindowMinutes = 5;
 let catalogResults = null;
 let catalogResultsQuery = "";
 let catalogSearchTimer = null;
@@ -34,9 +36,12 @@ const imageTypeByExtension = new Map([
   ["png", "image/png"], ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"],
   ["webp", "image/webp"], ["gif", "image/gif"],
 ]);
+const chartStates = new Map();
+const svgNamespace = "http://www.w3.org/2000/svg";
+const gibibyte = 1024 ** 3;
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/ui/sw.js?v=26", { scope: "/ui/" }).catch(() => {});
+  navigator.serviceWorker.register("/ui/sw.js?v=28", { scope: "/ui/" }).catch(() => {});
 }
 
 const byId = (id) => document.getElementById(id);
@@ -104,6 +109,229 @@ const duration = (milliseconds) => {
 
 const percent = (used, total) => total ? Math.min(100, Math.max(0, used / total * 100)) : 0;
 
+const finiteNumber = (value) => value == null || !Number.isFinite(Number(value))
+  ? null : Number(value);
+
+const telemetrySample = (data, live = false) => {
+  const active = Number(data.active_requests) > 0;
+  const memoryTotal = finiteNumber(data.memory_total_bytes ?? data.host_total_memory_bytes);
+  const memoryAvailable = finiteNumber(
+    data.memory_available_bytes ?? data.host_available_memory_bytes,
+  );
+  const memoryUsed = memoryTotal == null || memoryAvailable == null
+    ? null : Math.max(0, memoryTotal - memoryAvailable);
+  const kvTotal = finiteNumber(data.kv_total_blocks) ?? 0;
+  const kvUsed = finiteNumber(data.kv_used_blocks) ?? 0;
+  const completedRequests = finiteNumber(data.completed_requests)
+    ?? Math.max(0, Number(data.total_requests || 0)
+      - Number(data.failed_requests || 0) - Number(data.active_requests || 0));
+  return {
+    sampled_at_unix_ms: Number(data.sampled_at_unix_ms),
+    active,
+    completed_requests: completedRequests,
+    e2e: finiteNumber(live
+      ? active ? data.current_tokens_per_second : data.last_tokens_per_second
+      : data.e2e_tokens_per_second) ?? 0,
+    prefill: finiteNumber(live
+      ? active ? data.current_prefill_tokens_per_second : data.last_prefill_tokens_per_second
+      : data.prefill_tokens_per_second) ?? 0,
+    decode: finiteNumber(live
+      ? active ? data.current_decode_tokens_per_second : data.last_decode_tokens_per_second
+      : data.decode_tokens_per_second) ?? 0,
+    memory_percent: memoryUsed == null ? null : percent(memoryUsed, memoryTotal),
+    memory_used_bytes: memoryUsed,
+    memory_total_bytes: memoryTotal,
+    kv_percent: kvTotal > 0 ? percent(kvUsed, kvTotal) : 0,
+    kv_used_blocks: kvUsed,
+    kv_total_blocks: kvTotal,
+  };
+};
+
+const appendTelemetrySample = (sample) => {
+  if (!Number.isFinite(sample.sampled_at_unix_ms)) return;
+  const previous = telemetryHistory.at(-1);
+  const completed = sample.completed_requests > (previous?.completed_requests ?? 0);
+  if (!sample.active && !completed) {
+    sample.e2e = 0;
+    sample.prefill = 0;
+    sample.decode = 0;
+  }
+  if (previous?.sampled_at_unix_ms === sample.sampled_at_unix_ms) {
+    telemetryHistory[telemetryHistory.length - 1] = sample;
+  } else {
+    telemetryHistory.push(sample);
+  }
+  telemetryHistory = telemetryHistory
+    .sort((left, right) => left.sampled_at_unix_ms - right.sampled_at_unix_ms)
+    .slice(-900);
+};
+
+const svgElement = (name, attributes = {}) => {
+  const element = document.createElementNS(svgNamespace, name);
+  Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, value));
+  return element;
+};
+
+const niceMaximum = (value) => {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return step * magnitude;
+};
+
+const chartTime = (timestamp) => new Date(timestamp).toLocaleTimeString([], {
+  hour: "2-digit", minute: "2-digit", second: dashboardWindowMinutes === 1 ? "2-digit" : undefined,
+});
+
+const chartPath = (points) => points
+  .map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+  .join(" ");
+
+const setupChartInteraction = (svg, id) => {
+  if (svg.dataset.interactive) return;
+  svg.dataset.interactive = "true";
+  const hide = () => {
+    byId(`${id}-tooltip`).hidden = true;
+    chartStates.get(id)?.crosshair.setAttribute("visibility", "hidden");
+  };
+  svg.addEventListener("pointerleave", hide);
+  svg.addEventListener("pointermove", (event) => {
+    const state = chartStates.get(id);
+    if (!state?.samples.length) return;
+    const bounds = svg.getBoundingClientRect();
+    const localX = (event.clientX - bounds.left) / bounds.width * state.width;
+    const ratio = Math.min(1, Math.max(0, (localX - state.left) / state.plotWidth));
+    const target = state.start + ratio * (state.end - state.start);
+    const sample = state.samples.reduce((nearest, candidate) =>
+      Math.abs(candidate.sampled_at_unix_ms - target)
+        < Math.abs(nearest.sampled_at_unix_ms - target) ? candidate : nearest);
+    const x = state.left + (sample.sampled_at_unix_ms - state.start)
+      / Math.max(1, state.end - state.start) * state.plotWidth;
+    state.crosshair.setAttribute("x1", x);
+    state.crosshair.setAttribute("x2", x);
+    state.crosshair.setAttribute("visibility", "visible");
+    const tooltip = byId(`${id}-tooltip`);
+    const heading = document.createElement("strong");
+    heading.textContent = chartTime(sample.sampled_at_unix_ms);
+    const rows = state.series.map((series) => {
+      const row = document.createElement("span");
+      row.style.setProperty("--series-color", series.color);
+      const value = sample[series.key];
+      row.textContent = `${series.label} ${value == null ? "—" : series.format(value, sample)}`;
+      return row;
+    });
+    tooltip.replaceChildren(heading, ...rows);
+    tooltip.hidden = false;
+    tooltip.style.left = `${Math.min(88, Math.max(12, x / state.width * 100))}%`;
+  });
+};
+
+const renderTimeChart = (id, samples, series, options = {}) => {
+  const svg = byId(id);
+  const empty = byId(`${id}-empty`);
+  const width = Math.max(320, svg.clientWidth || 720);
+  const height = options.compact ? 190 : 250;
+  const margins = { top: 14, right: 18, bottom: 28, left: 48 };
+  const plotWidth = width - margins.left - margins.right;
+  const plotHeight = height - margins.top - margins.bottom;
+  const values = samples.flatMap((sample) => series.map((item) => sample[item.key]))
+    .filter((value) => Number.isFinite(value));
+  empty.hidden = values.length > 0;
+  svg.replaceChildren();
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  if (!values.length) {
+    chartStates.delete(id);
+    return;
+  }
+  const end = samples.at(-1).sampled_at_unix_ms;
+  const start = end - dashboardWindowMinutes * 60_000;
+  const maximum = options.maximum ?? niceMaximum(Math.max(...values));
+  const definitions = svgElement("defs");
+  const gradient = svgElement("linearGradient", {
+    id: `${id}-fill`, x1: "0", y1: "0", x2: "0", y2: "1",
+  });
+  gradient.append(
+    svgElement("stop", { offset: "0%", "stop-color": series[0].color, "stop-opacity": ".22" }),
+    svgElement("stop", { offset: "100%", "stop-color": series[0].color, "stop-opacity": "0" }),
+  );
+  definitions.appendChild(gradient);
+  svg.appendChild(definitions);
+  for (let line = 0; line <= 4; line += 1) {
+    const y = margins.top + plotHeight * line / 4;
+    svg.appendChild(svgElement("line", {
+      class: "chart-grid-line", x1: margins.left, x2: width - margins.right, y1: y, y2: y,
+    }));
+    const label = svgElement("text", { class: "chart-axis-label", x: 0, y: y + 4 });
+    label.textContent = options.axis(maximum * (1 - line / 4));
+    svg.appendChild(label);
+  }
+  [start, start + (end - start) / 2, end].forEach((timestamp, index) => {
+    const label = svgElement("text", {
+      class: "chart-time-label",
+      x: margins.left + plotWidth * index / 2,
+      y: height - 5,
+      "text-anchor": index === 0 ? "start" : index === 2 ? "end" : "middle",
+    });
+    label.textContent = chartTime(timestamp);
+    svg.appendChild(label);
+  });
+  series.forEach((item, seriesIndex) => {
+    const points = samples
+      .filter((sample) => Number.isFinite(sample[item.key]))
+      .map((sample) => ({
+        x: margins.left + (sample.sampled_at_unix_ms - start) / Math.max(1, end - start) * plotWidth,
+        y: margins.top + (1 - sample[item.key] / maximum) * plotHeight,
+      }));
+    if (!points.length) return;
+    const path = chartPath(points);
+    if (options.fill && seriesIndex === 0) {
+      const floor = margins.top + plotHeight;
+      svg.appendChild(svgElement("path", {
+        class: "chart-area",
+        d: `${path} L${points.at(-1).x.toFixed(1)} ${floor} L${points[0].x.toFixed(1)} ${floor} Z`,
+        fill: `url(#${id}-fill)`,
+      }));
+    }
+    svg.appendChild(svgElement("path", {
+      class: "chart-line", d: path, stroke: item.color,
+    }));
+    const latest = points.at(-1);
+    svg.appendChild(svgElement("circle", {
+      class: "chart-point", cx: latest.x, cy: latest.y, r: 2.5, fill: item.color,
+    }));
+  });
+  const crosshair = svgElement("line", {
+    class: "chart-crosshair", y1: margins.top, y2: margins.top + plotHeight,
+    visibility: "hidden",
+  });
+  svg.appendChild(crosshair);
+  chartStates.set(id, {
+    samples, series, crosshair, width, left: margins.left, plotWidth, start, end,
+  });
+  setupChartInteraction(svg, id);
+};
+
+const visibleTelemetry = () => {
+  const cutoff = Date.now() - dashboardWindowMinutes * 60_000;
+  return telemetryHistory.filter((sample) => sample.sampled_at_unix_ms >= cutoff);
+};
+
+const renderTelemetryCharts = () => {
+  const samples = visibleTelemetry();
+  renderTimeChart("throughput-chart", samples, [
+    { key: "e2e", label: "E2E", color: "#79d7ff", format: (value) => `${value.toFixed(1)} tok/s` },
+    { key: "prefill", label: "Prefill", color: "#4f8ef7", format: (value) => `${value.toFixed(1)} tok/s` },
+    { key: "decode", label: "Decode", color: "#61d6a3", format: (value) => `${value.toFixed(1)} tok/s` },
+  ], { axis: (value) => value.toFixed(value < 10 ? 1 : 0) });
+  renderTimeChart("memory-chart", samples, [
+    { key: "memory_percent", label: "Used", color: "#e8b15a", format: (value, sample) => `${value.toFixed(1)}% · ${bytes(sample.memory_used_bytes)}` },
+  ], { compact: true, fill: true, maximum: 100, axis: (value) => `${value.toFixed(0)}%` });
+  renderTimeChart("kv-chart", samples, [
+    { key: "kv_percent", label: "Used", color: "#c48b3a", format: (value, sample) => `${value.toFixed(1)}% · ${sample.kv_used_blocks}/${sample.kv_total_blocks} blocks` },
+  ], { compact: true, fill: true, maximum: 100, axis: (value) => `${value.toFixed(0)}%` });
+};
+
 const renderConnection = (state, detail = null) => {
   const indicator = byId("connection-state");
   const previous = indicator.dataset.state;
@@ -137,24 +365,54 @@ const renderStartup = (startup) => {
 };
 
 const renderOverview = (data) => {
-  text("throughput", number(data.current_tokens_per_second ?? data.last_tokens_per_second));
-  text("prefill", number(data.current_prefill_tokens_per_second));
-  text("decode", number(data.current_decode_tokens_per_second));
+  const active = data.active_requests > 0;
+  const currentRate = active ? data.current_tokens_per_second : null;
+  text("throughput", number(currentRate ?? data.last_tokens_per_second));
+  text("prefill", number(active
+    ? data.current_prefill_tokens_per_second : data.last_prefill_tokens_per_second));
+  text("decode", number(active
+    ? data.current_decode_tokens_per_second : data.last_decode_tokens_per_second));
   text("ttft", number(data.current_ttft_ms ?? data.last_ttft_ms));
+  text("throughput-context", active ? `${data.active_stage || "working"} · live`
+    : data.mean_tokens_per_second == null ? "No completed request"
+      : `${number(data.mean_tokens_per_second)} tok/s mean`);
+  text("prefill-context", active ? `${data.active_prompt_tokens.toLocaleString()} prompt tokens`
+    : data.mean_prefill_tokens_per_second == null ? "No completed prefill"
+      : `${number(data.mean_prefill_tokens_per_second)} tok/s mean`);
+  text("decode-context", active ? `${data.active_completion_tokens.toLocaleString()} generated tokens`
+    : data.mean_decode_tokens_per_second == null ? "No completed decode"
+      : `${number(data.mean_decode_tokens_per_second)} tok/s mean`);
+  text("ttft-context", active ? `${number(data.active_elapsed_ms, 0)} ms elapsed`
+    : data.mean_ttft_ms == null ? "No completed request" : `${number(data.mean_ttft_ms)} ms mean`);
   text("loaded-models", data.loaded_models);
   text("active-requests", data.active_requests);
   text("total-requests", data.total_requests);
+  text("request-summary", `${data.completed_requests.toLocaleString()} completed`);
   text("failed-requests", data.failed_requests);
-  text("tokens", `${data.prompt_tokens} prompt / ${data.completion_tokens} completion`);
+  text("failure-rate", `${percent(data.failed_requests, data.total_requests).toFixed(1)}% of requests`);
+  text("tokens", `${data.prompt_tokens.toLocaleString()} / ${data.completion_tokens.toLocaleString()}`);
   text("uptime", duration(data.uptime_ms));
   text("stage", data.active_stage || "idle");
   const memoryUsed = data.host_total_memory_bytes == null || data.host_available_memory_bytes == null
     ? 0 : data.host_total_memory_bytes - data.host_available_memory_bytes;
-  byId("memory").value = percent(memoryUsed, data.host_total_memory_bytes);
+  const memoryPercent = percent(memoryUsed, data.host_total_memory_bytes);
+  text("memory-used", data.host_total_memory_bytes == null ? "—" : (memoryUsed / gibibyte).toFixed(1));
+  text("memory-percent", data.host_total_memory_bytes == null
+    ? "Waiting for telemetry" : `${memoryPercent.toFixed(1)}% of ${bytes(data.host_total_memory_bytes)}`);
   text("memory-label", `${bytes(memoryUsed)} / ${bytes(data.host_total_memory_bytes)}`);
-  byId("kv").value = percent(data.kv_used_blocks, data.kv_total_blocks);
+  const kvPercent = percent(data.kv_used_blocks, data.kv_total_blocks);
+  text("kv-used", data.kv_used_blocks.toLocaleString());
+  text("kv-percent", data.kv_total_blocks
+    ? `${kvPercent.toFixed(1)}% of ${data.kv_total_blocks.toLocaleString()}` : "No cache allocated");
   text("kv-label", `${data.kv_used_blocks} / ${data.kv_total_blocks}`);
   text("memory-source", data.memory_source || "Memory source unavailable");
+  const kvLookups = data.kv_hit_tokens + data.kv_miss_tokens;
+  text("kv-detail", kvLookups
+    ? `${percent(data.kv_hit_tokens, kvLookups).toFixed(1)}% token hit rate · ${data.kv_cached_prefixes} cached prefixes`
+    : `${data.kv_cached_prefixes} cached prefixes · no token lookups yet`);
+  text("telemetry-age", `updated ${chartTime(data.sampled_at_unix_ms)}`);
+  appendTelemetrySample(telemetrySample(data, true));
+  renderTelemetryCharts();
   if (chatRunning) {
     text("chat-ttft", number(data.current_ttft_ms));
     text("chat-prefill", number(data.current_prefill_tokens_per_second));
@@ -807,14 +1065,25 @@ const updateConfiguration = async (payload) => {
 
 const renderActivity = () => {
   const list = byId("activity-list");
-  const empty = byId("activity-empty");
+  const empty = byId("activity-empty") || Object.assign(document.createElement("p"), {
+    id: "activity-empty",
+    className: "empty",
+    textContent: "No operations recorded in this server session.",
+  });
   list.replaceChildren();
-  const sorted = [...activities.values()].sort((a, b) => b.updated_at_unix_ms - a.updated_at_unix_ms);
+  const sorted = [...activities.values()]
+    .sort((a, b) => b.updated_at_unix_ms - a.updated_at_unix_ms)
+    .slice(0, 40);
   sorted.forEach((event) => {
     const item = document.createElement("article");
-    item.className = "activity-item";
+    item.className = `timeline-event ${event.state}`;
+    const marker = document.createElement("span");
+    marker.className = "timeline-marker";
+    marker.setAttribute("aria-hidden", "true");
+    const content = document.createElement("div");
+    content.className = "timeline-content";
     const head = document.createElement("div");
-    head.className = "activity-head";
+    head.className = "timeline-head";
     head.appendChild(badge(event.state));
     const title = document.createElement("strong");
     title.textContent = `${event.kind} · ${event.target}`;
@@ -822,11 +1091,11 @@ const renderActivity = () => {
     const time = document.createElement("time");
     time.textContent = new Date(event.updated_at_unix_ms).toLocaleTimeString();
     head.appendChild(time);
-    item.appendChild(head);
+    content.appendChild(head);
     const meta = document.createElement("div");
-    meta.className = "activity-meta";
+    meta.className = "timeline-meta";
     const detail = document.createElement("span");
-    detail.textContent = `${event.stage} · ${event.detail}`;
+    detail.textContent = [event.stage, event.detail].filter(Boolean).join(" · ") || event.state;
     meta.appendChild(detail);
     if (event.cancellable && liveOperationStates.has(event.state)) {
       meta.appendChild(action("Cancel", async () => {
@@ -834,14 +1103,15 @@ const renderActivity = () => {
         showNotice(response.accepted ? "Cancellation requested" : `Cancellation not accepted (${response.state})`);
       }, event.state === "cancelling"));
     }
-    item.appendChild(meta);
+    content.appendChild(meta);
     if (event.total) {
       const progress = document.createElement("progress");
       progress.className = "activity-progress";
       progress.max = event.total;
       progress.value = event.current || 0;
-      item.appendChild(progress);
+      content.appendChild(progress);
     }
+    item.append(marker, content);
     list.appendChild(item);
   });
   if (sorted.length === 0) list.appendChild(empty);
@@ -1324,6 +1594,14 @@ const establishSession = async () => {
   }
   const session = await sessionRequest("/session", { method: "POST" });
   csrf = session.csrf_token;
+  try {
+    const history = await request("/telemetry/history?limit=900");
+    telemetryHistory = [];
+    history.samples.forEach((sample) => appendTelemetrySample(telemetrySample(sample)));
+    renderTelemetryCharts();
+  } catch (error) {
+    showNotice(`Telemetry history unavailable · ${error.message}`, true);
+  }
 };
 
 const renderConnectionFailure = (error) => {
@@ -1368,7 +1646,21 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
   byId(tab.dataset.view).classList.add("active");
   text("page-title", tab.dataset.label);
   document.title = `MiRMiR · ${tab.dataset.label}`;
+  if (tab.dataset.view === "overview") window.requestAnimationFrame(renderTelemetryCharts);
 }));
+
+document.querySelectorAll("[data-dashboard-minutes]").forEach((button) => {
+  button.addEventListener("click", () => {
+    dashboardWindowMinutes = Number(button.dataset.dashboardMinutes);
+    document.querySelectorAll("[data-dashboard-minutes]").forEach((candidate) => {
+      const active = candidate === button;
+      candidate.classList.toggle("active", active);
+      candidate.setAttribute("aria-pressed", String(active));
+    });
+    renderTelemetryCharts();
+  });
+});
+window.addEventListener("resize", renderTelemetryCharts);
 
 const searchCatalog = async () => {
   const query = byId("model-query").value.trim();

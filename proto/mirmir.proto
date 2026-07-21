@@ -349,6 +349,10 @@ message TelemetrySnapshot {
   uint64 active_prompt_tokens = 27;
   uint64 active_completion_tokens = 28;
   string active_stage = 29;
+  optional double last_prefill_tokens_per_second = 30;
+  optional double mean_prefill_tokens_per_second = 31;
+  optional double last_decode_tokens_per_second = 32;
+  optional double mean_decode_tokens_per_second = 33;
 }
 
 message TelemetryHistoryRequest {

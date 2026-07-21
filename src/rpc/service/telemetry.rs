@@ -14,11 +14,13 @@ use crate::rpc::proto;
 
 pub(super) mod history;
 mod live;
+mod rates;
 mod system;
 
 use self::{
     history::History,
     live::{Handle as LiveHandle, Registry as LiveRegistry},
+    rates::Rates,
     system::{Kv, memory},
 };
 
@@ -36,16 +38,6 @@ struct Inner {
     rates: Mutex<Rates>,
     live: LiveRegistry,
     history: History,
-}
-
-#[derive(Default)]
-struct Rates {
-    last_rate: Option<f64>,
-    rate_sum: f64,
-    rate_samples: u64,
-    last_ttft: Option<f64>,
-    ttft_sum: f64,
-    ttft_samples: u64,
 }
 
 pub struct GenerationTelemetry {
@@ -108,6 +100,8 @@ impl GenerationTelemetry {
             self.telemetry.0.rates.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         rates.record_rate(completion.tokens_per_second);
         rates.record_ttft(completion.ttft_ms);
+        rates.record_prefill_rate(completion.prefill_tokens_per_second);
+        rates.record_decode_rate(completion.decode_tokens_per_second);
         drop(rates);
         self.live.finish();
         self.finished = true;
@@ -144,12 +138,7 @@ impl RuntimeService {
         drop(models);
         let rates =
             self.telemetry.0.rates.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let rate_snapshot = (
-            rates.last_rate,
-            mean(rates.rate_sum, rates.rate_samples),
-            rates.last_ttft,
-            mean(rates.ttft_sum, rates.ttft_samples),
-        );
+        let rate_snapshot = rates.snapshot();
         drop(rates);
         let (host_total, host_available, memory_source) = memory(&self.library);
         let live = self.telemetry.0.live.snapshot();
@@ -163,10 +152,10 @@ impl RuntimeService {
             failed_requests: self.telemetry.0.failed.load(Ordering::Relaxed),
             prompt_tokens: self.telemetry.0.prompt_tokens.load(Ordering::Relaxed),
             completion_tokens: self.telemetry.0.completion_tokens.load(Ordering::Relaxed),
-            last_tokens_per_second: rate_snapshot.0,
-            mean_tokens_per_second: rate_snapshot.1,
-            last_ttft_ms: rate_snapshot.2,
-            mean_ttft_ms: rate_snapshot.3,
+            last_tokens_per_second: rate_snapshot.last_rate,
+            mean_tokens_per_second: rate_snapshot.mean_rate,
+            last_ttft_ms: rate_snapshot.last_ttft,
+            mean_ttft_ms: rate_snapshot.mean_ttft,
             host_total_memory_bytes: host_total,
             host_available_memory_bytes: host_available,
             memory_source,
@@ -183,30 +172,12 @@ impl RuntimeService {
             active_prompt_tokens: live.prompt_tokens,
             active_completion_tokens: live.completion_tokens,
             active_stage: live.stage,
+            last_prefill_tokens_per_second: rate_snapshot.last_prefill_rate,
+            mean_prefill_tokens_per_second: rate_snapshot.mean_prefill_rate,
+            last_decode_tokens_per_second: rate_snapshot.last_decode_rate,
+            mean_decode_tokens_per_second: rate_snapshot.mean_decode_rate,
         })
     }
-}
-
-impl Rates {
-    fn record_rate(&mut self, value: Option<f64>) {
-        if let Some(value) = value.filter(|value| value.is_finite()) {
-            self.last_rate = Some(value);
-            self.rate_sum += value;
-            self.rate_samples = self.rate_samples.saturating_add(1);
-        }
-    }
-
-    fn record_ttft(&mut self, value: Option<f64>) {
-        if let Some(value) = value.filter(|value| value.is_finite()) {
-            self.last_ttft = Some(value);
-            self.ttft_sum += value;
-            self.ttft_samples = self.ttft_samples.saturating_add(1);
-        }
-    }
-}
-
-fn mean(sum: f64, samples: u64) -> Option<f64> {
-    (samples > 0).then(|| sum / samples.to_string().parse::<f64>().unwrap_or(f64::INFINITY))
 }
 
 fn unix_ms() -> u64 {

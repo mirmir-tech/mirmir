@@ -123,7 +123,9 @@ async fn send_overview(
         .await
         .map_or_else(|error| Err(error.message().to_owned()), |value| Ok(value.into_inner()));
     match snapshot {
-        Ok(snapshot) => send(socket, ServerMessage::Overview { overview: snapshot.into() }).await,
+        Ok(snapshot) => {
+            send(socket, ServerMessage::Overview { overview: Box::new(snapshot.into()) }).await
+        },
         Err(message) => send(socket, ServerMessage::Error { message }).await,
     }
 }

@@ -10,7 +10,7 @@ mod socket;
 mod types;
 
 pub use activity::activity;
-pub use api::{create_session, delete_session, models, overview};
+pub use api::{create_session, delete_session, models, overview, telemetry_history};
 use axum::{
     Json,
     extract::Path,
@@ -57,7 +57,7 @@ struct Bootstrap {
 #[derive(Serialize)]
 struct Capabilities {
     asset_delivery: &'static str,
-    views: [&'static str; 5],
+    views: [&'static str; 4],
     management: &'static str,
     updates: &'static str,
 }
@@ -91,7 +91,7 @@ pub async fn asset(Path(path): Path<String>) -> Response {
 
 pub async fn bootstrap() -> Response {
     let bootstrap = Bootstrap {
-        schema_version: 4,
+        schema_version: 6,
         application: "mirmir",
         server_version: env!("CARGO_PKG_VERSION"),
         protocol_version: PROTOCOL_VERSION,
@@ -101,7 +101,7 @@ pub async fn bootstrap() -> Response {
         authentication: "local-session",
         capabilities: Capabilities {
             asset_delivery: "embedded",
-            views: ["overview", "models", "chat", "configuration", "activity"],
+            views: ["overview", "models", "chat", "configuration"],
             management: "model-lifecycle",
             updates: "websocket",
         },

@@ -1,10 +1,10 @@
 use axum::{
     Json,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, HeaderValue, header},
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tonic::Request;
 
 use super::{
@@ -27,6 +27,11 @@ struct SessionResponse {
 #[derive(Serialize)]
 struct Deleted {
     deleted: bool,
+}
+
+#[derive(Deserialize)]
+pub struct TelemetryHistoryQuery {
+    limit: Option<u32>,
 }
 
 pub async fn create_session(
@@ -82,6 +87,23 @@ pub async fn overview(
         .map_err(|error| WebError::runtime(error.to_string()))?
         .into_inner();
     Ok((security_headers(), Json(Overview::from(snapshot))).into_response())
+}
+
+pub async fn telemetry_history(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<TelemetryHistoryQuery>,
+) -> Result<Response, WebError> {
+    state.sessions().authenticate(&headers)?;
+    let history = state
+        .service()
+        .telemetry_history(Request::new(proto::TelemetryHistoryRequest {
+            limit: query.limit.unwrap_or(900),
+        }))
+        .await
+        .map_err(WebError::from_status)?
+        .into_inner();
+    Ok((security_headers(), Json(history)).into_response())
 }
 
 pub async fn models(

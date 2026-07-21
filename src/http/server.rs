@@ -71,6 +71,7 @@ fn router(
             .route("/api/mirmir/v1/session", axum::routing::delete(crate::web::delete_session))
             .route("/api/mirmir/v1/ws", get(crate::web::updates))
             .route("/api/mirmir/v1/overview", get(crate::web::overview))
+            .route("/api/mirmir/v1/telemetry/history", get(crate::web::telemetry_history))
             .route("/api/mirmir/v1/models", get(crate::web::models))
             .route("/api/mirmir/v1/configuration", get(crate::web::configuration))
             .route("/api/mirmir/v1/configuration", post(crate::web::update_configuration))

@@ -99,8 +99,16 @@ fn sample(snapshot: &proto::TelemetrySnapshot) -> proto::TelemetryHistorySample 
         e2e_tokens_per_second: finite(
             snapshot.current_tokens_per_second.or(snapshot.last_tokens_per_second),
         ),
-        prefill_tokens_per_second: finite(snapshot.current_prefill_tokens_per_second),
-        decode_tokens_per_second: finite(snapshot.current_decode_tokens_per_second),
+        prefill_tokens_per_second: finite(
+            snapshot
+                .current_prefill_tokens_per_second
+                .or(snapshot.last_prefill_tokens_per_second),
+        ),
+        decode_tokens_per_second: finite(
+            snapshot
+                .current_decode_tokens_per_second
+                .or(snapshot.last_decode_tokens_per_second),
+        ),
         ttft_ms: finite(snapshot.current_ttft_ms.or(snapshot.last_ttft_ms)),
         memory_total_bytes: snapshot.host_total_memory_bytes,
         memory_available_bytes: snapshot.host_available_memory_bytes,
@@ -202,6 +210,8 @@ mod tests {
         assert_eq!(restored.samples.len(), 1);
         assert_eq!(restored.samples[0].sampled_at_unix_ms, 2);
         assert_eq!(restored.samples[0].e2e_tokens_per_second, Some(24.0));
+        assert_eq!(restored.samples[0].prefill_tokens_per_second, Some(48.0));
+        assert_eq!(restored.samples[0].decode_tokens_per_second, Some(12.0));
         fs::remove_file(path)?;
         Ok(())
     }
@@ -228,6 +238,8 @@ mod tests {
         proto::TelemetrySnapshot {
             sampled_at_unix_ms,
             current_tokens_per_second: Some(rate),
+            last_prefill_tokens_per_second: Some(rate * 2.0),
+            last_decode_tokens_per_second: Some(rate / 2.0),
             memory_source: "test".to_owned(),
             ..Default::default()
         }

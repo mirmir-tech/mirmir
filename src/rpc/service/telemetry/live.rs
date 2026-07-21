@@ -29,6 +29,7 @@ struct Request {
     stage: &'static str,
     prompt_current: u64,
     prompt_total: u64,
+    prefill_rate: Option<f64>,
     completion_tokens: u64,
     ttft_ms: Option<f64>,
 }
@@ -63,6 +64,7 @@ impl Registry {
             stage: "starting",
             prompt_current: 0,
             prompt_total: 0,
+            prefill_rate: None,
             completion_tokens: 0,
             ttft_ms: None,
         }));
@@ -107,6 +109,12 @@ impl Handle {
                 request.prompt_total = event.total;
             },
             ProgressStage::DecodeTokens => {
+                if request.stage == "prefill" {
+                    request.prefill_rate = Some(rate(
+                        request.prompt_current,
+                        request.stage_started.elapsed().as_secs_f64(),
+                    ));
+                }
                 set_stage(&mut request, "decode");
                 request.completion_tokens = event.current;
             },
@@ -136,6 +144,9 @@ fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) {
     let stage_elapsed = request.stage_started.elapsed().as_secs_f64();
     snapshot.requests = snapshot.requests.saturating_add(1);
     add_rate(&mut snapshot.rate, request.completion_tokens, elapsed);
+    if let Some(value) = request.prefill_rate {
+        add_value(&mut snapshot.prefill_rate, value);
+    }
     match request.stage {
         "prefill" => add_rate(&mut snapshot.prefill_rate, request.prompt_current, stage_elapsed),
         "decode" => add_rate(
@@ -164,11 +175,18 @@ fn set_stage(request: &mut Request, stage: &'static str) {
 }
 
 fn add_rate(rate: &mut Option<f64>, tokens: u64, seconds: f64) {
-    let value = if seconds > 0.0 {
+    add_value(rate, self::rate(tokens, seconds));
+}
+
+fn rate(tokens: u64, seconds: f64) -> f64 {
+    if seconds > 0.0 {
         to_f64(tokens) / seconds
     } else {
         0.0
-    };
+    }
+}
+
+fn add_value(rate: &mut Option<f64>, value: f64) {
     *rate = Some(rate.unwrap_or(0.0) + value);
 }
 
@@ -214,6 +232,7 @@ mod tests {
         request.token_emitted();
         let decode = registry.snapshot();
         assert_eq!(decode.completion_tokens, 2);
+        assert!(decode.prefill_rate.is_some());
         assert!(decode.decode_rate.is_some());
         assert_eq!(decode.stage, "decode");
         request.finish();

@@ -7,7 +7,7 @@ use crate::rpc::StartupSnapshot;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     Startup { startup: Startup },
-    Overview { overview: types::Overview },
+    Overview { overview: Box<types::Overview> },
     Models { models: types::Models },
     Configuration { configuration: Configuration },
     Activity { activity: types::Activity },
