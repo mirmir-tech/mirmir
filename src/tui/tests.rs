@@ -5,6 +5,7 @@ mod fixtures;
 mod help;
 mod models;
 mod restore;
+mod screenshot;
 mod startup;
 use fixtures::{rendered, telemetry};
 #[test]

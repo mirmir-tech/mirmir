@@ -5,6 +5,9 @@ edition = "2024"
 license = "Apache-2.0"
 publish = false
 
+[features]
+capture = []
+
 [dependencies]
 futures-util = "0.3"
 gloo-file = { version = "0.3", features = ["futures"] }

@@ -10,7 +10,7 @@ use ratatui::{
 use super::app::App;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
-    let rows = Layout::vertical([Constraint::Length(8), Constraint::Length(8), Constraint::Min(5)])
+    let rows = Layout::vertical([Constraint::Length(7), Constraint::Length(9), Constraint::Min(5)])
         .split(area);
     cards::draw(frame, rows[0], app);
     charts::draw(frame, rows[1], app);

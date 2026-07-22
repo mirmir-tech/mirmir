@@ -16,11 +16,8 @@ impl TooltipState {
             .and_then(|element| element.get_attribute("data-tooltip"))
             .unwrap_or_default();
         self.text.set(text);
-        let viewport_width = window()
-            .inner_width()
-            .ok()
-            .and_then(|value| value.as_f64())
-            .unwrap_or(640.0);
+        let viewport_width =
+            window().inner_width().ok().and_then(|value| value.as_f64()).unwrap_or(640.0);
         let left = f64::from(event.client_x()).clamp(172.0, (viewport_width - 172.0).max(172.0));
         self.position.set((left, f64::from(event.client_y() - 10)));
     }

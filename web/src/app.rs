@@ -1,9 +1,10 @@
 use leptos::prelude::*;
 
+#[cfg(not(feature = "capture"))]
+use crate::connection;
 use crate::{
     cleanup,
     components::{Header, Navigation, Toasts, TooltipSurface},
-    connection,
     pages::{ChatPage, DashboardPage, ModelsPage, SettingsPage},
     state::{Page, RuntimeState},
 };
@@ -13,6 +14,9 @@ pub fn App() -> impl IntoView {
     let state = RuntimeState::new();
     provide_context(state);
     cleanup::remove_legacy_service_workers();
+    #[cfg(feature = "capture")]
+    crate::demo::populate(state);
+    #[cfg(not(feature = "capture"))]
     connection::connect(state);
 
     view! {
