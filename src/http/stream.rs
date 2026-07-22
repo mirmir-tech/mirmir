@@ -68,10 +68,28 @@ async fn handle_event(
 ) -> bool {
     match event.event {
         Some(proto::generate_event::Event::Token(token)) => {
-            let delta = token_delta(&token);
+            let Some(delta) = token_delta(&token) else {
+                return true;
+            };
             send_json(sender, chunk(id, created, model, &delta, None, None)).await
         },
         Some(proto::generate_event::Event::Completion(completion)) => {
+            if !completion.tool_calls.is_empty() {
+                let calls = completion
+                    .tool_calls
+                    .iter()
+                    .enumerate()
+                    .filter_map(tool_call_delta)
+                    .collect::<Vec<_>>();
+                if !send_json(
+                    sender,
+                    chunk(id, created, model, &json!({"tool_calls": calls}), None, None),
+                )
+                .await
+                {
+                    return false;
+                }
+            }
             let usage = include_usage.then(|| Usage::from_completion(&completion));
             send_json(
                 sender,
@@ -90,12 +108,27 @@ async fn handle_event(
     }
 }
 
-fn token_delta(token: &proto::Token) -> serde_json::Value {
-    if token.reasoning {
-        json!({"reasoning_content": token.text})
+fn token_delta(token: &proto::Token) -> Option<serde_json::Value> {
+    if token.channel == "tool_calls" {
+        None
+    } else if token.reasoning || token.channel == "reasoning" {
+        Some(json!({"reasoning_content": token.text}))
     } else {
-        json!({"content": token.text})
+        Some(json!({"content": token.text}))
     }
+}
+
+fn tool_call_delta((index, call): (usize, &proto::ChatToolCall)) -> Option<serde_json::Value> {
+    let function = call.function.as_ref()?;
+    Some(json!({
+        "index": index,
+        "id": call.id,
+        "type": call.r#type,
+        "function": {
+            "name": function.name,
+            "arguments": function.arguments_json,
+        }
+    }))
 }
 
 fn chunk(
@@ -136,7 +169,19 @@ mod tests {
             id: 1,
             text: "draft".into(),
             reasoning: true,
+            channel: "reasoning".into(),
         });
-        assert_eq!(delta, json!({"reasoning_content": "draft"}));
+        assert_eq!(delta, Some(json!({"reasoning_content": "draft"})));
+    }
+
+    #[test]
+    fn suppresses_native_tool_json_tokens() {
+        let delta = token_delta(&proto::Token {
+            id: 9,
+            text: r#"[{"name":"weather"}]"#.into(),
+            reasoning: false,
+            channel: "tool_calls".into(),
+        });
+        assert_eq!(delta, None);
     }
 }

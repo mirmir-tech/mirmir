@@ -11,6 +11,9 @@ pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
+    pub tools: Vec<libmir::ChatTool>,
+    pub tool_choice: Option<serde_json::Value>,
+    #[serde(default)]
     pub stream: bool,
     pub max_tokens: Option<u64>,
     pub max_completion_tokens: Option<u64>,
@@ -29,6 +32,9 @@ pub struct ChatMessage {
     pub content: MessageContent,
     #[serde(default, alias = "reasoning")]
     pub reasoning_content: Option<String>,
+    #[serde(default)]
+    pub tool_calls: Option<Vec<libmir::ChatToolCall>>,
+    pub tool_call_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -81,6 +87,22 @@ pub struct ResponseMessage {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ResponseToolCall>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResponseToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub function: ResponseFunctionCall,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResponseFunctionCall {
+    pub name: String,
+    pub arguments: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,6 +133,7 @@ impl ChatRequest {
             (left, right) => left.or(right),
         };
         let (messages, image) = messages(self.messages)?;
+        let tools = self.tools.into_iter().map(proto_tool).collect();
         Ok(proto::GenerateRequest {
             model: self.model,
             prompt: String::new(),
@@ -122,6 +145,8 @@ impl ChatRequest {
             seed: self.seed,
             messages,
             image,
+            tools,
+            tool_choice_json: self.tool_choice.map(|choice| choice.to_string()),
         })
     }
 }
@@ -151,6 +176,11 @@ impl CompletionResponse {
                     content: completion.text,
                     reasoning_content: (!completion.reasoning.is_empty())
                         .then_some(completion.reasoning),
+                    tool_calls: completion
+                        .tool_calls
+                        .into_iter()
+                        .filter_map(response_tool_call)
+                        .collect(),
                 },
                 finish_reason: completion.finish_reason,
             }],
@@ -159,47 +189,28 @@ impl CompletionResponse {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn exposes_reasoning_separately_from_final_content() {
-        let response = CompletionResponse::new(
-            "id".into(),
-            1,
-            "model".into(),
-            proto::Completion {
-                text: "answer".into(),
-                reasoning: "draft".into(),
-                ..Default::default()
-            },
-        );
-        let value = serde_json::to_value(response).expect("serializable response");
-        assert_eq!(value["choices"][0]["message"]["content"], "answer");
-        assert_eq!(value["choices"][0]["message"]["reasoning_content"], "draft");
-    }
-
-    #[test]
-    fn accepts_openai_image_url_content_parts() {
-        let request: ChatRequest = serde_json::from_value(serde_json::json!({
-            "model": "vision-model",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="}},
-                    {"type": "text", "text": "What is shown?"}
-                ]
-            }]
-        }))
-        .expect("OpenAI-compatible request");
-
-        let request = request.into_proto().expect("valid vision request");
-
-        assert!(request.image.is_some_and(|image| image.starts_with(b"\x89PNG")));
-        assert_eq!(
-            request.messages[0].content,
-            format!("{}What is shown?", libmir::IMAGE_PLACEHOLDER)
-        );
+fn proto_tool(tool: libmir::ChatTool) -> proto::ChatTool {
+    proto::ChatTool {
+        r#type: tool.kind,
+        function: Some(proto::ChatFunctionDefinition {
+            name: tool.function.name,
+            description: tool.function.description,
+            parameters_json: tool.function.parameters.to_string(),
+        }),
     }
 }
+
+fn response_tool_call(call: proto::ChatToolCall) -> Option<ResponseToolCall> {
+    let function = call.function?;
+    Some(ResponseToolCall {
+        id: call.id,
+        kind: call.r#type,
+        function: ResponseFunctionCall {
+            name: function.name,
+            arguments: function.arguments_json,
+        },
+    })
+}
+
+#[cfg(test)]
+mod tests;

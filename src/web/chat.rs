@@ -199,6 +199,8 @@ impl TryFrom<ChatRequest> for proto::GenerateRequest {
             seed: chat.seed,
             messages,
             image,
+            tools: Vec::new(),
+            tool_choice_json: None,
         })
     }
 }
@@ -209,6 +211,8 @@ impl From<Message> for proto::ChatMessageInput {
             role: message.role,
             content: message.content,
             reasoning_content: message.reasoning_content,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
         }
     }
 }

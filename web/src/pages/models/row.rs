@@ -14,6 +14,14 @@ use crate::{
 pub fn LocalRow(model: Model) -> impl IntoView {
     let state = expect_context::<RuntimeState>();
     let ui = expect_context::<ModelUi>();
+    let format = format_label(&model);
+    let format_detail = format!(
+        "{} · {} · Metal {} · CUDA {}",
+        model.ecosystem,
+        model.container,
+        model.metal_compatibility,
+        model.cuda_compatibility
+    );
     let id = StoredValue::new(model.id.clone());
     let selector = StoredValue::new(model.selector.clone());
     let repo_id = StoredValue::new(model.repo_id.clone());
@@ -60,7 +68,7 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     view! {
         <tr class:removing=move || state.busy.get().get(&repo_id.get_value()).is_some_and(|value| value == "remove")>
             <td><span class="model-name"><strong>{model.id.clone()}</strong><small>{model.repo_id.clone()}</small></span></td>
-            <td class="model-type"><TypePill value=model.library.clone() /></td>
+            <td class="model-type"><TypePill value=format /><small>{format_detail}</small></td>
             <td class="model-size">{bytes(model.size_bytes)}</td>
             <td><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision || model.image_input /></td>
             <td><StatePill state=display_state detail=detail progress=progress /></td>
@@ -80,6 +88,14 @@ pub fn LocalRow(model: Model) -> impl IntoView {
                 </Show>
             </td>
         </tr>
+    }
+}
+
+fn format_label(model: &Model) -> String {
+    if model.encoding.is_empty() || model.encoding == "Unknown" {
+        model.ecosystem.clone()
+    } else {
+        model.encoding.clone()
     }
 }
 

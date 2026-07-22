@@ -8,6 +8,7 @@ use crate::{media::decode_data_url, rpc::proto};
 pub(super) enum MessageContent {
     Text(String),
     Parts(Vec<ContentPart>),
+    Null,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,15 +42,34 @@ pub(super) fn messages(
                 role: message.role,
                 content,
                 reasoning_content: message.reasoning_content,
+                tool_calls: message
+                    .tool_calls
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(proto_tool_call)
+                    .collect(),
+                tool_call_id: message.tool_call_id,
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
     Ok((messages, image))
 }
 
+fn proto_tool_call(call: libmir::ChatToolCall) -> proto::ChatToolCall {
+    proto::ChatToolCall {
+        id: call.id,
+        r#type: call.kind,
+        function: Some(proto::ChatFunctionCall {
+            name: call.function.name,
+            arguments_json: call.function.arguments.to_string(),
+        }),
+    }
+}
+
 fn flatten_content(content: MessageContent) -> Result<(String, Option<Vec<u8>>), ApiError> {
     match content {
         MessageContent::Text(text) => Ok((text, None)),
+        MessageContent::Null => Ok((String::new(), None)),
         MessageContent::Parts(parts) => {
             parts
                 .into_iter()

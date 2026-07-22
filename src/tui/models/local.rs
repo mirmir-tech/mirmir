@@ -76,7 +76,11 @@ fn model_state(app: &App, model: &proto::LocalModelInfo) -> String {
 }
 
 fn type_badge(model: &proto::LocalModelInfo) -> Line<'static> {
-    let value = if model.library.is_empty() {
+    let value = if !model.encoding.is_empty() && model.encoding != "Unknown" {
+        &model.encoding
+    } else if !model.ecosystem.is_empty() {
+        &model.ecosystem
+    } else if model.library.is_empty() {
         "UNKNOWN"
     } else {
         &model.library

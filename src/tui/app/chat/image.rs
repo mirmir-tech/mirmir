@@ -71,6 +71,8 @@ impl App {
             seed: None,
             messages,
             image,
+            tools: Vec::new(),
+            tool_choice_json: None,
         };
         self.apply_chat_parameters(&mut request);
         self.spawn_chat(client, request);
@@ -84,6 +86,8 @@ impl App {
                 role: message.role.clone(),
                 content: message.content.clone(),
                 reasoning_content: (!message.thought.is_empty()).then(|| message.thought.clone()),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             })
             .collect();
         if self.chat_image.is_some()

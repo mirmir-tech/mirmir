@@ -38,8 +38,7 @@ fn run(
     operation: &Operation,
     cancellation: &CancellationToken,
 ) {
-    let mut telemetry = service.telemetry.begin();
-    let started = Instant::now();
+    let (mut telemetry, started) = (service.telemetry.begin(), Instant::now());
     tracing::info!(
         operation = operation.id(),
         model = %request.model,
@@ -99,6 +98,7 @@ fn run(
                 id: token.id,
                 text: token.text,
                 reasoning: token.channel == GenerationChannel::Reasoning,
+                channel: token_channel(token.channel).into(),
             })),
         };
         if sender.blocking_send(Ok(event)).is_err() {
@@ -137,6 +137,14 @@ fn run(
             tracing::error!(operation = operation.id(), model = %request.model, %error, "generation failed");
             drop(sender.blocking_send(Err(Status::internal(error.to_string()))));
         },
+    }
+}
+
+const fn token_channel(channel: GenerationChannel) -> &'static str {
+    match channel {
+        GenerationChannel::Content => "content",
+        GenerationChannel::Reasoning => "reasoning",
+        GenerationChannel::ToolCalls => "tool_calls",
     }
 }
 
@@ -179,8 +187,14 @@ fn send_completion(
         .ok()
         .filter(|_| elapsed > 0.0)
         .map(|tokens| tokens / elapsed);
+    let tool_calls = libmir::ChatToolCall::parse_mistral(&output.tool_calls)
+        .unwrap_or_default()
+        .into_iter()
+        .map(proto_tool_call)
+        .collect();
     let completion = proto::Completion {
         reasoning: output.reasoning,
+        tool_calls,
         prefill_tokens_per_second: output.metrics.throughput.prefill.per_second,
         decode_tokens_per_second: output.metrics.throughput.decode.per_second,
         prefill_ms: Some(output.metrics.durations_ms.prefill),
@@ -209,4 +223,15 @@ fn send_completion(
     drop(sender.blocking_send(Ok(proto::GenerateEvent {
         event: Some(proto::generate_event::Event::Completion(completion)),
     })));
+}
+
+fn proto_tool_call(call: libmir::ChatToolCall) -> proto::ChatToolCall {
+    proto::ChatToolCall {
+        id: call.id,
+        r#type: call.kind,
+        function: Some(proto::ChatFunctionCall {
+            name: call.function.name,
+            arguments_json: call.function.arguments.to_string(),
+        }),
+    }
 }

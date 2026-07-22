@@ -1,6 +1,6 @@
 use axum::{Json, extract::State};
 use libmir::foundation::protocol::{
-    ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Usage,
+    ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ChatToolCall, Usage,
 };
 use uuid::Uuid;
 
@@ -22,7 +22,7 @@ pub async fn completion(
     })?;
     let response_model = request.model.clone();
     let output = tokio::task::spawn_blocking(move || {
-        model.generate(&request, &mut |_event| {}, &mut |_token, _text| {})
+        model.generate(&request, &mut |_event| {}, &mut |_token| {})
     })
     .await??;
     let completion_tokens = output.token_ids.len();
@@ -36,6 +36,10 @@ pub async fn completion(
             message: ChatMessage {
                 role: "assistant".into(),
                 content: output.text,
+                reasoning_content: (!output.reasoning.is_empty()).then_some(output.reasoning),
+                tool_calls: (!output.tool_calls.is_empty())
+                    .then(|| ChatToolCall::parse_mistral(&output.tool_calls).unwrap_or_default()),
+                tool_call_id: None,
             },
             finish_reason: Some(output.finish_reason.into()),
         }],

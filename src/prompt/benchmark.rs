@@ -85,6 +85,8 @@ fn request(args: &PromptArgs, model: String, prompt: String) -> Result<proto::Ge
         seed: args.seed,
         messages: Vec::new(),
         image: None,
+        tools: Vec::new(),
+        tool_choice_json: None,
     })
 }
 

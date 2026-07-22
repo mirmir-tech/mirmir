@@ -103,6 +103,7 @@ fn renders_streamed_chat_and_metrics() -> Result<(), std::convert::Infallible> {
         decode_tokens_per_second: Some(40.0),
         prefill_ms: Some(25.0),
         decode_ms: Some(75.0),
+        tool_calls: Vec::new(),
     });
     let text = rendered(&mut app, 120, 36)?;
     assert!(text.contains("Qwen--Test"));

@@ -24,6 +24,12 @@ fn token(text: &str, reasoning: bool) -> proto::GenerateEvent {
             id: 1,
             text: text.to_owned(),
             reasoning,
+            channel: if reasoning {
+                "reasoning"
+            } else {
+                "content"
+            }
+            .into(),
         })),
     }
 }

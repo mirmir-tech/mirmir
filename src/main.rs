@@ -6,6 +6,7 @@ mod error;
 mod http;
 mod media;
 mod model;
+mod model_format;
 mod output;
 mod prompt;
 mod rpc;

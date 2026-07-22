@@ -77,6 +77,11 @@ message LocalModelInfo {
   bool tool_use = 17;
   bool thinking = 18;
   bool vision = 19;
+  string ecosystem = 20;
+  string container = 21;
+  string encoding = 22;
+  string metal_compatibility = 23;
+  string cuda_compatibility = 24;
 }
 
 message InspectModelRequest {
@@ -204,6 +209,11 @@ message CatalogModel {
   bool tool_use = 16;
   bool thinking = 17;
   bool vision = 18;
+  string ecosystem = 19;
+  string container = 20;
+  string encoding = 21;
+  string metal_compatibility = 22;
+  string cuda_compatibility = 23;
 }
 
 message PullModelRequest {
@@ -241,12 +251,38 @@ message GenerateRequest {
   optional uint64 seed = 8;
   repeated ChatMessageInput messages = 9;
   optional bytes image = 10;
+  repeated ChatTool tools = 11;
+  optional string tool_choice_json = 12;
 }
 
 message ChatMessageInput {
   string role = 1;
   string content = 2;
   optional string reasoning_content = 3;
+  repeated ChatToolCall tool_calls = 4;
+  optional string tool_call_id = 5;
+}
+
+message ChatTool {
+  string type = 1;
+  ChatFunctionDefinition function = 2;
+}
+
+message ChatFunctionDefinition {
+  string name = 1;
+  optional string description = 2;
+  string parameters_json = 3;
+}
+
+message ChatToolCall {
+  string id = 1;
+  string type = 2;
+  ChatFunctionCall function = 3;
+}
+
+message ChatFunctionCall {
+  string name = 1;
+  string arguments_json = 2;
 }
 
 message GenerateEvent {
@@ -265,6 +301,7 @@ message Token {
   uint32 id = 1;
   string text = 2;
   bool reasoning = 3;
+  string channel = 4;
 }
 
 message Completion {
@@ -280,6 +317,7 @@ message Completion {
   optional double prefill_ms = 10;
   optional double decode_ms = 11;
   string reasoning = 12;
+  repeated ChatToolCall tool_calls = 13;
 }
 
 message EmbedRequest {

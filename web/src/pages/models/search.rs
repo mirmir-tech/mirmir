@@ -115,7 +115,13 @@ fn CatalogRow(model: CatalogModel) -> impl IntoView {
                 .map(|(current, total)| 100.0 * current as f64 / total.max(1) as f64)
         })
     };
-    view! { <tr><td><span class="model-name"><strong>{model.id.clone()}</strong><small>{reason.get_value()}</small></span></td><td><TypePill value=model.library.clone() /></td><td class="model-size">{model.estimated_weight_bytes.map_or_else(|| "—".to_owned(), bytes)}</td><td><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
+    let format = if model.encoding.is_empty() || model.encoding == "Unknown" {
+        model.ecosystem.clone()
+    } else {
+        model.encoding.clone()
+    };
+    let format_detail = format!("{} · {}", model.ecosystem, model.container);
+    view! { <tr><td><span class="model-name"><strong>{model.id.clone()}</strong><small>{reason.get_value()}</small></span></td><td><TypePill value=format /><small>{format_detail}</small></td><td class="model-size">{model.estimated_weight_bytes.map_or_else(|| "—".to_owned(), bytes)}</td><td><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
         <Show when=move || operation().is_some_and(|item| item.cancellable) fallback=move || view! {
             <button class="icon-action" class:downloaded=downloaded disabled=move || downloaded || busy() data-tooltip=if downloaded { "Downloaded" } else { "Download model" } aria-label=if downloaded { "Downloaded" } else { "Download model" } on:click=move |_| start_download(state, &stored_model.get_value())><Icon name=if downloaded { "downloaded" } else { "download" } /></button>
         }>
@@ -201,7 +207,11 @@ fn download_placeholder(model: &CatalogModel) -> Model {
         revision: "main".to_owned(),
         state: "downloading".to_owned(),
         selector: model.id.clone(),
-        library: model.library.clone(),
+        ecosystem: model.ecosystem.clone(),
+        container: model.container.clone(),
+        encoding: model.encoding.clone(),
+        metal_compatibility: model.metal_compatibility.clone(),
+        cuda_compatibility: model.cuda_compatibility.clone(),
         size_bytes: model.estimated_weight_bytes.unwrap_or_default(),
         tool_use: model.tool_use,
         thinking: model.thinking,

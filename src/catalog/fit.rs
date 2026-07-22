@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use sysinfo::System;
 
 use super::hub::HubModel;
+use crate::model_format::ModelFormat;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -31,6 +32,11 @@ pub struct CatalogModel {
     pub downloaded: bool,
     pub local_source: &'static str,
     pub library: String,
+    pub ecosystem: String,
+    pub container: String,
+    pub encoding: String,
+    pub metal_compatibility: String,
+    pub cuda_compatibility: String,
     pub features: Features,
 }
 
@@ -94,7 +100,11 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     };
     let reason = reason(compatibility, memory_fit);
     let gated = model.is_gated();
-    let library = library(&model);
+    let format = ModelFormat::remote(
+        model.library_name.as_deref(),
+        &model.tags,
+        model.safetensors.is_some(),
+    );
     let identity = format!("{} {model_class}", model.id).to_ascii_lowercase();
     let generation = !identity.contains("embedding") && !identity.contains("rerank");
     let qwen3 = identity.contains("qwen3");
@@ -119,23 +129,13 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         reason,
         downloaded: false,
         local_source: "remote",
-        library,
+        library: format.legacy_library(),
+        ecosystem: format.ecosystem,
+        container: format.container,
+        encoding: format.encoding,
+        metal_compatibility: format.metal_compatibility,
+        cuda_compatibility: format.cuda_compatibility,
         features: Features { tool_use, thinking, vision },
-    }
-}
-
-fn library(model: &HubModel) -> String {
-    if model.tags.iter().any(|tag| tag.eq_ignore_ascii_case("gguf")) {
-        return "GGUF".to_owned();
-    }
-    match model.library_name.as_deref() {
-        Some(value) if value.eq_ignore_ascii_case("mlx") => "MLX".to_owned(),
-        Some(value) if value.eq_ignore_ascii_case("transformers") => "Transformers".to_owned(),
-        Some(value) => value.to_owned(),
-        None if model.tags.iter().any(|tag| tag.eq_ignore_ascii_case("safetensors")) => {
-            "SafeTensors".to_owned()
-        },
-        None => "Unknown".to_owned(),
     }
 }
 

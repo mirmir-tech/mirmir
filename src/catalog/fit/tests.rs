@@ -63,6 +63,11 @@ fn exposes_qwen3_search_capabilities_before_download() {
     );
 
     assert_eq!(result.library, "Transformers");
+    assert_eq!(result.ecosystem, "Transformers");
+    assert_eq!(result.container, "SafeTensors");
+    assert_eq!(result.encoding, "Unknown");
+    assert_eq!(result.metal_compatibility, "unknown");
+    assert_eq!(result.cuda_compatibility, "unknown");
     assert!(result.features.tool_use);
     assert!(result.features.thinking);
     assert!(!result.features.vision);

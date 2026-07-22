@@ -20,7 +20,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
             } else {
                 model.id.clone()
             }),
-            Cell::from(model.library.to_ascii_uppercase()),
+            Cell::from(format_label(model)),
             Cell::from(model.estimated_required_bytes.map_or_else(|| "—".to_owned(), bytes)),
             Cell::from(features(model.tool_use, model.thinking, model.vision)),
             Cell::from(status(model)),
@@ -31,11 +31,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
             }),
         ])
     });
-    let header = Row::new(["NAME", "TYPE", "SIZE", "FEATURES", "FIT", "ACTION"])
+    let header = Row::new(["NAME", "FORMAT", "SIZE", "FEATURES", "FIT", "ACTION"])
         .style(Style::new().fg(theme::MUTED).add_modifier(Modifier::BOLD));
     let widths = [
         Constraint::Percentage(34),
-        Constraint::Length(10),
+        Constraint::Length(18),
         Constraint::Length(11),
         Constraint::Percentage(23),
         Constraint::Length(13),
@@ -56,6 +56,15 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
         area,
         &mut state,
     );
+}
+
+fn format_label(model: &crate::rpc::proto::CatalogModel) -> String {
+    let value = if model.encoding.is_empty() || model.encoding == "Unknown" {
+        &model.ecosystem
+    } else {
+        &model.encoding
+    };
+    value.to_ascii_uppercase()
 }
 
 fn title(app: &App) -> String {
