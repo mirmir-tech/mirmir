@@ -1,9 +1,6 @@
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{fs, path::Path};
 
-use libmir::{
-    ModelDescriptor,
-    models::weights::{BlockFormat, TensorStorage},
-};
+use libmir::{ModelDescriptor, foundation::model::BackendTarget};
 use serde_json::Value;
 
 #[derive(Clone, Debug)]
@@ -60,13 +57,24 @@ impl ModelFormat {
         } else {
             "Unknown"
         };
-        let encoding = descriptor.map_or_else(|| metadata_encoding(config), binding_encoding);
+        let encoding = descriptor.map_or_else(
+            || metadata_encoding(config),
+            |descriptor| descriptor.checkpoint_encoding().label(),
+        );
         let ecosystem = if config.get("quantization").is_some() || encoding.contains("MLX affine") {
             "MLX"
         } else {
             "Transformers"
         };
-        let (metal, cuda) = compatibility(&encoding, container);
+        let (metal, cuda) = descriptor.map_or_else(
+            || container_compatibility(container),
+            |descriptor| {
+                (
+                    descriptor.admission(BackendTarget::Metal).status.as_str(),
+                    descriptor.admission(BackendTarget::Cuda).status.as_str(),
+                )
+            },
+        );
         Self {
             ecosystem: ecosystem.into(),
             container: container.into(),
@@ -86,35 +94,6 @@ impl ModelFormat {
     }
 }
 
-fn binding_encoding(descriptor: &ModelDescriptor) -> String {
-    let Some(execution) = descriptor.execution() else {
-        return metadata_quantization(descriptor.metadata().quantization.clone());
-    };
-    let mut encodings = BTreeSet::new();
-    for binding in &execution.bindings.tensors {
-        let value = match &binding.storage {
-            TensorStorage::Dense { dtype, .. } => format!("Dense {dtype}"),
-            TensorStorage::AffineQuantized { bits, group_size, .. } => format!(
-                "MLX affine {} G{}",
-                bits.map_or_else(|| "?".into(), |value| value.to_string()),
-                group_size.map_or_else(|| "?".into(), |value| value.to_string())
-            ),
-            TensorStorage::PackedInt8 { .. } => "Packed INT8".into(),
-            TensorStorage::BlockQuantized { format, .. } => match format {
-                BlockFormat::MxFp4 => "MXFP4".into(),
-                BlockFormat::NvFp4 => "NVFP4".into(),
-            },
-            TensorStorage::Auxiliary { .. } => continue,
-        };
-        let _inserted = encodings.insert(value);
-    }
-    if encodings.is_empty() {
-        "Unknown".into()
-    } else {
-        encodings.into_iter().collect::<Vec<_>>().join(" + ")
-    }
-}
-
 fn metadata_encoding(config: &Value) -> String {
     let quantization = config.get("quantization_config").or_else(|| config.get("quantization"));
     let Some(quantization) = quantization else {
@@ -124,6 +103,11 @@ fn metadata_encoding(config: &Value) -> String {
             .and_then(Value::as_str)
             .map_or_else(|| "Unknown".into(), |dtype| format!("Dense {dtype}"));
     };
+    if quantization.get("quant_method").and_then(Value::as_str) == Some("bitsandbytes")
+        && let Some(kind) = quantization.get("bnb_4bit_quant_type").and_then(Value::as_str)
+    {
+        return format!("bitsandbytes {}", kind.to_ascii_uppercase());
+    }
     for key in ["quant_algo", "quant_method", "mode"] {
         if let Some(value) = quantization.get(key).and_then(Value::as_str) {
             return display_name(value);
@@ -135,35 +119,9 @@ fn metadata_encoding(config: &Value) -> String {
         .map_or_else(|| "Quantized".into(), |bits| format!("{bits}-bit"))
 }
 
-fn metadata_quantization(value: libmir::foundation::model::Quantization) -> String {
-    use libmir::foundation::model::Quantization;
-    match value {
-        Quantization::None => "Unknown".into(),
-        Quantization::F16 => "Dense F16".into(),
-        Quantization::Bf16 => "Dense BF16".into(),
-        Quantization::Int8 => "INT8".into(),
-        Quantization::Int4 => "INT4".into(),
-        Quantization::Fp8 => "FP8".into(),
-        Quantization::NvFp4 => "NVFP4".into(),
-        Quantization::MxFp4 => "MXFP4".into(),
-        Quantization::Custom(name) => name,
-    }
-}
-
-fn compatibility(encoding: &str, container: &str) -> (&'static str, &'static str) {
+fn container_compatibility(container: &str) -> (&'static str, &'static str) {
     if container != "SafeTensors" {
         return ("unsupported", "unsupported");
-    }
-    if encoding.contains("NVFP4") || encoding.contains("Packed INT8") {
-        return ("unsupported", "partial");
-    }
-    if encoding.contains("MXFP4")
-        || encoding.contains("F16")
-        || encoding.contains("F32")
-        || encoding.contains("BF16")
-        || encoding.contains("MLX affine")
-    {
-        return ("partial", "partial");
     }
     ("unknown", "unknown")
 }
@@ -236,5 +194,21 @@ mod tests {
         assert_eq!(format.encoding, "NVFP4");
         assert_eq!(format.metal_compatibility, "unknown");
         assert_eq!(format.cuda_compatibility, "unknown");
+    }
+
+    #[test]
+    fn safetensors_without_a_descriptor_stays_unknown() {
+        assert_eq!(container_compatibility("SafeTensors"), ("unknown", "unknown"));
+    }
+
+    #[test]
+    fn bitsandbytes_metadata_preserves_the_four_bit_type() {
+        let config = serde_json::json!({
+            "quantization_config": {
+                "quant_method": "bitsandbytes",
+                "bnb_4bit_quant_type": "nf4"
+            }
+        });
+        assert_eq!(metadata_encoding(&config), "bitsandbytes NF4");
     }
 }

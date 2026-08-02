@@ -14,34 +14,43 @@ fn renders_identity_dashboard_at_minimum_size() -> Result<(), std::convert::Infa
     app.telemetry = Some(telemetry());
     app.telemetry_history.extend([
         super::app::TelemetryPoint {
-            e2e: 12,
-            prefill: 30,
-            decode: 10,
-            memory_percent: 40,
-            kv_percent: 20,
+            memory_total_bytes: Some(64 * 1024 * 1024 * 1024),
+            memory_used_bytes: Some(26 * 1024 * 1024 * 1024),
+            memory_percent: Some(40.0),
+            gpu_percent: Some(20.0),
+            temperature_celsius: Some(58.0),
+            power_watts: Some(22.0),
+            power_limit_watts: Some(48.0),
         },
         super::app::TelemetryPoint {
-            e2e: 24,
-            prefill: 40,
-            decode: 18,
-            memory_percent: 42,
-            kv_percent: 25,
+            memory_total_bytes: Some(64 * 1024 * 1024 * 1024),
+            memory_used_bytes: Some(27 * 1024 * 1024 * 1024),
+            memory_percent: Some(42.0),
+            gpu_percent: Some(25.0),
+            temperature_celsius: Some(61.0),
+            power_watts: Some(26.0),
+            power_limit_watts: Some(48.0),
         },
     ]);
     let text = rendered(&mut app, 100, 28)?;
     assert!(text.contains("MiRMiR"));
-    assert!(text.contains("THROUGHPUT"));
-    assert!(text.contains("24.5 tok/s"));
     assert!(text.contains("PREFILL"));
     assert!(text.contains("DECODE"));
-    assert!(text.contains("mean 20.0 tok/s"));
-    assert!(text.contains("32/128"));
+    assert!(text.contains("TTFT"));
+    assert!(text.contains("MEMORY"));
+    assert!(text.contains("GiB"));
+    assert!(text.contains("GPU"));
+    assert!(text.contains("TEMPERATURE"));
+    assert!(text.contains("POWER"));
     assert!(text.contains("HEALTHY"));
-    assert!(text.contains("LOCAL OWNER"));
-    assert!(text.contains("[F1] Dashboard"));
-    assert!(text.contains("[F2] Models"));
-    assert!(text.contains("[F3] Chat"));
-    assert!(text.contains("[F4] Settings"));
+    assert!(!text.contains("LOCAL OWNER"));
+    assert!(!text.contains("ATTACHED"));
+    assert!(!text.contains("gRPC"));
+    assert!(text.contains("Dashboard"));
+    assert!(text.contains("Models"));
+    assert!(text.contains("Chat"));
+    assert!(text.contains("Settings"));
+    assert!(!text.contains("[F1]"));
     assert!(!text.contains("Ctrl"));
     assert!(text.contains("? help"));
     Ok(())
@@ -169,7 +178,6 @@ fn renders_stage_only_during_model_loading() -> Result<(), std::convert::Infalli
             model: None,
         }),
         error: None,
-        restore: None,
     });
 
     let text = rendered(&mut app, 120, 36)?;

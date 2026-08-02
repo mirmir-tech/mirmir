@@ -719,7 +719,7 @@ version = "0.19.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42310153e06cf4cd532901f7096beb27504d681736a29ee90728ae4e2d93b2a8"
 dependencies = [
- "libloading",
+ "libloading 0.9.0",
 ]
 
 [[package]]
@@ -1407,7 +1407,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-retry",
  "tokio-util",
@@ -1429,7 +1429,7 @@ dependencies = [
  "more-asserts",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "tokio_with_wasm",
@@ -1806,7 +1806,7 @@ dependencies = [
  "jni-sys",
  "log",
  "simd_cesu8",
- "thiserror",
+ "thiserror 2.0.19",
  "walkdir",
  "windows-link",
 ]
@@ -1872,7 +1872,7 @@ checksum = "bde5057d6143cc94e861d90f591b9303d6716c6b9602309150bd068853c10899"
 dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
- "thiserror",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -1900,9 +1900,19 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libc"
-version = "0.2.188"
+version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22053b6a34f84abc97f9129e61334f40174659a1b9bd18c970b83db6a9a6348b"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+
+[[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if 1.0.4",
+ "windows-link",
+]
 
 [[package]]
 name = "libloading"
@@ -1925,14 +1935,26 @@ name = "libmir"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "libmir-admission",
  "libmir-core",
  "libmir-cuda",
  "libmir-metal",
  "libmir-models",
  "libmir-runtime",
- "thiserror",
+ "macmon",
+ "nvml-wrapper",
+ "serde_json",
+ "sysinfo 0.39.6",
+ "thiserror 2.0.19",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "libmir-admission"
+version = "0.3.0"
+dependencies = [
+ "libmir-models",
 ]
 
 [[package]]
@@ -1941,7 +1963,7 @@ version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.19",
  "uuid",
 ]
 
@@ -1950,11 +1972,15 @@ name = "libmir-cuda"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "libmir-admission",
  "libmir-core",
  "libmir-models",
  "libmir-runtime",
  "mircuda",
- "thiserror",
+ "rustix",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
  "tracing",
  "uuid",
 ]
@@ -1965,11 +1991,14 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "blake3",
+ "libmir-admission",
  "libmir-core",
  "libmir-models",
  "libmir-runtime",
  "mirtal",
- "thiserror",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
  "tracing",
  "uuid",
 ]
@@ -1984,7 +2013,7 @@ dependencies = [
  "minijinja-contrib",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.19",
  "time",
  "tokenizers",
  "toml",
@@ -1998,7 +2027,7 @@ dependencies = [
  "blake3",
  "libmir-core",
  "serde",
- "thiserror",
+ "thiserror 2.0.19",
  "uuid",
 ]
 
@@ -2096,6 +2125,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
 dependencies = [
  "twox-hash",
+]
+
+[[package]]
+name = "macmon"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69d74c1aaa83883cd74706cc09cac42145a90d6dc1985c36d025d86945c0f73d"
+dependencies = [
+ "core-foundation 0.10.1",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2215,7 +2256,7 @@ dependencies = [
  "mircuda-macros",
  "mircuda-sys",
  "parking_lot",
- "thiserror",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2233,7 +2274,7 @@ version = "0.3.0"
 dependencies = [
  "cc",
  "cudarc",
- "thiserror",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2259,7 +2300,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo 0.39.6",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
  "toml",
@@ -2280,7 +2321,7 @@ dependencies = [
  "cxx",
  "mirtal-macros",
  "mirtal-sys",
- "thiserror",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2394,6 +2435,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "nvml-wrapper"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f049ae562349fefb8e837eb15443da1e7c6dcbd8a11f52a228f92220c2e5c85e"
+dependencies = [
+ "bitflags",
+ "libloading 0.8.9",
+ "nvml-wrapper-sys",
+ "static_assertions",
+ "thiserror 1.0.69",
+ "wrapcenum-derive",
+]
+
+[[package]]
+name = "nvml-wrapper-sys"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b4d594420fcda43b1c2c4bd44d48974aa3c7a9ab2cbf10dc18e35265767bf0b"
+dependencies = [
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -2796,7 +2860,7 @@ dependencies = [
  "rustc-hash",
  "rustls",
  "socket2",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tracing",
  "web-time",
@@ -2819,7 +2883,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror",
+ "thiserror 2.0.19",
  "tinyvec",
  "tracing",
  "web-time",
@@ -2943,7 +3007,7 @@ dependencies = [
  "palette",
  "serde",
  "strum",
- "thiserror",
+ "thiserror 2.0.19",
  "unicode-segmentation",
  "unicode-truncate",
  "unicode-width",
@@ -3038,7 +3102,7 @@ checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -3125,7 +3189,7 @@ dependencies = [
  "async-trait",
  "http",
  "reqwest",
- "thiserror",
+ "thiserror 2.0.19",
  "tower-service",
 ]
 
@@ -3720,11 +3784,31 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
 version = "2.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09a43598840e33d5b0331f38c5e30d13bb11c11210a4b58f0d9b18a5a5eefcd9"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 2.0.19",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -3831,7 +3915,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spm_precompiled",
- "thiserror",
+ "thiserror 2.0.19",
  "unicode-normalization-alignments",
  "unicode-segmentation",
  "unicode_categories",
@@ -4137,7 +4221,7 @@ checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
  "symlink",
- "thiserror",
+ "thiserror 2.0.19",
  "time",
  "tracing-subscriber",
 ]
@@ -4224,7 +4308,7 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "sha1",
- "thiserror",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -4773,6 +4857,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
+name = "wrapcenum-derive"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a76ff259533532054cfbaefb115c613203c73707017459206380f03b3b3f266e"
+dependencies = [
+ "darling 0.20.11",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4802,7 +4898,7 @@ dependencies = [
  "serde_repr",
  "statrs",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-retry",
  "tokio_with_wasm",
@@ -4838,7 +4934,7 @@ dependencies = [
  "safe-transmute",
  "serde",
  "static_assertions",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4866,7 +4962,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "tokio_with_wasm",
@@ -4907,7 +5003,7 @@ dependencies = [
  "serde_json",
  "shellexpand",
  "sysinfo 0.38.4",
- "thiserror",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "tokio_with_wasm",

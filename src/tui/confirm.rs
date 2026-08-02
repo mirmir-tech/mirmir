@@ -19,12 +19,7 @@ pub fn draw_exit(frame: &mut Frame<'_>) {
                 Style::new().fg(theme::INK).add_modifier(Modifier::BOLD),
             )),
             Line::default(),
-            Line::from(vec![
-                Span::styled(" Enter / y ", Style::new().fg(theme::SUCCESS)),
-                Span::styled("close   ", Style::new().fg(theme::MUTED)),
-                Span::styled(" Esc / n ", Style::new().fg(theme::GLACIER)),
-                Span::styled("stay", Style::new().fg(theme::MUTED)),
-            ]),
+            Line::from(Span::styled("Confirmation required", Style::new().fg(theme::MUTED))),
         ])
         .alignment(Alignment::Center)
         .block(
@@ -67,12 +62,7 @@ pub fn draw_remove(frame: &mut Frame<'_>, dialog: &RemoveDialog) {
             )),
             Line::from(Span::styled(ownership, Style::new().fg(theme::MUTED))),
             Line::default(),
-            Line::from(vec![
-                Span::styled(" Enter / y ", Style::new().fg(theme::DANGER)),
-                Span::styled("delete   ", Style::new().fg(theme::MUTED)),
-                Span::styled(" Esc / n ", Style::new().fg(theme::GLACIER)),
-                Span::styled("cancel", Style::new().fg(theme::MUTED)),
-            ]),
+            Line::from(Span::styled("Confirmation required", Style::new().fg(theme::MUTED))),
         ])
         .alignment(Alignment::Center)
         .block(

@@ -78,3 +78,20 @@ fn maps_tools_and_tool_calls_through_openai_protocol() {
     assert_eq!(value["choices"][0]["finish_reason"], "tool_calls");
     assert_eq!(value["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "weather");
 }
+
+#[test]
+fn forwards_exact_generation_controls() {
+    let request: ChatRequest = serde_json::from_value(serde_json::json!({
+        "model": "benchmark-model",
+        "messages": [{"role": "user", "content": "Continue"}],
+        "max_tokens": 128,
+        "min_tokens": 128,
+        "ignore_eos": true
+    }))
+    .expect("OpenAI-compatible request");
+
+    let request = request.into_proto().expect("valid generation request");
+    assert_eq!(request.max_tokens, Some(128));
+    assert_eq!(request.min_tokens, Some(128));
+    assert_eq!(request.ignore_eos, Some(true));
+}

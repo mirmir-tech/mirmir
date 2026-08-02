@@ -30,6 +30,8 @@ pub(super) fn inspect(path: &Path, generation: GenerationConfig) -> ModelPresent
     let template = template(path);
     let overrides = GenerationOverrides {
         max_tokens: generation.max_tokens,
+        min_tokens: None,
+        ignore_eos: None,
         temperature: generation.temperature,
         top_p: generation.top_p,
         top_k: generation.top_k,

@@ -16,8 +16,6 @@ use super::{
     theme,
 };
 
-const GENERATION_HINT: &str = "↑/↓ field · ←/→ slider · type value · f force · Enter load";
-
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let Some(dialog) = app.load_dialog.as_ref() else {
         return;
@@ -54,13 +52,9 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
 fn draw_loading(frame: &mut Frame<'_>, dialog: &LoadDialog, animation_tick: u64) {
     let area = centered(frame.area(), 74, 12);
     frame.render_widget(Clear, area);
-    let title = dialog.restore.map_or_else(
-        || " LOADING MODEL ".to_owned(),
-        |restore| format!(" RESTORING MODELS {}/{} ", restore.current, restore.total),
-    );
     frame.render_widget(
         Block::bordered()
-            .title(title)
+            .title(" LOADING MODEL ")
             .border_style(Style::new().fg(theme::SIGNAL))
             .style(Style::new().bg(theme::SURFACE)),
         area,
@@ -147,11 +141,9 @@ fn event_ratio(event: &crate::rpc::proto::ModelLifecycleEvent) -> (f64, u16) {
 }
 
 fn header(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
-    let source = match (dialog.restore.is_some(), dialog.task.as_str(), dialog.has_mirmir_overrides)
-    {
-        (true, _, _) => "saved active model configuration",
-        (false, "generation", true) => "Mirmir configuration",
-        (false, "generation", false) => "model defaults",
+    let source = match (dialog.task.as_str(), dialog.has_mirmir_overrides) {
+        ("generation", true) => "Mirmir configuration",
+        ("generation", false) => "model defaults",
         _ => "checkpoint capabilities",
     };
     frame.render_widget(
@@ -205,9 +197,8 @@ fn error(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
 
 fn hint(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
     let text = match dialog.status {
-        LoadStatus::Inspecting => "x cancel  ·  Esc close Mirmir",
-        LoadStatus::Editing if dialog.task == "generation" => GENERATION_HINT,
-        LoadStatus::Editing => "f force  ·  Enter load",
+        LoadStatus::Inspecting => "Reading checkpoint capabilities…",
+        LoadStatus::Editing => "Review the resolved settings before loading",
         LoadStatus::Loading if dialog.task == "generation" => "Settings saved · loading",
         LoadStatus::Loading => "Loading checkpoint · no task settings",
     };

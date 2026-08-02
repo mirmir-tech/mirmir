@@ -17,13 +17,7 @@ use super::{
 };
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let composer_height = if app.chat_image.is_some() {
-        7
-    } else {
-        6
-    };
-    let rows =
-        Layout::vertical([Constraint::Min(8), Constraint::Length(composer_height)]).split(area);
+    let rows = Layout::vertical([Constraint::Min(8), Constraint::Length(4)]).split(area);
     conversation(frame, rows[0], app);
     composer(frame, rows[1], app);
 }
@@ -119,51 +113,61 @@ fn rendered_height(lines: &[Line<'_>], width: u16) -> usize {
 
 fn composer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let locked = app.chat_status == ChatStatus::Generating;
-    let mut lines = Vec::new();
-    if let Some(image) = &app.chat_image {
-        lines.push(Line::from(vec![
-            Span::styled("▣ ", Style::new().fg(theme::SUCCESS)),
-            Span::styled(&image.name, Style::new().fg(theme::INK)),
-            Span::styled("  Ctrl+D ×", Style::new().fg(theme::MUTED)),
-        ]));
-    }
     let input = if locked {
-        "generation in progress — input locked…".to_owned()
+        Line::from(Span::styled(
+            "› generation in progress — input locked…",
+            Style::new().fg(theme::MUTED).add_modifier(Modifier::ITALIC),
+        ))
     } else if app.chat_input.is_empty() {
-        "Type a message…▌".to_owned()
-    } else {
-        format!("{}▌", app.chat_input)
-    };
-    lines.push(Line::from(input));
-    lines.push(Line::default());
-    lines.push(composer_footer(app));
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(Block::bordered().title(" MESSAGE ").border_style(Style::new().fg(if locked {
-                theme::MUTED
-            } else {
-                theme::GLACIER
-            })))
-            .style(
-                Style::new()
-                    .fg(if locked {
-                        theme::MUTED
-                    } else {
-                        theme::INK
-                    })
-                    .bg(theme::SURFACE),
+        Line::from(vec![
+            Span::styled("› ", Style::new().fg(theme::BORDER)),
+            Span::styled(
+                "Type a message…",
+                Style::new().fg(theme::THOUGHT).add_modifier(Modifier::ITALIC),
             ),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("› ", Style::new().fg(theme::GLACIER)),
+            Span::styled(format!("{}▌", app.chat_input), Style::new().fg(theme::INK)),
+        ])
+    };
+    let border = if locked {
+        theme::MUTED
+    } else {
+        theme::GLACIER
+    };
+    frame.render_widget(
+        Paragraph::new(input)
+            .block(
+                Block::bordered()
+                    .title_top(composer_title(app))
+                    .title_bottom(composer_metrics(app).right_aligned())
+                    .border_style(Style::new().fg(border)),
+            )
+            .style(Style::new().bg(theme::SURFACE)),
         area,
     );
 }
 
-fn composer_footer(app: &App) -> Line<'static> {
+fn composer_title(app: &App) -> Line<'static> {
     let model = app.selected_chat_model().map_or("no model", |model| model.id.as_str());
     let parameters = app
         .chat_parameters
         .as_ref()
         .filter(|parameters| parameters.model == model)
         .map_or("", |_| " · ONE-OFF PARAMETERS");
+    let mut spans = vec![
+        Span::styled(" MESSAGE ", Style::new().fg(theme::INK).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("· {model}{parameters} "), Style::new().fg(theme::GLACIER)),
+    ];
+    if let Some(image) = &app.chat_image {
+        spans.push(Span::styled(format!("· ▣ {} ", image.name), Style::new().fg(theme::SUCCESS)));
+    }
+    Line::from(spans)
+}
+
+fn composer_metrics(app: &App) -> Line<'static> {
     let (ttft, prefill, decode, tokens) = app.chat_live_metrics.as_ref().map_or_else(
         || {
             app.chat_metrics.as_ref().map_or_else(
@@ -187,17 +191,10 @@ fn composer_footer(app: &App) -> Line<'static> {
             )
         },
     );
-    Line::from(vec![
-        Span::styled(
-            format!("＋ attach   {model}{parameters}"),
-            Style::new().fg(theme::GLACIER).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("   TTFT {ttft} · prefill {prefill} · decode {decode} · {tokens}"),
-            Style::new().fg(theme::MUTED),
-        ),
-        Span::styled("   ↑ Enter", Style::new().fg(theme::SUCCESS).add_modifier(Modifier::BOLD)),
-    ])
+    Line::from(Span::styled(
+        format!(" TTFT {ttft} · prefill {prefill} · decode {decode} · {tokens} "),
+        Style::new().fg(theme::MUTED),
+    ))
 }
 
 fn rate(value: Option<f64>) -> String {

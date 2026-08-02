@@ -117,10 +117,9 @@ fn cors(settings: &ServerSettings) -> Result<CorsLayer> {
     let origins = settings
         .cors_origins
         .iter()
-        .map(|origin| {
-            origin
-                .parse::<HeaderValue>()
-                .map_err(|error| Error::Config(format!("invalid CORS origin `{origin}`: {error}")))
+        .map(|origin| match origin.parse::<HeaderValue>() {
+            Ok(origin) => Ok(origin),
+            Err(error) => Err(Error::Config(format!("invalid CORS origin `{origin}`: {error}"))),
         })
         .collect::<Result<Vec<_>>>()?;
     let cors = CorsLayer::new()

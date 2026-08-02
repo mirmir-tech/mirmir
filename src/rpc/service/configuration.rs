@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub(super) fn snapshot(service: &RuntimeService) -> Result<proto::ConfigurationSnapshot, Status> {
-    service.store.configuration().map(convert).map_err(internal)
+    Ok(convert(super::status::internal(service.store.configuration())?))
 }
 
 pub(super) async fn update(
@@ -18,33 +18,33 @@ pub(super) async fn update(
 
     let (message, restart_required) = match request.operation {
         Some(Operation::SetValue(update)) => {
-            service.store.set_config_value(&update.key, &update.value).map_err(invalid)?;
+            super::status::invalid(service.store.set_config_value(&update.key, &update.value))?;
             let restart = update.key != "default_model";
             tracing::info!(key = %update.key, restart_required = restart, "configuration updated");
             (format!("saved {}", update.key), restart)
         },
         Some(Operation::SetHfToken(update)) => {
-            service.store.set_hf_token(update.token.trim()).map_err(invalid)?;
+            super::status::invalid(service.store.set_hf_token(update.token.trim()))?;
             tracing::info!("Hugging Face token updated");
             ("Hugging Face token saved".to_owned(), false)
         },
         Some(Operation::RemoveHfToken(_)) => {
-            service.store.remove_hf_token().map_err(internal)?;
+            super::status::internal(service.store.remove_hf_token())?;
             tracing::info!("Hugging Face token removed from secrets.toml");
             ("stored Hugging Face token removed".to_owned(), false)
         },
         Some(Operation::TestHfToken(_)) => {
-            let identity = service.catalog.test_hf_token().await.map_err(unavailable)?;
+            let identity = super::status::unavailable(service.catalog.test_hf_token().await)?;
             tracing::info!(identity = %identity, "Hugging Face token verified");
             (format!("token valid for {identity}"), false)
         },
         Some(Operation::SetHttpApiKey(update)) => {
-            service.store.set_http_api_key(update.key.trim()).map_err(invalid)?;
+            super::status::invalid(service.store.set_http_api_key(update.key.trim()))?;
             tracing::info!("HTTP API key updated");
             ("HTTP API key saved".to_owned(), true)
         },
         Some(Operation::RemoveHttpApiKey(_)) => {
-            service.store.remove_http_api_key().map_err(internal)?;
+            super::status::internal(service.store.remove_http_api_key())?;
             tracing::info!("HTTP API key removed from secrets.toml");
             ("stored HTTP API key removed".to_owned(), true)
         },
@@ -83,16 +83,4 @@ fn secret(secret: &SecretPresentation) -> proto::SecretState {
         configured: secret.configured,
         source: secret.source.to_owned(),
     }
-}
-
-fn internal(error: impl std::fmt::Display) -> Status {
-    Status::internal(error.to_string())
-}
-
-fn invalid(error: impl std::fmt::Display) -> Status {
-    Status::invalid_argument(error.to_string())
-}
-
-fn unavailable(error: impl std::fmt::Display) -> Status {
-    Status::unavailable(error.to_string())
 }

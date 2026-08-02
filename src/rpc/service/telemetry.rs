@@ -126,10 +126,7 @@ impl Drop for GenerationTelemetry {
 
 impl RuntimeService {
     pub(super) fn telemetry_snapshot(&self) -> Result<proto::TelemetrySnapshot, Status> {
-        let models = self
-            .models
-            .lock()
-            .map_err(|_| Status::internal("model registry lock is poisoned"))?;
+        let models = super::status::lock(&self.models, "model registry")?;
         let mut kv = Kv::default();
         for entry in models.values() {
             kv.add(&entry.model.cache_stats());
@@ -141,6 +138,7 @@ impl RuntimeService {
         let rate_snapshot = rates.snapshot();
         drop(rates);
         let (host_total, host_available, memory_source) = memory(&self.library);
+        let device = self.library.device_telemetry_snapshot().unwrap_or_default();
         let live = self.telemetry.0.live.snapshot();
         Ok(proto::TelemetrySnapshot {
             sampled_at_unix_ms: unix_ms(),
@@ -176,6 +174,11 @@ impl RuntimeService {
             mean_prefill_tokens_per_second: rate_snapshot.mean_prefill_rate,
             last_decode_tokens_per_second: rate_snapshot.last_decode_rate,
             mean_decode_tokens_per_second: rate_snapshot.mean_decode_rate,
+            gpu_utilization_percent: device.utilization_percent,
+            device_temperature_celsius: device.temperature_celsius,
+            device_power_watts: device.power_watts,
+            device_power_limit_watts: device.power_limit_watts,
+            device_name: device.device_name,
         })
     }
 }

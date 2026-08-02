@@ -141,15 +141,17 @@ impl Store {
     }
 
     fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
-        self.ux_state_lock
-            .lock()
-            .map_err(|_| Error::Config("UX state lock is poisoned".to_owned()))
+        let Ok(state) = self.ux_state_lock.lock() else {
+            return Err(Error::Config("UX state lock is poisoned".to_owned()));
+        };
+        Ok(state)
     }
 
     fn recovery_lock(&self) -> Result<std::sync::MutexGuard<'_, Option<StateRecovery>>> {
-        self.ux_state_recovery
-            .lock()
-            .map_err(|_| Error::Config("UX state recovery lock is poisoned".to_owned()))
+        let Ok(recovery) = self.ux_state_recovery.lock() else {
+            return Err(Error::Config("UX state recovery lock is poisoned".to_owned()));
+        };
+        Ok(recovery)
     }
 
     pub(crate) fn take_state_recovery(&self) -> Result<Option<StateRecovery>> {

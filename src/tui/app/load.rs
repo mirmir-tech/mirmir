@@ -3,7 +3,7 @@ mod slider;
 mod target;
 
 use crossterm::event::{KeyCode, KeyEvent};
-pub use dialog::{LoadDialog, LoadStatus, LoadTarget, RestorePosition};
+pub use dialog::{LoadDialog, LoadStatus, LoadTarget};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
@@ -23,11 +23,8 @@ impl App {
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();
         drop(tokio::spawn(async move {
-            let result = client
-                .inspect_model(request)
-                .await
-                .map(tonic::Response::into_inner)
-                .map_err(|error| error.to_string());
+            let result = crate::tui::string_result(client.inspect_model(request).await)
+                .map(tonic::Response::into_inner);
             drop(sender.send(result).await);
         }));
         self.load_dialog = Some(LoadDialog {
@@ -42,7 +39,6 @@ impl App {
             force: false,
             progress: None,
             error: None,
-            restore: None,
         });
         self.settings_rx = Some(receiver);
     }
@@ -144,6 +140,7 @@ impl App {
     }
 
     pub(super) fn start_load_request(&mut self, client: &Client, request: proto::LoadModelRequest) {
+        self.restore_in_flight = None;
         self.set_local_state(&request.selector, "loading");
         let (sender, receiver) = mpsc::channel(64);
         let mut client = client.clone();
@@ -179,23 +176,23 @@ impl App {
         if !self.models.iter().any(|loaded| loaded.id == model.id) {
             self.models.push(model);
         }
-        if self.load_dialog.as_ref().is_some_and(|dialog| dialog.restore.is_some()) {
-            self.restore_completed = self.restore_completed.saturating_add(1);
-        }
+        self.restore_in_flight = None;
         self.load_dialog = None;
     }
 
     pub(super) fn fail_load(&mut self, error: String) {
-        if let Some(selector) =
-            self.load_dialog.as_ref().map(|dialog| dialog.target.selector.clone())
-        {
+        let selector = self
+            .load_dialog
+            .as_ref()
+            .map(|dialog| dialog.target.selector.clone())
+            .or_else(|| self.restore_in_flight.clone());
+        if let Some(selector) = selector {
             self.set_local_state(&selector, "available");
         }
         self.action_message = Some(error.clone());
-        if self.load_dialog.as_ref().is_some_and(|dialog| dialog.restore.is_some()) {
-            self.restore_completed = self.restore_completed.saturating_add(1);
-            self.load_dialog = None;
-        } else if let Some(dialog) = self.load_dialog.as_mut() {
+        if self.restore_in_flight.take().is_none()
+            && let Some(dialog) = self.load_dialog.as_mut()
+        {
             dialog.status = LoadStatus::Editing;
             dialog.error = Some(error);
         }
@@ -204,22 +201,23 @@ impl App {
 
     pub(super) fn finish_load_stream(&mut self) {
         self.lifecycle_rx = None;
-        if self
-            .load_dialog
-            .as_ref()
-            .is_some_and(|dialog| dialog.status == LoadStatus::Loading)
+        if self.restore_in_flight.is_some()
+            || self
+                .load_dialog
+                .as_ref()
+                .is_some_and(|dialog| dialog.status == LoadStatus::Loading)
         {
             self.fail_load("model load ended before the model became ready".to_owned());
         }
     }
 }
 
-async fn forward_lifecycle(
+pub(super) async fn forward_lifecycle(
     mut stream: tonic::Streaming<proto::ModelLifecycleEvent>,
     sender: mpsc::Sender<Result<proto::ModelLifecycleEvent, String>>,
 ) {
     while let Some(event) = stream.next().await {
-        if sender.send(event.map_err(|error| error.to_string())).await.is_err() {
+        if sender.send(crate::tui::string_result(event)).await.is_err() {
             break;
         }
     }

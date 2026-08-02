@@ -16,25 +16,25 @@ pub struct Overview {
     pub loaded_models: u64,
     pub active_requests: u64,
     pub total_requests: u64,
-    pub failed_requests: u64,
-    pub prompt_tokens: u64,
-    pub completion_tokens: u64,
-    pub current_tokens_per_second: Option<f64>,
+    pub completed_requests: u64,
     pub current_prefill_tokens_per_second: Option<f64>,
     pub current_decode_tokens_per_second: Option<f64>,
     pub current_ttft_ms: Option<f64>,
-    pub last_tokens_per_second: Option<f64>,
     pub last_prefill_tokens_per_second: Option<f64>,
     pub last_decode_tokens_per_second: Option<f64>,
     pub last_ttft_ms: Option<f64>,
     pub host_total_memory_bytes: Option<u64>,
     pub host_available_memory_bytes: Option<u64>,
     pub memory_source: String,
-    pub kv_total_blocks: u64,
-    pub kv_used_blocks: u64,
-    pub kv_cached_prefixes: u64,
-    pub kv_hit_tokens: u64,
-    pub kv_miss_tokens: u64,
+    pub mean_prefill_tokens_per_second: Option<f64>,
+    pub mean_decode_tokens_per_second: Option<f64>,
+    pub mean_ttft_ms: Option<f64>,
+    pub active_stage: String,
+    pub gpu_utilization_percent: Option<f64>,
+    pub device_temperature_celsius: Option<f64>,
+    pub device_power_watts: Option<f64>,
+    pub device_power_limit_watts: Option<f64>,
+    pub device_name: String,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -119,23 +119,22 @@ pub struct History {
 #[derive(Clone, Default, Deserialize)]
 pub struct HistorySample {
     pub sampled_at_unix_ms: u64,
-    pub e2e_tokens_per_second: Option<f64>,
-    pub prefill_tokens_per_second: Option<f64>,
-    pub decode_tokens_per_second: Option<f64>,
     pub memory_total_bytes: Option<u64>,
     pub memory_available_bytes: Option<u64>,
-    pub kv_total_blocks: u64,
-    pub kv_used_blocks: u64,
+    pub gpu_utilization_percent: Option<f64>,
+    pub device_temperature_celsius: Option<f64>,
+    pub device_power_watts: Option<f64>,
+    pub device_power_limit_watts: Option<f64>,
 }
 
 #[derive(Clone, Default)]
 pub struct TelemetryPoint {
     pub sampled_at_unix_ms: u64,
-    pub e2e: f64,
-    pub prefill: f64,
-    pub decode: f64,
-    pub memory_percent: f64,
-    pub kv_percent: f64,
+    pub memory_percent: Option<f64>,
+    pub gpu_percent: Option<f64>,
+    pub temperature_celsius: Option<f64>,
+    pub power_watts: Option<f64>,
+    pub power_limit_watts: Option<f64>,
 }
 
 #[derive(Clone, Serialize)]

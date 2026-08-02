@@ -17,10 +17,7 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     let format = format_label(&model);
     let format_detail = format!(
         "{} · {} · Metal {} · CUDA {}",
-        model.ecosystem,
-        model.container,
-        model.metal_compatibility,
-        model.cuda_compatibility
+        model.ecosystem, model.container, model.metal_compatibility, model.cuda_compatibility
     );
     let id = StoredValue::new(model.id.clone());
     let selector = StoredValue::new(model.selector.clone());

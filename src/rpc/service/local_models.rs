@@ -14,26 +14,14 @@ use crate::{
 
 impl RuntimeService {
     pub(super) fn local_models(&self) -> Result<Vec<proto::LocalModelInfo>, Status> {
-        let configs = self
-            .store
-            .list_model_configs()
-            .map_err(|error| Status::internal(error.to_string()))?;
-        let recent = self
-            .store
-            .recent_models()
-            .map_err(|error| Status::internal(error.to_string()))?
+        let configs = super::status::internal(self.store.list_model_configs())?;
+        let recent = super::status::internal(self.store.recent_models())?
             .into_iter()
             .enumerate()
             .map(|(rank, id)| (id, u32::try_from(rank).unwrap_or(u32::MAX)))
             .collect::<HashMap<_, _>>();
-        let models = self
-            .models
-            .lock()
-            .map_err(|_| Status::internal("model registry lock is poisoned"))?;
-        let loading = self
-            .loading
-            .lock()
-            .map_err(|_| Status::internal("model lifecycle lock is poisoned"))?;
+        let models = super::status::lock(&self.models, "model registry")?;
+        let loading = super::status::lock(&self.loading, "model lifecycle")?;
         let mut known_repos = configs
             .iter()
             .filter_map(|config| config.hub.as_ref().map(|hub| hub.repo_id.clone()))

@@ -70,6 +70,9 @@ impl App {
             self.handle_search_key(*key, client).await;
             return false;
         }
+        if self.handle_load_dialog_key(*key, client) {
+            return false;
+        }
         if let Some(exit) = self.handle_navigation_key(*key) {
             return exit;
         }
@@ -80,10 +83,6 @@ impl App {
             if self.screen == Screen::Models {
                 self.load_more_if_needed(client);
             }
-            return false;
-        }
-        if self.load_dialog.is_some() {
-            self.handle_load_key(*key, client);
             return false;
         }
         if self.screen == Screen::Chat {
@@ -102,6 +101,17 @@ impl App {
             self.handle_models_key(*key, client).await;
         }
         false
+    }
+
+    fn handle_load_dialog_key(&mut self, key: crossterm::event::KeyEvent, client: &Client) -> bool {
+        if self.load_dialog.is_none()
+            || key.kind != KeyEventKind::Press
+            || matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q') | KeyCode::F(_))
+        {
+            return false;
+        }
+        self.handle_load_key(key, client);
+        true
     }
 }
 

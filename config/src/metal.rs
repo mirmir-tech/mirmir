@@ -9,6 +9,8 @@ pub struct MetalArgs {
     device_token_pipeline: Option<bool>,
     #[arg(long, env = "MIRMIR_METAL_PREFIX_CACHE_ENTRIES")]
     prefix_cache_entries: Option<usize>,
+    #[arg(long, env = "MIRMIR_METAL_PREFIX_CACHE_BYTES")]
+    prefix_cache_bytes: Option<usize>,
     #[arg(long, env = "MIRMIR_METAL_PREFILL_STEP")]
     prefill_step: Option<usize>,
     #[arg(long, env = "MIRMIR_METAL_KV_RESERVE_TOKENS")]
@@ -51,6 +53,9 @@ impl MetalArgs {
     pub(super) fn apply_to(&self, config: &mut MetalConfig) {
         assign_toggle(&mut config.fusion.device_token_pipeline, self.device_token_pipeline);
         assign(&mut config.cache.prefix_cache_entries, self.prefix_cache_entries);
+        if self.prefix_cache_bytes.is_some() {
+            config.cache.prefix_cache_bytes = self.prefix_cache_bytes;
+        }
         if self.prefill_step.is_some() {
             config.cache.prefill_step = self.prefill_step;
         }

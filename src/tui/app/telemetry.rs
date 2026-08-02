@@ -7,11 +7,13 @@ const HISTORY_LENGTH: u32 = 900;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TelemetryPoint {
-    pub e2e: u64,
-    pub prefill: u64,
-    pub decode: u64,
-    pub memory_percent: u64,
-    pub kv_percent: u64,
+    pub memory_total_bytes: Option<u64>,
+    pub memory_used_bytes: Option<u64>,
+    pub memory_percent: Option<f64>,
+    pub gpu_percent: Option<f64>,
+    pub temperature_celsius: Option<f64>,
+    pub power_watts: Option<f64>,
+    pub power_limit_watts: Option<f64>,
 }
 
 pub(in crate::tui) struct RefreshSnapshot {
@@ -102,41 +104,37 @@ impl App {
             .samples
             .iter()
             .map(|sample| TelemetryPoint {
-                e2e: rate_sample(sample.e2e_tokens_per_second),
-                prefill: rate_sample(sample.prefill_tokens_per_second),
-                decode: rate_sample(sample.decode_tokens_per_second),
+                memory_total_bytes: sample.memory_total_bytes,
+                memory_used_bytes: used_memory(
+                    sample.memory_total_bytes,
+                    sample.memory_available_bytes,
+                ),
                 memory_percent: percentage(
                     sample.memory_total_bytes,
                     sample.memory_available_bytes,
                 ),
-                kv_percent: ratio(sample.kv_used_blocks, sample.kv_total_blocks),
+                gpu_percent: sample.gpu_utilization_percent,
+                temperature_celsius: sample.device_temperature_celsius,
+                power_watts: sample.device_power_watts,
+                power_limit_watts: sample.device_power_limit_watts,
             })
             .collect::<VecDeque<_>>();
     }
 }
 
-fn rate_sample(value: Option<f64>) -> u64 {
-    value
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .and_then(|value| format!("{value:.0}").parse().ok())
-        .unwrap_or(0)
+fn used_memory(total: Option<u64>, available: Option<u64>) -> Option<u64> {
+    total.zip(available).map(|(total, available)| total.saturating_sub(available))
 }
 
-fn percentage(total: Option<u64>, available: Option<u64>) -> u64 {
+fn percentage(total: Option<u64>, available: Option<u64>) -> Option<f64> {
     match (total, available) {
         (Some(total), Some(available)) if total > 0 => {
             let used = total.saturating_sub(available);
-            u64::try_from(u128::from(used) * 100 / u128::from(total)).unwrap_or(100)
+            let basis_points =
+                u32::try_from(u128::from(used) * 10_000 / u128::from(total)).unwrap_or(10_000);
+            Some(f64::from(basis_points) / 100.0)
         },
-        _ => 0,
-    }
-}
-
-fn ratio(used: u64, total: u64) -> u64 {
-    if total == 0 {
-        0
-    } else {
-        u64::try_from(u128::from(used) * 100 / u128::from(total)).unwrap_or(100)
+        _ => None,
     }
 }
 
@@ -146,16 +144,18 @@ mod tests {
 
     #[test]
     fn computes_bounded_memory_percentage() {
-        assert_eq!(percentage(Some(100), Some(25)), 75);
-        assert_eq!(percentage(Some(100), Some(120)), 0);
-        assert_eq!(percentage(None, None), 0);
+        assert_eq!(percentage(Some(100), Some(25)), Some(75.0));
+        assert_eq!(percentage(Some(100), Some(120)), Some(0.0));
+        assert_eq!(percentage(None, None), None);
     }
 
     #[test]
     fn replaces_local_charts_with_server_history() {
         let mut app = App::new(true);
-        app.telemetry_history
-            .push_back(TelemetryPoint { e2e: 999, ..Default::default() });
+        app.telemetry_history.push_back(TelemetryPoint {
+            memory_percent: Some(99.0),
+            ..Default::default()
+        });
         app.apply_history(&proto::TelemetryHistoryResponse {
             samples: vec![proto::TelemetryHistorySample {
                 e2e_tokens_per_second: Some(24.4),
@@ -167,8 +167,8 @@ mod tests {
             sampling_interval_ms: 1_000,
         });
         let points = app.telemetry_history.iter().copied().collect::<Vec<_>>();
-        assert_eq!(points[0].e2e, 24);
-        assert_eq!(points[0].memory_percent, 75);
+        assert_eq!(points[0].memory_percent, Some(75.0));
+        assert_eq!(points[0].memory_used_bytes, Some(75));
     }
 
     #[test]

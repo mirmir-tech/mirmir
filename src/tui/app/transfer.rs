@@ -115,7 +115,7 @@ async fn forward(
     sender: mpsc::Sender<Result<proto::ModelTransferEvent, String>>,
 ) {
     while let Some(event) = stream.next().await {
-        let event = event.map_err(|error| error.to_string());
+        let event = crate::tui::string_result(event);
         if sender.send(event).await.is_err() {
             break;
         }

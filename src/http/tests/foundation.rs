@@ -76,7 +76,7 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     let bootstrap = client.get(format!("{base}/api/mirmir/v1/bootstrap")).send().await?;
     assert_eq!(bootstrap.status(), StatusCode::OK);
     let bootstrap = bootstrap.json::<Value>().await?;
-    assert_eq!(bootstrap["schema_version"], 6);
+    assert_eq!(bootstrap["schema_version"], 7);
     assert_eq!(bootstrap["application"], "mirmir");
     assert_eq!(bootstrap["management_api_base"], "/api/mirmir/v1");
     assert_eq!(bootstrap["capabilities"]["management"], "model-lifecycle");
@@ -104,7 +104,8 @@ fn assert_stylesheet(stylesheet: &str) {
     assert!(stylesheet.contains(".badge.loading, .badge.queued, .badge.running"));
     assert!(stylesheet.contains(".badge.unavailable"));
     assert!(stylesheet.contains("overscroll-behavior: contain"));
-    assert!(stylesheet.contains(".dashboard-grid"));
+    assert!(stylesheet.contains(".device-grid"));
     assert!(stylesheet.contains(".telemetry-chart"));
+    assert!(stylesheet.contains("radial-gradient"));
     assert!(stylesheet.contains(".activity-timeline"));
 }

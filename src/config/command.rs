@@ -120,10 +120,12 @@ fn edit_temporary(store: &Store, temporary: &std::path::Path) -> Result<()> {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_owned());
-    let status = Command::new(&editor)
-        .arg(temporary)
-        .status()
-        .map_err(|error| Error::Config(format!("failed to start editor `{editor}`: {error}")))?;
+    let status = match Command::new(&editor).arg(temporary).status() {
+        Ok(status) => status,
+        Err(error) => {
+            return Err(Error::Config(format!("failed to start editor `{editor}`: {error}")));
+        },
+    };
     if !status.success() {
         return Err(Error::Config(format!("editor `{editor}` exited with {status}")));
     }

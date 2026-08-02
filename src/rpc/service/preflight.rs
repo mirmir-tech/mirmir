@@ -12,6 +12,12 @@ pub(super) struct MemoryReport {
     pub source: String,
     pub fit: &'static str,
     pub max_safe_context: Option<u64>,
+    capacity: Option<u64>,
+}
+
+pub(super) enum Check {
+    Ready,
+    Pressure { message: String, eviction_can_help: bool },
 }
 
 pub(super) fn check(
@@ -20,9 +26,8 @@ pub(super) fn check(
     overrides: GenerationOverrides,
     selector: &str,
     force: bool,
-) -> Result<(), Status> {
-    let descriptor = ModelDescriptor::inspect(path, overrides)
-        .map_err(|error| Status::failed_precondition(error.to_string()))?;
+) -> Result<Check, Status> {
+    let descriptor = super::status::failed_precondition(ModelDescriptor::inspect(path, overrides))?;
     let report = report(library, &descriptor)?;
     let estimate = report.estimate;
     let available = report.available;
@@ -46,17 +51,20 @@ pub(super) fn check(
     );
     let Some(budget) = budget else {
         tracing::warn!(model = selector, "memory preflight has no reliable device budget");
-        return Ok(());
+        return Ok(Check::Ready);
     };
     if estimate.required_bytes <= budget {
-        return Ok(());
+        return Ok(Check::Ready);
     }
     let message = rejection(estimate, budget);
     if force {
         tracing::warn!(model = selector, %message, "forcing model load despite memory preflight");
-        Ok(())
+        Ok(Check::Ready)
     } else {
-        Err(Status::resource_exhausted(message))
+        Ok(Check::Pressure {
+            message,
+            eviction_can_help: eviction_can_help(estimate.required_bytes, report.capacity),
+        })
     }
 }
 
@@ -64,13 +72,14 @@ pub(super) fn report(
     library: &Library,
     descriptor: &ModelDescriptor,
 ) -> Result<MemoryReport, Status> {
-    let estimate = descriptor.memory_estimate(library.config());
-    let memory = library
-        .memory_snapshot()
-        .map_err(|error| Status::failed_precondition(error.to_string()))?;
+    let config = super::status::failed_precondition(library.model_config(descriptor))?;
+    let target = super::status::failed_precondition(library.backend_target())?;
+    let estimate = descriptor.memory_estimate_for(&config, &target);
+    let memory = super::status::failed_precondition(library.memory_snapshot())?;
     let available = memory.available_bytes.map(|bytes| bytes.saturating_add(memory.cached_bytes));
-    let reserve = memory.total_bytes.map(|total| (total / 10).max(GIB));
-    let budget = available.zip(reserve).map(|(free, reserve)| free.saturating_sub(reserve));
+    let reserve = library.config().memory.hard_reserve_bytes(&memory);
+    let budget = available.map(|free| free.saturating_sub(reserve));
+    let capacity = memory.total_bytes.map(|total| total.saturating_sub(reserve));
     let fit = match budget {
         Some(budget) if estimate.required_bytes <= budget => "fits",
         Some(_) => "does_not_fit",
@@ -84,6 +93,7 @@ pub(super) fn report(
         source: memory.source,
         fit,
         max_safe_context,
+        capacity,
     })
 }
 
@@ -115,6 +125,10 @@ fn gib(bytes: u64) -> String {
     format!("{}.{:02} GiB", hundredths / 100, hundredths % 100)
 }
 
+fn eviction_can_help(required: u64, capacity: Option<u64>) -> bool {
+    capacity.is_none_or(|capacity| required <= capacity)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +148,12 @@ mod tests {
         assert!(message.contains("10.00 GiB"));
         assert!(message.contains("safe context is 1024 tokens"));
         assert!(message.contains("--force"));
+    }
+
+    #[test]
+    fn eviction_is_skipped_when_the_model_exceeds_total_safe_capacity() {
+        assert!(eviction_can_help(8 * GIB, Some(10 * GIB)));
+        assert!(!eviction_can_help(12 * GIB, Some(10 * GIB)));
+        assert!(eviction_can_help(12 * GIB, None));
     }
 }

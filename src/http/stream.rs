@@ -22,14 +22,7 @@ pub fn response(
 ) -> Response {
     let (sender, receiver) = mpsc::channel(32);
     drop(tokio::spawn(async move {
-        if !send_json(
-            &sender,
-            chunk(&id, created, &model, &json!({"role": "assistant"}), None, None),
-        )
-        .await
-        {
-            return;
-        }
+        let mut role_sent = false;
         loop {
             let event = tokio::select! {
                 _result = shutdown.changed() => return,
@@ -40,11 +33,24 @@ pub fn response(
             };
             match event {
                 Ok(event) => {
-                    if !handle_event(&sender, event, &id, created, &model, include_usage).await {
+                    if !handle_event(
+                        &sender, event, &id, created, &model, include_usage, &mut role_sent,
+                    )
+                    .await
+                    {
                         return;
                     }
                 },
                 Err(status) => {
+                    if !role_sent
+                        && !send_json(
+                            &sender,
+                            chunk(&id, created, &model, &json!({"role": "assistant"}), None, None),
+                        )
+                        .await
+                    {
+                        return;
+                    }
                     let error = ApiError::status_envelope(status);
                     let _sent = send_json(&sender, error).await;
                     break;
@@ -65,12 +71,14 @@ async fn handle_event(
     created: u64,
     model: &str,
     include_usage: bool,
+    role_sent: &mut bool,
 ) -> bool {
     match event.event {
         Some(proto::generate_event::Event::Token(token)) => {
             let Some(delta) = token_delta(&token) else {
                 return true;
             };
+            let delta = with_role(delta, role_sent);
             send_json(sender, chunk(id, created, model, &delta, None, None)).await
         },
         Some(proto::generate_event::Event::Completion(completion)) => {
@@ -81,23 +89,20 @@ async fn handle_event(
                     .enumerate()
                     .filter_map(tool_call_delta)
                     .collect::<Vec<_>>();
-                if !send_json(
-                    sender,
-                    chunk(id, created, model, &json!({"tool_calls": calls}), None, None),
-                )
-                .await
-                {
+                let delta = with_role(json!({"tool_calls": calls}), role_sent);
+                if !send_json(sender, chunk(id, created, model, &delta, None, None)).await {
                     return false;
                 }
             }
             let usage = include_usage.then(|| Usage::from_completion(&completion));
+            let delta = with_role(json!({}), role_sent);
             send_json(
                 sender,
                 chunk(
                     id,
                     created,
                     model,
-                    &json!({}),
+                    &delta,
                     Some(completion.finish_reason.as_str()),
                     usage.as_ref(),
                 ),
@@ -106,6 +111,16 @@ async fn handle_event(
         },
         Some(proto::generate_event::Event::Started(_)) | None => true,
     }
+}
+
+fn with_role(mut delta: serde_json::Value, role_sent: &mut bool) -> serde_json::Value {
+    if !*role_sent {
+        if let Some(fields) = delta.as_object_mut() {
+            fields.insert("role".to_owned(), json!("assistant"));
+        }
+        *role_sent = true;
+    }
+    delta
 }
 
 fn token_delta(token: &proto::Token) -> Option<serde_json::Value> {
@@ -183,5 +198,18 @@ mod tests {
             channel: "tool_calls".into(),
         });
         assert_eq!(delta, None);
+    }
+
+    #[test]
+    fn attaches_the_role_only_to_the_first_delta() {
+        let mut sent = false;
+        assert_eq!(
+            with_role(json!({"content": "first"}), &mut sent),
+            json!({"role": "assistant", "content": "first"})
+        );
+        assert_eq!(
+            with_role(json!({"content": "second"}), &mut sent),
+            json!({"content": "second"})
+        );
     }
 }

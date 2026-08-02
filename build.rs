@@ -21,8 +21,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn build_dashboard() -> Result<(), Box<dyn std::error::Error>> {
     let output = PathBuf::from(env::var("OUT_DIR")?).join("dashboard");
-    if !Path::new("web/src").exists() {
+    println!("cargo:rerun-if-env-changed=MIRMIR_REBUILD_DASHBOARD");
+    if env::var_os("MIRMIR_REBUILD_DASHBOARD").is_none() {
         return copy_dashboard(Path::new("src/web/dashboard"), &output);
+    }
+    rebuild_dashboard()?;
+    copy_dashboard(Path::new("web/dist"), &output)
+}
+
+fn rebuild_dashboard() -> Result<(), Box<dyn std::error::Error>> {
+    if !Path::new("web/src").exists() {
+        return Err("dashboard sources are not included in this package".into());
     }
     for path in ["web/Cargo.toml", "web/Cargo.lock", "web/Trunk.toml", "web/index.html"] {
         println!("cargo:rerun-if-changed={path}");
@@ -31,12 +40,17 @@ fn build_dashboard() -> Result<(), Box<dyn std::error::Error>> {
     let status = Command::new("trunk")
         .args(["build", "--release"])
         .current_dir(Path::new("web"))
-        .status()
-        .map_err(|error| format!("Trunk is required to build the Leptos dashboard: {error}"))?;
+        .status();
+    let status = match status {
+        Ok(status) => status,
+        Err(error) => {
+            return Err(format!("Trunk is required to build the Leptos dashboard: {error}").into());
+        },
+    };
     if !status.success() {
         return Err("building the Leptos dashboard with Trunk failed".into());
     }
-    copy_dashboard(Path::new("web/dist"), &output)
+    Ok(())
 }
 
 fn copy_dashboard(source: &Path, output: &Path) -> Result<(), Box<dyn std::error::Error>> {

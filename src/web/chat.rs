@@ -30,6 +30,8 @@ pub struct ChatRequest {
     model: String,
     messages: Vec<Message>,
     max_tokens: Option<u64>,
+    min_tokens: Option<u64>,
+    ignore_eos: Option<bool>,
     temperature: Option<f32>,
     top_p: Option<f32>,
     top_k: Option<u64>,
@@ -90,12 +92,8 @@ pub async fn chat(
         )));
     }
     let request = proto::GenerateRequest::try_from(chat)?;
-    let mut source = state
-        .service()
-        .generate(Request::new(request))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let mut source =
+        super::result::status(state.service().generate(Request::new(request)).await)?.into_inner();
     let mut shutdown = state.shutdown();
     let (sender, receiver) = mpsc::channel::<Result<Event, Infallible>>(32);
     drop(tokio::spawn(async move {
@@ -169,14 +167,17 @@ impl TryFrom<ChatRequest> for proto::GenerateRequest {
     fn try_from(chat: ChatRequest) -> Result<Self, Self::Error> {
         let mut messages: Vec<proto::ChatMessageInput> =
             chat.messages.into_iter().map(Into::into).collect();
-        let image = chat
-            .image
-            .map(|value| {
-                decode_data_url(&value).map_err(|error| {
-                    WebError::from_status(tonic::Status::invalid_argument(error.to_string()))
-                })
-            })
-            .transpose()?;
+        let image = match chat.image {
+            Some(value) => match decode_data_url(&value) {
+                Ok(image) => Some(image),
+                Err(error) => {
+                    return Err(WebError::from_status(tonic::Status::invalid_argument(
+                        error.to_string(),
+                    )));
+                },
+            },
+            None => None,
+        };
         if image.is_some() {
             let message =
                 messages.iter_mut().rev().find(|message| message.role == "user").ok_or_else(
@@ -192,6 +193,8 @@ impl TryFrom<ChatRequest> for proto::GenerateRequest {
             model: chat.model,
             prompt: String::new(),
             max_tokens: chat.max_tokens,
+            min_tokens: chat.min_tokens,
+            ignore_eos: chat.ignore_eos,
             temperature: chat.temperature,
             top_p: chat.top_p,
             top_k: chat.top_k,

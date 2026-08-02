@@ -99,54 +99,19 @@ fn values(config: &AppConfig, document: &toml::Value) -> Vec<PresentedValue> {
 
 fn server_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document: &toml::Value) {
     push(values, document, "server.http_bind", &config.server.http_bind, true, true);
-    push(
-        values,
-        document,
-        "server.allow_remote",
-        &config.server.allow_remote.to_string(),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "server.web_enabled",
-        &config.server.web_enabled.to_string(),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "server.cors_origins",
-        &config.server.cors_origins.join(", "),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "server.body_limit_bytes",
-        &config.server.body_limit_bytes.to_string(),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "server.request_timeout_seconds",
-        &config.server.request_timeout_seconds.to_string(),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "server.max_concurrency",
-        &config.server.max_concurrency.to_string(),
-        true,
-        true,
-    );
+    for (key, value) in [
+        ("server.allow_remote", config.server.allow_remote.to_string()),
+        ("server.web_enabled", config.server.web_enabled.to_string()),
+        ("server.cors_origins", config.server.cors_origins.join(", ")),
+        ("server.body_limit_bytes", config.server.body_limit_bytes.to_string()),
+        (
+            "server.request_timeout_seconds",
+            config.server.request_timeout_seconds.to_string(),
+        ),
+        ("server.max_concurrency", config.server.max_concurrency.to_string()),
+    ] {
+        push(values, document, key, &value, true, true);
+    }
 }
 
 fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document: &toml::Value) {
@@ -190,6 +155,38 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
         document,
         "runtime.max_batch_tokens",
         &optional(config.runtime.max_batch_tokens),
+        true,
+        true,
+    );
+    push(
+        values,
+        document,
+        "runtime.decode_batch_wait_us",
+        &optional(config.runtime.decode_batch_wait_us),
+        true,
+        true,
+    );
+    push(
+        values,
+        document,
+        "runtime.decode_priority_burst",
+        &optional(config.runtime.decode_priority_burst),
+        true,
+        true,
+    );
+    push(
+        values,
+        document,
+        "runtime.memory_reserve_percent",
+        &optional(config.runtime.memory_reserve_percent),
+        true,
+        true,
+    );
+    push(
+        values,
+        document,
+        "runtime.memory_reserve_bytes",
+        &optional(config.runtime.memory_reserve_bytes),
         true,
         true,
     );

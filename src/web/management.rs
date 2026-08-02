@@ -77,37 +77,34 @@ struct Accepted {
     accepted: bool,
     operation: &'static str,
 }
-
 #[derive(Serialize)]
 struct Unloaded {
     unloaded: bool,
 }
-
 #[derive(Serialize)]
 struct Removed {
     removed: bool,
     freed_bytes: u64,
 }
-
 #[derive(Serialize)]
 struct Cancelled {
     found: bool,
     accepted: bool,
     state: String,
 }
-
 pub async fn inspect(
     State(state): State<ApiState>,
     headers: HeaderMap,
     Query(query): Query<InspectQuery>,
 ) -> Result<Response, WebError> {
     state.sessions().authenticate(&headers)?;
-    let inspected = state
-        .service()
-        .inspect_model(Request::new(proto::InspectModelRequest { selector: query.selector }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let inspected = super::result::status(
+        state
+            .service()
+            .inspect_model(Request::new(proto::InspectModelRequest { selector: query.selector }))
+            .await,
+    )?
+    .into_inner();
     let memory = inspected.memory.ok_or_else(|| WebError::runtime("memory estimate missing"))?;
     let response = Inspection {
         settings: inspected.settings.map(Settings::from),
@@ -125,20 +122,21 @@ pub async fn load(
     Json(request): Json<LoadRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let mut events = state
-        .service()
-        .load_model(Request::new(proto::LoadModelRequest {
-            selector: request.selector,
-            settings: request.settings.map(Into::into),
-            config_id: request.config_id,
-            repo_id: request.repo_id,
-            revision: request.revision,
-            commit: request.commit,
-            force: request.force,
-        }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let mut events = super::result::status(
+        state
+            .service()
+            .load_model(Request::new(proto::LoadModelRequest {
+                selector: request.selector,
+                settings: request.settings.map(Into::into),
+                config_id: request.config_id,
+                repo_id: request.repo_id,
+                revision: request.revision,
+                commit: request.commit,
+                force: request.force,
+            }))
+            .await,
+    )?
+    .into_inner();
     drop(tokio::spawn(async move { while events.next().await.is_some() {} }));
     Ok(accepted("load"))
 }
@@ -149,13 +147,14 @@ pub async fn unload(
     Json(request): Json<SelectorRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let unloaded = state
-        .service()
-        .unload_model(Request::new(proto::UnloadModelRequest { selector: request.selector }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner()
-        .unloaded;
+    let unloaded = super::result::status(
+        state
+            .service()
+            .unload_model(Request::new(proto::UnloadModelRequest { selector: request.selector }))
+            .await,
+    )?
+    .into_inner()
+    .unloaded;
     Ok((security_headers(), Json(Unloaded { unloaded })).into_response())
 }
 
@@ -165,12 +164,13 @@ pub async fn remove(
     Json(request): Json<RemoveRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let removed = state
-        .service()
-        .remove_model(Request::new(proto::RemoveModelRequest { repo_id: request.repo_id }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let removed = super::result::status(
+        state
+            .service()
+            .remove_model(Request::new(proto::RemoveModelRequest { repo_id: request.repo_id }))
+            .await,
+    )?
+    .into_inner();
     Ok((
         security_headers(),
         Json(Removed {
@@ -187,14 +187,15 @@ pub async fn cancel(
     Json(request): Json<CancelRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let cancelled = state
-        .service()
-        .cancel_operation(Request::new(proto::CancelOperationRequest {
-            operation_id: request.operation_id,
-        }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let cancelled = super::result::status(
+        state
+            .service()
+            .cancel_operation(Request::new(proto::CancelOperationRequest {
+                operation_id: request.operation_id,
+            }))
+            .await,
+    )?
+    .into_inner();
     Ok((
         security_headers(),
         Json(Cancelled {

@@ -85,11 +85,8 @@ impl App {
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();
         drop(tokio::spawn(async move {
-            let result = client
-                .remove_model(request)
-                .await
-                .map(tonic::Response::into_inner)
-                .map_err(|error| error.to_string());
+            let result = crate::tui::string_result(client.remove_model(request).await)
+                .map(tonic::Response::into_inner);
             drop(sender.send(result).await);
         }));
         self.action_message = Some(format!("removing {}…", target.id));

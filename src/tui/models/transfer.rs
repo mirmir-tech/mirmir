@@ -18,7 +18,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
             .action_message
             .as_deref()
             .or(selected_error)
-            .unwrap_or("Enter action · l load · u unload · r remove · / search");
+            .unwrap_or("Select a model to inspect its available actions");
         frame.render_widget(Paragraph::new(text).style(Style::new().fg(theme::MUTED)), area);
         return;
     };

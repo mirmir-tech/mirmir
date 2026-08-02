@@ -1,54 +1,162 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::Style,
-    widgets::{Block, Sparkline},
+    style::{Color, Modifier, Style},
+    symbols::Marker,
+    text::{Line, Span},
+    widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph},
 };
 
 use crate::tui::{app::App, theme};
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let columns = Layout::horizontal([
-        Constraint::Percentage(50),
-        Constraint::Percentage(25),
-        Constraint::Percentage(25),
-    ])
-    .split(area);
-    let e2e = app.telemetry_history.iter().map(|point| point.e2e).collect::<Vec<_>>();
-    let prefill = app.telemetry_history.iter().map(|point| point.prefill).collect::<Vec<_>>();
-    let decode = app.telemetry_history.iter().map(|point| point.decode).collect::<Vec<_>>();
-    let memory = app
+    let rows = Layout::vertical([Constraint::Ratio(1, 2); 2]).split(area);
+    let top = Layout::horizontal([Constraint::Ratio(1, 2); 2]).split(rows[0]);
+    let bottom = Layout::horizontal([Constraint::Ratio(1, 2); 2]).split(rows[1]);
+    let memory = values(app, |point| point.memory_percent);
+    let gpu = values(app, |point| point.gpu_percent);
+    let temperature = values(app, |point| point.temperature_celsius);
+    chart(frame, top[0], "MEMORY", theme::SIGNAL, &memory, 100.0, memory_label(app));
+    chart(frame, top[1], "GPU", theme::GLACIER, &gpu, 100.0, latest(&gpu, "%"));
+    chart(
+        frame,
+        bottom[0],
+        "TEMPERATURE",
+        theme::DANGER,
+        &temperature,
+        100.0,
+        latest(&temperature, "°C"),
+    );
+    let power = values(app, |point| point.power_watts);
+    let limit = app
         .telemetry_history
         .iter()
-        .map(|point| point.memory_percent)
-        .collect::<Vec<_>>();
-    let kv = app.telemetry_history.iter().map(|point| point.kv_percent).collect::<Vec<_>>();
-    rates(frame, columns[0], &e2e, &prefill, &decode);
-    spark(frame, columns[1], &memory, " MEMORY % ", theme::SIGNAL);
-    spark(frame, columns[2], &kv, " K/V CACHE % ", theme::SUCCESS);
+        .filter_map(|point| point.power_limit_watts)
+        .fold(0.0, f64::max);
+    chart(
+        frame,
+        bottom[1],
+        "POWER",
+        theme::SUCCESS,
+        &power,
+        limit,
+        power_label(&power, limit),
+    );
 }
 
-fn rates(frame: &mut Frame<'_>, area: Rect, e2e: &[u64], prefill: &[u64], decode: &[u64]) {
-    let rows = Layout::vertical([Constraint::Ratio(1, 3); 3]).split(area);
-    spark(frame, rows[0], e2e, " E2E TOK/S ", theme::GLACIER);
-    spark(frame, rows[1], prefill, " PREFILL TOK/S ", theme::SIGNAL);
-    spark(frame, rows[2], decode, " DECODE TOK/S ", theme::SUCCESS);
+fn values(
+    app: &App,
+    field: impl Fn(&crate::tui::app::TelemetryPoint) -> Option<f64>,
+) -> Vec<(f64, f64)> {
+    app.telemetry_history
+        .iter()
+        .enumerate()
+        .filter_map(|(index, point)| {
+            let index = u32::try_from(index).ok().map(f64::from)?;
+            field(point).map(|value| (index, value))
+        })
+        .collect()
 }
 
-fn spark(
+fn chart(
     frame: &mut Frame<'_>,
     area: Rect,
-    values: &[u64],
-    title: &str,
-    color: ratatui::style::Color,
+    label: &str,
+    color: Color,
+    values: &[(f64, f64)],
+    expected_maximum: f64,
+    value_label: String,
 ) {
-    let maximum = values.iter().copied().max().unwrap_or(1).max(1);
+    let block = Block::bordered()
+        .title(Line::from(vec![
+            Span::styled(
+                format!(" {label} "),
+                Style::new().fg(theme::INK).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(value_label, Style::new().fg(color)),
+        ]))
+        .border_style(Style::new().fg(theme::BORDER))
+        .style(Style::new().bg(theme::SURFACE));
+    if values.is_empty() {
+        frame.render_widget(
+            Paragraph::new("telemetry unavailable")
+                .centered()
+                .style(Style::new().fg(theme::MUTED))
+                .block(block),
+            area,
+        );
+        return;
+    }
+    let measured_maximum = values.iter().map(|(_, value)| *value).fold(0.0, f64::max);
+    let maximum = expected_maximum.max(measured_maximum * 1.1).max(1.0);
+    let x_maximum = values.last().map_or(1.0, |(index, _)| *index).max(1.0);
+    let datasets = vec![
+        Dataset::default()
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Area)
+            .fill_to_y(0.0)
+            .style(Style::new().fg(color))
+            .data(values),
+    ];
     frame.render_widget(
-        Sparkline::default()
-            .block(Block::bordered().title(title).border_style(Style::new().fg(theme::BORDER)))
-            .data(values)
-            .max(maximum)
-            .style(Style::new().fg(color).bg(theme::SURFACE)),
+        Chart::new(datasets)
+            .block(block)
+            .x_axis(Axis::default().bounds([0.0, x_maximum]))
+            .y_axis(Axis::default().bounds([0.0, maximum])),
         area,
     );
+}
+
+fn latest(values: &[(f64, f64)], unit: &str) -> String {
+    values
+        .last()
+        .map_or_else(|| "—".to_owned(), |(_, value)| format!("{value:.1}{unit} "))
+}
+
+fn memory_label(app: &App) -> String {
+    app.telemetry_history
+        .iter()
+        .rev()
+        .find_map(|point| {
+            let used = point.memory_used_bytes?;
+            let total = point.memory_total_bytes?;
+            let percent = point.memory_percent?;
+            let (used, total, unit) = byte_values(used, total);
+            Some(format!("{used:.1}/{total:.1} {unit} · {percent:.1}% "))
+        })
+        .unwrap_or_else(|| "—".to_owned())
+}
+
+fn byte_values(used: u64, total: u64) -> (f64, f64, &'static str) {
+    const GIB: u64 = 1_073_741_824;
+    const MIB: u64 = 1_048_576;
+    let divisor = if total >= GIB {
+        GIB
+    } else {
+        MIB
+    };
+    let unit = if total >= GIB {
+        "GiB"
+    } else {
+        "MiB"
+    };
+    (decimal_tenths(used, divisor), decimal_tenths(total, divisor), unit)
+}
+
+fn decimal_tenths(bytes: u64, divisor: u64) -> f64 {
+    let tenths = u32::try_from(u128::from(bytes) * 10 / u128::from(divisor)).unwrap_or(u32::MAX);
+    f64::from(tenths) / 10.0
+}
+
+fn power_label(values: &[(f64, f64)], limit: f64) -> String {
+    values.last().map_or_else(
+        || "—".to_owned(),
+        |(_, value)| {
+            if limit > 0.0 {
+                format!("{value:.1}/{limit:.1} W ")
+            } else {
+                format!("{value:.1} W ")
+            }
+        },
+    )
 }

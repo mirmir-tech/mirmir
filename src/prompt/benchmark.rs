@@ -78,6 +78,8 @@ fn request(args: &PromptArgs, model: String, prompt: String) -> Result<proto::Ge
         model,
         prompt,
         max_tokens: args.max_tokens.map(u64::try_from).transpose()?,
+        min_tokens: None,
+        ignore_eos: None,
         temperature: args.temperature,
         top_p: args.top_p,
         top_k: args.top_k.map(u64::try_from).transpose()?,

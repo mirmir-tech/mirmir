@@ -2,12 +2,12 @@ mod app;
 mod chat;
 mod configuration;
 mod confirm;
+mod footer;
 mod help;
 mod load;
 mod models;
 mod overview;
 mod render;
-mod startup;
 mod terminal;
 #[cfg(test)]
 mod tests;
@@ -109,15 +109,25 @@ fn begin_chat_telemetry(
 ) -> tokio::task::JoinHandle<std::result::Result<rpc::proto::TelemetrySnapshot, String>> {
     let mut client = client.clone();
     tokio::spawn(async move {
-        tokio::time::timeout(
+        let Ok(response) = tokio::time::timeout(
             Duration::from_secs(1),
             client.telemetry(rpc::proto::TelemetryRequest {}),
         )
         .await
-        .map_err(|_| "chat telemetry timed out".to_owned())?
-        .map(tonic::Response::into_inner)
-        .map_err(|error| error.to_string())
+        else {
+            return Err("chat telemetry timed out".to_owned());
+        };
+        Ok(string_result(response)?.into_inner())
     })
+}
+
+pub fn string_result<T, E: std::fmt::Display>(
+    result: std::result::Result<T, E>,
+) -> std::result::Result<T, String> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn begin_refresh(

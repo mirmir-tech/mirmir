@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
 
 pub fn connect(state: RuntimeState) {
     spawn_local(async move {
@@ -61,7 +61,7 @@ async fn establish(state: RuntimeState) -> Result<WebSocket, String> {
     if let Ok(history) = api::get::<History>("/telemetry/history?limit=900").await {
         state.telemetry.set(history.samples.iter().map(TelemetryPoint::from).collect());
     }
-    WebSocket::open(&socket_url()?).map_err(|error| error.to_string())
+    crate::result::string(WebSocket::open(&socket_url()?))
 }
 
 async fn consume(state: RuntimeState, mut socket: WebSocket) {
@@ -134,8 +134,12 @@ fn socket_url() -> Result<String, String> {
     let location = web_sys::window()
         .ok_or_else(|| "browser window unavailable".to_owned())?
         .location();
-    let protocol = location.protocol().map_err(|_| "location protocol unavailable")?;
-    let host = location.host().map_err(|_| "location host unavailable")?;
+    let Ok(protocol) = location.protocol() else {
+        return Err("location protocol unavailable".to_owned());
+    };
+    let Ok(host) = location.host() else {
+        return Err("location host unavailable".to_owned());
+    };
     let scheme = if protocol == "https:" {
         "wss"
     } else {
@@ -150,57 +154,41 @@ impl From<&HistorySample> for TelemetryPoint {
             usage_percent(sample.memory_total_bytes, sample.memory_available_bytes);
         Self {
             sampled_at_unix_ms: sample.sampled_at_unix_ms,
-            e2e: sample.e2e_tokens_per_second.unwrap_or_default(),
-            prefill: sample.prefill_tokens_per_second.unwrap_or_default(),
-            decode: sample.decode_tokens_per_second.unwrap_or_default(),
             memory_percent,
-            kv_percent: percent(sample.kv_used_blocks, sample.kv_total_blocks),
+            gpu_percent: sample.gpu_utilization_percent,
+            temperature_celsius: sample.device_temperature_celsius,
+            power_watts: sample.device_power_watts,
+            power_limit_watts: sample.device_power_limit_watts,
         }
     }
 }
 
 impl From<&Overview> for TelemetryPoint {
     fn from(overview: &Overview) -> Self {
-        let active = overview.active_requests > 0;
         Self {
             sampled_at_unix_ms: overview.sampled_at_unix_ms,
-            e2e: if active {
-                overview.current_tokens_per_second
-            } else {
-                overview.last_tokens_per_second
-            }
-            .unwrap_or_default(),
-            prefill: if active {
-                overview.current_prefill_tokens_per_second
-            } else {
-                overview.last_prefill_tokens_per_second
-            }
-            .unwrap_or_default(),
-            decode: if active {
-                overview.current_decode_tokens_per_second
-            } else {
-                overview.last_decode_tokens_per_second
-            }
-            .unwrap_or_default(),
             memory_percent: usage_percent(
                 overview.host_total_memory_bytes,
                 overview.host_available_memory_bytes,
             ),
-            kv_percent: percent(overview.kv_used_blocks, overview.kv_total_blocks),
+            gpu_percent: overview.gpu_utilization_percent,
+            temperature_celsius: overview.device_temperature_celsius,
+            power_watts: overview.device_power_watts,
+            power_limit_watts: overview.device_power_limit_watts,
         }
     }
 }
 
-fn usage_percent(total: Option<u64>, available: Option<u64>) -> f64 {
+fn usage_percent(total: Option<u64>, available: Option<u64>) -> Option<f64> {
     total
         .zip(available)
-        .map_or(0.0, |(total, available)| percent(total.saturating_sub(available), total))
+        .and_then(|(total, available)| percent(total.saturating_sub(available), total))
 }
 
-fn percent(used: u64, total: u64) -> f64 {
+fn percent(used: u64, total: u64) -> Option<f64> {
     if total == 0 {
-        0.0
+        None
     } else {
-        100.0 * used as f64 / total as f64
+        Some(100.0 * used as f64 / total as f64)
     }
 }

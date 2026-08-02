@@ -13,9 +13,15 @@ impl Store {
         } else {
             toml::to_string_pretty(&AppConfig::default())?
         };
-        let mut document = raw.parse::<DocumentMut>().map_err(|error| {
-            Error::Config(format!("cannot edit {}: {error}", self.paths.config_file.display()))
-        })?;
+        let mut document = match raw.parse::<DocumentMut>() {
+            Ok(document) => document,
+            Err(error) => {
+                return Err(Error::Config(format!(
+                    "cannot edit {}: {error}",
+                    self.paths.config_file.display()
+                )));
+            },
+        };
         patch(&mut document, key, input.trim())?;
         let rendered = document.to_string();
         let config: AppConfig = toml::from_str(&rendered)?;
@@ -51,6 +57,18 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
             optional_integer(document, "max_batch_requests", key, input)?;
         },
         "runtime.max_batch_tokens" => optional_integer(document, "max_batch_tokens", key, input)?,
+        "runtime.decode_batch_wait_us" => {
+            optional_integer(document, "decode_batch_wait_us", key, input)?;
+        },
+        "runtime.decode_priority_burst" => {
+            optional_integer(document, "decode_priority_burst", key, input)?;
+        },
+        "runtime.memory_reserve_percent" => {
+            optional_integer(document, "memory_reserve_percent", key, input)?;
+        },
+        "runtime.memory_reserve_bytes" => {
+            optional_integer(document, "memory_reserve_bytes", key, input)?;
+        },
         "runtime.vision_max_pixels" => {
             optional_integer(document, "vision_max_pixels", key, input)?;
         },
@@ -107,9 +125,10 @@ where
     T: std::str::FromStr,
     T::Err: std::fmt::Display,
 {
-    input
-        .parse()
-        .map_err(|error| Error::Config(format!("invalid value for `{key}`: {error}")))
+    match input.parse() {
+        Ok(value) => Ok(value),
+        Err(error) => Err(Error::Config(format!("invalid value for `{key}`: {error}"))),
+    }
 }
 
 const fn automatic(input: &str) -> bool {

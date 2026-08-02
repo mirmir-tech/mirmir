@@ -20,6 +20,9 @@ encapsulated by its backend dependencies.
   defaults and typed runtime configuration remain in `libmir`.
 - Keep tracing subscriber setup here; libraries emit events but do not choose
   presentation or collectors.
+- Keep `benchmarks` limited to the current index and table-only model/platform
+  results. Raw harness output, historical matrices, diagnostics, and
+  performance reasoning belong to the Workmir metarepository.
 
 ## Engineering rules
 

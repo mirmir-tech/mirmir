@@ -109,6 +109,13 @@ impl ApiError {
     }
 }
 
+pub fn status<T>(result: Result<T, tonic::Status>) -> Result<T, ApiError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => Err(ApiError::from_status(error)),
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let unauthorized = self.status == StatusCode::UNAUTHORIZED;

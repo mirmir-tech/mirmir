@@ -73,12 +73,13 @@ pub async fn configuration(
     headers: HeaderMap,
 ) -> Result<Response, WebError> {
     state.sessions().authenticate(&headers)?;
-    let configuration = state
-        .service()
-        .get_configuration(Request::new(proto::GetConfigurationRequest {}))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let configuration = super::result::status(
+        state
+            .service()
+            .get_configuration(Request::new(proto::GetConfigurationRequest {}))
+            .await,
+    )?
+    .into_inner();
     Ok((security_headers(), Json(Configuration::from(configuration))).into_response())
 }
 
@@ -88,14 +89,16 @@ pub async fn update_configuration(
     Json(update): Json<UpdateRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let response = state
-        .service()
-        .update_configuration(Request::new(proto::UpdateConfigurationRequest {
-            operation: Some(operation(update).map_err(WebError::from_status)?),
-        }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let operation = super::result::status(operation(update))?;
+    let response = super::result::status(
+        state
+            .service()
+            .update_configuration(Request::new(proto::UpdateConfigurationRequest {
+                operation: Some(operation),
+            }))
+            .await,
+    )?
+    .into_inner();
     let configuration = response
         .configuration
         .ok_or_else(|| WebError::runtime("runtime omitted updated configuration"))?;

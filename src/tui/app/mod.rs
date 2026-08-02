@@ -19,9 +19,9 @@ pub use chat::{
     ChatLiveMetrics, ChatParameters, ChatSettingsDialog, ChatSettingsStatus, ChatStatus, Message,
 };
 pub use configuration::{ConfigurationEdit, ConfigurationTarget};
-pub use load::{LoadDialog, LoadStatus};
 #[cfg(test)]
-pub use load::{LoadTarget, RestorePosition};
+pub use load::LoadTarget;
+pub use load::{LoadDialog, LoadStatus};
 pub use navigation::{NavigationState, WORKSPACE_PREFIX, WORKSPACE_TABS};
 pub use removal::RemoveDialog;
 pub(super) use telemetry::RefreshSnapshot;
@@ -83,7 +83,6 @@ pub struct App {
     pub list_view: Option<ListView>,
     pub animation_tick: u64,
     pub initial_refresh: InitialRefresh,
-    pub server_reused: bool,
     pub server_version: String,
     pub protocol_version: String,
     pub models: Vec<proto::ModelInfo>,
@@ -131,8 +130,7 @@ pub struct App {
     pub configuration_message: Option<String>,
     pub telemetry_history: VecDeque<TelemetryPoint>,
     restore_queue: VecDeque<String>,
-    restore_total: usize,
-    restore_completed: usize,
+    restore_in_flight: Option<String>,
     restore_rx: Option<mpsc::Receiver<Result<Vec<String>, String>>>,
     transfer_tx: mpsc::Sender<Result<proto::ModelTransferEvent, String>>,
     transfer_rx: mpsc::Receiver<Result<proto::ModelTransferEvent, String>>,
@@ -148,7 +146,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(server_reused: bool) -> Self {
+    pub fn new(_server_reused: bool) -> Self {
         let (transfer_tx, transfer_rx) = mpsc::channel(256);
         Self {
             screen: Screen::Dashboard,
@@ -157,7 +155,6 @@ impl App {
             list_view: None,
             animation_tick: 0,
             initial_refresh: InitialRefresh::Pending,
-            server_reused,
             server_version: "connecting".to_owned(),
             protocol_version: "-".to_owned(),
             models: Vec::new(),
@@ -205,8 +202,7 @@ impl App {
             configuration_message: None,
             telemetry_history: VecDeque::new(),
             restore_queue: VecDeque::new(),
-            restore_total: 0,
-            restore_completed: 0,
+            restore_in_flight: None,
             restore_rx: None,
             transfer_tx,
             transfer_rx,

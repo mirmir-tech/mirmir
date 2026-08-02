@@ -18,10 +18,8 @@ impl TransferQueue {
 
     pub async fn acquire(&self, cancellation: &CancellationToken) -> Result<OwnedSemaphorePermit> {
         let pending = self.slots.clone().acquire_owned();
-        cancellation::wait(pending, cancellation)
-            .await
-            .ok_or(Error::Cancelled)?
-            .map_err(|_| Error::Config("download queue is closed".to_owned()))
+        let permit = cancellation::wait(pending, cancellation).await.ok_or(Error::Cancelled)?;
+        permit.map_or_else(|_| Err(Error::Config("download queue is closed".to_owned())), Ok)
     }
 }
 

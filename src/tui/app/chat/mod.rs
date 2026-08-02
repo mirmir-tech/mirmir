@@ -132,7 +132,7 @@ impl App {
                 Ok(response) => {
                     let mut stream = response.into_inner();
                     while let Some(event) = stream.next().await {
-                        if sender.send(event.map_err(|error| error.to_string())).await.is_err() {
+                        if sender.send(crate::tui::string_result(event)).await.is_err() {
                             break;
                         }
                     }

@@ -37,6 +37,11 @@ pub struct Overview {
     pub active_prompt_tokens: u64,
     pub active_completion_tokens: u64,
     pub active_stage: String,
+    pub gpu_utilization_percent: Option<f64>,
+    pub device_temperature_celsius: Option<f64>,
+    pub device_power_watts: Option<f64>,
+    pub device_power_limit_watts: Option<f64>,
+    pub device_name: String,
 }
 
 #[derive(Serialize)]
@@ -102,6 +107,8 @@ pub struct CatalogModel {
     pub encoding: String,
     pub metal_compatibility: String,
     pub cuda_compatibility: String,
+    pub preflight_bytes: Option<u64>,
+    pub preflight_error: Option<String>,
     #[serde(flatten)]
     pub features: Features,
 }

@@ -16,13 +16,13 @@ impl InstanceGuard {
             .read(true)
             .write(true)
             .open(path)?;
-        FileExt::try_lock_exclusive(&file).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::WouldBlock {
+        if let Err(error) = FileExt::try_lock_exclusive(&file) {
+            return Err(if error.kind() == std::io::ErrorKind::WouldBlock {
                 Error::AlreadyRunning(path.to_owned())
             } else {
                 Error::Io(error)
-            }
-        })?;
+            });
+        }
         Ok(Self { file })
     }
 }

@@ -214,6 +214,8 @@ message CatalogModel {
   string encoding = 21;
   string metal_compatibility = 22;
   string cuda_compatibility = 23;
+  optional uint64 preflight_bytes = 24;
+  optional string preflight_error = 25;
 }
 
 message PullModelRequest {
@@ -253,6 +255,8 @@ message GenerateRequest {
   optional bytes image = 10;
   repeated ChatTool tools = 11;
   optional string tool_choice_json = 12;
+  optional uint64 min_tokens = 13;
+  optional bool ignore_eos = 14;
 }
 
 message ChatMessageInput {
@@ -391,6 +395,11 @@ message TelemetrySnapshot {
   optional double mean_prefill_tokens_per_second = 31;
   optional double last_decode_tokens_per_second = 32;
   optional double mean_decode_tokens_per_second = 33;
+  optional double gpu_utilization_percent = 34;
+  optional double device_temperature_celsius = 35;
+  optional double device_power_watts = 36;
+  optional double device_power_limit_watts = 37;
+  string device_name = 38;
 }
 
 message TelemetryHistoryRequest {
@@ -418,6 +427,10 @@ message TelemetryHistorySample {
   uint64 kv_used_blocks = 12;
   uint64 total_requests = 13;
   uint64 failed_requests = 14;
+  optional double gpu_utilization_percent = 15;
+  optional double device_temperature_celsius = 16;
+  optional double device_power_watts = 17;
+  optional double device_power_limit_watts = 18;
 }
 
 message GetConfigurationRequest {}

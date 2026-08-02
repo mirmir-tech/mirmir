@@ -15,13 +15,12 @@ impl RuntimeService {
         &self,
         selector: &str,
     ) -> Result<proto::InspectModelResponse, Status> {
-        let resolved = self
-            .store
-            .resolve_model(selector)
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let resolved = super::status::invalid(self.store.resolve_model(selector))?;
         let has_mirmir_overrides = resolved.generation.has_overrides();
-        let descriptor = ModelDescriptor::inspect(&resolved.path, overrides(resolved.generation))
-            .map_err(|error| Status::failed_precondition(error.to_string()))?;
+        let descriptor = super::status::failed_precondition(ModelDescriptor::inspect(
+            &resolved.path,
+            overrides(resolved.generation),
+        ))?;
         let memory = super::preflight::report(&self.library, &descriptor)?;
         Ok(proto::InspectModelResponse {
             settings: matches!(descriptor.task(), ModelTask::Generation)
@@ -38,20 +37,19 @@ impl RuntimeService {
             return Ok(request.selector.clone());
         };
         let generation = config(settings)?;
-        let resolved = self
-            .store
-            .resolve_model(&request.selector)
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
-        ModelDescriptor::inspect(&resolved.path, overrides(generation))
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let resolved = super::status::invalid(self.store.resolve_model(&request.selector))?;
+        super::status::invalid(ModelDescriptor::inspect(&resolved.path, overrides(generation)))?;
         let hub = (!request.repo_id.is_empty()).then(|| HubModelConfig {
             repo_id: request.repo_id.clone(),
             revision: request.revision.clone(),
             commit: request.commit.clone(),
         });
-        self.store
-            .save_model_generation(&request.selector, &request.config_id, hub, generation)
-            .map_err(|error| Status::invalid_argument(error.to_string()))
+        super::status::invalid(self.store.save_model_generation(
+            &request.selector,
+            &request.config_id,
+            hub,
+            generation,
+        ))
     }
 
     pub(super) fn save_generation_defaults(
@@ -60,15 +58,11 @@ impl RuntimeService {
         settings: &proto::GenerationSettings,
     ) -> Result<String, Status> {
         let generation = config(settings)?;
-        let resolved = self
-            .store
-            .resolve_model(selector)
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
-        ModelDescriptor::inspect(&resolved.path, overrides(generation))
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
-        self.store
-            .save_model_generation(selector, &resolved.key, None, generation)
-            .map_err(|error| Status::invalid_argument(error.to_string()))
+        let resolved = super::status::invalid(self.store.resolve_model(selector))?;
+        super::status::invalid(ModelDescriptor::inspect(&resolved.path, overrides(generation)))?;
+        super::status::invalid(
+            self.store.save_model_generation(selector, &resolved.key, None, generation),
+        )
     }
 }
 
@@ -141,6 +135,8 @@ fn memory_estimate(value: super::preflight::MemoryReport) -> proto::ModelMemoryE
 const fn overrides(config: GenerationConfig) -> GenerationOverrides {
     GenerationOverrides {
         max_tokens: config.max_tokens,
+        min_tokens: None,
+        ignore_eos: None,
         temperature: config.temperature,
         top_p: config.top_p,
         top_k: config.top_k,
@@ -160,14 +156,10 @@ fn settings(value: libmir::GenerationSettings) -> proto::GenerationSettings {
 
 fn config(value: &proto::GenerationSettings) -> Result<GenerationConfig, Status> {
     Ok(GenerationConfig {
-        max_tokens: Some(usize::try_from(value.max_tokens).map_err(integer)?),
+        max_tokens: Some(super::status::invalid(usize::try_from(value.max_tokens))?),
         temperature: Some(value.temperature),
         top_p: Some(value.top_p),
-        top_k: Some(usize::try_from(value.top_k).map_err(integer)?),
+        top_k: Some(super::status::invalid(usize::try_from(value.top_k))?),
         repetition_penalty: Some(value.repetition_penalty),
     })
-}
-
-fn integer(error: std::num::TryFromIntError) -> Status {
-    Status::invalid_argument(error.to_string())
 }

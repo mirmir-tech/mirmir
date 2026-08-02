@@ -12,6 +12,8 @@ fn converts_dashboard_image_into_the_runtime_contract() {
             reasoning_content: None,
         }],
         max_tokens: None,
+        min_tokens: None,
+        ignore_eos: None,
         temperature: None,
         top_p: None,
         top_k: None,

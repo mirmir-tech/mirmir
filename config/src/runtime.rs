@@ -34,6 +34,7 @@ impl RuntimeArgs {
         }
         if let Some(blocks) = self.kv_blocks {
             config.kv_cache.block_count = blocks;
+            config.automatic_kv_cache = false;
         }
         if let Some(dtype) = self.kv_cache_dtype {
             config.kv_cache.dtype = dtype;

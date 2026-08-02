@@ -30,22 +30,32 @@ pub fn decode_data_url(url: &str) -> Result<Vec<u8>, MediaError> {
     if payload.len() > MAX_IMAGE_BYTES.saturating_mul(4).div_ceil(3) + 4 {
         return Err(invalid("image exceeds the 20 MiB limit"));
     }
-    let decoded = STANDARD.decode(payload).map_err(|_| invalid("image contains invalid base64"))?;
+    let Ok(decoded) = STANDARD.decode(payload) else {
+        return Err(invalid("image contains invalid base64"));
+    };
     validate_image(&decoded, Some(declared_mime))?;
     Ok(decoded)
 }
 
 pub fn read_image(path: &Path) -> Result<AttachedImage, MediaError> {
-    let metadata = std::fs::metadata(path)
-        .map_err(|error| invalid(format!("cannot inspect image {}: {error}", path.display())))?;
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return Err(invalid(format!("cannot inspect image {}: {error}", path.display())));
+        },
+    };
     if !metadata.is_file() {
         return Err(invalid("dropped path is not a file"));
     }
     if metadata.len() > u64::try_from(MAX_IMAGE_BYTES).unwrap_or(u64::MAX) {
         return Err(invalid("image exceeds the 20 MiB limit"));
     }
-    let bytes = std::fs::read(path)
-        .map_err(|error| invalid(format!("cannot read image {}: {error}", path.display())))?;
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Err(invalid(format!("cannot read image {}: {error}", path.display())));
+        },
+    };
     validate_image(&bytes, None)?;
     let name = path
         .file_name()

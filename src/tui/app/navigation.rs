@@ -5,10 +5,10 @@ use super::{App, Screen};
 
 pub const WORKSPACE_PREFIX: &str = " WORKSPACE  ";
 pub const WORKSPACE_TABS: [(Screen, u8, &str, u16); 4] = [
-    (Screen::Dashboard, 1, "Dashboard", 17),
-    (Screen::Models, 2, "Models", 14),
-    (Screen::Chat, 3, "Chat", 12),
-    (Screen::Settings, 4, "Settings", 16),
+    (Screen::Dashboard, 1, "Dashboard", 12),
+    (Screen::Models, 2, "Models", 9),
+    (Screen::Chat, 3, "Chat", 7),
+    (Screen::Settings, 4, "Settings", 11),
 ];
 
 const WORKSPACE_PREFIX_WIDTH: u16 = 12;

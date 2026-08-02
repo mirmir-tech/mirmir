@@ -11,6 +11,7 @@ mod presentation;
 mod restore;
 mod settings;
 mod startup;
+mod status;
 mod tasks;
 mod telemetry;
 
@@ -37,6 +38,8 @@ pub struct RuntimeService {
     catalog: Catalog,
     models: Arc<Mutex<HashMap<String, ModelEntry>>>,
     loading: Arc<Mutex<HashSet<String>>>,
+    model_memory_gate: Arc<Mutex<()>>,
+    model_residency: models::ModelResidency,
     telemetry: Telemetry,
     activity: Activity,
     startup: Startup,
@@ -70,10 +73,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         _request: Request<proto::ListActiveModelsRequest>,
     ) -> Result<Response<proto::ListActiveModelsResponse>, Status> {
-        let selectors = self
-            .store
-            .active_models()
-            .map_err(|error| Status::internal(error.to_string()))?;
+        let selectors = status::internal(self.store.active_models())?;
         self.report_state_recovery()?;
         Ok(Response::new(proto::ListActiveModelsResponse { selectors }))
     }
@@ -93,9 +93,9 @@ impl proto::runtime_server::Runtime for RuntimeService {
     ) -> Result<Response<proto::InspectModelResponse>, Status> {
         let selector = request.into_inner().selector;
         let service = self.clone();
-        let inspected = tokio::task::spawn_blocking(move || service.inspect_model(&selector))
-            .await
-            .map_err(|error| Status::internal(error.to_string()))??;
+        let inspected = status::internal(
+            tokio::task::spawn_blocking(move || service.inspect_model(&selector)).await,
+        )??;
         Ok(Response::new(inspected))
     }
 
