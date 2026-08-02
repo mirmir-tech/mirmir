@@ -37,6 +37,11 @@ impl From<proto::TelemetrySnapshot> for Overview {
             active_prompt_tokens: snapshot.active_prompt_tokens,
             active_completion_tokens: snapshot.active_completion_tokens,
             active_stage: snapshot.active_stage,
+            gpu_utilization_percent: snapshot.gpu_utilization_percent,
+            device_temperature_celsius: snapshot.device_temperature_celsius,
+            device_power_watts: snapshot.device_power_watts,
+            device_power_limit_watts: snapshot.device_power_limit_watts,
+            device_name: snapshot.device_name,
         }
     }
 }
@@ -104,6 +109,8 @@ impl From<proto::CatalogModel> for CatalogModel {
             encoding: model.encoding,
             metal_compatibility: model.metal_compatibility,
             cuda_compatibility: model.cuda_compatibility,
+            preflight_bytes: model.preflight_bytes,
+            preflight_error: model.preflight_error,
             features: features(model.tool_use, model.thinking, model.vision),
         }
     }

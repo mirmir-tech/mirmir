@@ -40,11 +40,13 @@ fn init_tracing(serve: bool) -> Result<()> {
     let rust_log = std::env::var("RUST_LOG").ok();
     let filter =
         tracing_subscriber::EnvFilter::new(tracing_filter_spec(serve, rust_log.as_deref()));
-    tracing_subscriber::fmt()
+    let initialized = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
-        .try_init()
-        .map_err(|error| error::Error::Config(format!("tracing initialization failed: {error}")))?;
+        .try_init();
+    if let Err(error) = initialized {
+        return Err(error::Error::Config(format!("tracing initialization failed: {error}")));
+    }
     Ok(())
 }
 

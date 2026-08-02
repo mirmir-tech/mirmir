@@ -28,13 +28,12 @@ impl App {
         let mut client = client.clone();
         let selector = model.clone();
         drop(tokio::spawn(async move {
-            let result = client
-                .inspect_model(proto::InspectModelRequest { selector })
-                .await
-                .map(tonic::Response::into_inner)
-                .map(Box::new)
-                .map(ChatSettingsEvent::Inspected)
-                .map_err(|error| error.to_string());
+            let result = crate::tui::string_result(
+                client.inspect_model(proto::InspectModelRequest { selector }).await,
+            )
+            .map(tonic::Response::into_inner)
+            .map(Box::new)
+            .map(ChatSettingsEvent::Inspected);
             drop(sender.send(result).await);
         }));
         self.chat_settings_dialog = Some(ChatSettingsDialog::inspecting(model));
@@ -135,12 +134,9 @@ impl App {
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();
         drop(tokio::spawn(async move {
-            let result = client
-                .update_model_generation(request)
-                .await
+            let result = crate::tui::string_result(client.update_model_generation(request).await)
                 .map(tonic::Response::into_inner)
-                .map(ChatSettingsEvent::Saved)
-                .map_err(|error| error.to_string());
+                .map(ChatSettingsEvent::Saved);
             drop(sender.send(result).await);
         }));
         if let Some(dialog) = self.chat_settings_dialog.as_mut() {

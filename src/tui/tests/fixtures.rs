@@ -70,5 +70,10 @@ pub fn telemetry() -> crate::rpc::proto::TelemetrySnapshot {
         mean_prefill_tokens_per_second: Some(110.0),
         last_decode_tokens_per_second: Some(31.0),
         mean_decode_tokens_per_second: Some(29.0),
+        gpu_utilization_percent: Some(64.0),
+        device_temperature_celsius: Some(61.0),
+        device_power_watts: Some(32.0),
+        device_power_limit_watts: Some(48.0),
+        device_name: "test device".to_owned(),
     }
 }

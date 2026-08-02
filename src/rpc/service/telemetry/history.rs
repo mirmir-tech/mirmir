@@ -51,7 +51,9 @@ impl History {
     }
 
     pub fn record(&self, snapshot: &proto::TelemetrySnapshot) -> Result<()> {
-        let mut state = self.0.state.lock().map_err(poisoned)?;
+        let Ok(mut state) = self.0.state.lock() else {
+            return Err(poisoned());
+        };
         state.samples.push_back(sample(snapshot));
         trim(&mut state.samples);
         state.dirty = state.dirty.saturating_add(1);
@@ -64,7 +66,9 @@ impl History {
     }
 
     pub fn response(&self, requested_limit: u32) -> Result<proto::TelemetryHistoryResponse> {
-        let state = self.0.state.lock().map_err(poisoned)?;
+        let Ok(state) = self.0.state.lock() else {
+            return Err(poisoned());
+        };
         let requested = usize::try_from(requested_limit).unwrap_or(RETENTION_LIMIT);
         let limit = if requested == 0 {
             RETENTION_LIMIT
@@ -80,7 +84,9 @@ impl History {
     }
 
     pub fn flush(&self) -> Result<()> {
-        let mut state = self.0.state.lock().map_err(poisoned)?;
+        let Ok(mut state) = self.0.state.lock() else {
+            return Err(poisoned());
+        };
         if state.dirty == 0 {
             return Ok(());
         }
@@ -117,6 +123,10 @@ fn sample(snapshot: &proto::TelemetrySnapshot) -> proto::TelemetryHistorySample 
         kv_used_blocks: snapshot.kv_used_blocks,
         total_requests: snapshot.total_requests,
         failed_requests: snapshot.failed_requests,
+        gpu_utilization_percent: finite(snapshot.gpu_utilization_percent),
+        device_temperature_celsius: finite(snapshot.device_temperature_celsius),
+        device_power_watts: finite(snapshot.device_power_watts),
+        device_power_limit_watts: finite(snapshot.device_power_limit_watts),
     }
 }
 
@@ -157,37 +167,25 @@ fn finite(value: Option<f64>) -> Option<f64> {
     value.filter(|value| value.is_finite())
 }
 
-fn poisoned<T>(_error: std::sync::PoisonError<T>) -> Error {
+fn poisoned() -> Error {
     Error::Config("telemetry history lock is poisoned".to_owned())
 }
 
 impl super::super::RuntimeService {
     pub(crate) fn record_telemetry_history(&self) -> std::result::Result<(), tonic::Status> {
         let snapshot = self.telemetry_snapshot()?;
-        self.telemetry
-            .0
-            .history
-            .record(&snapshot)
-            .map_err(|error| tonic::Status::internal(error.to_string()))
+        super::super::status::internal(self.telemetry.0.history.record(&snapshot))
     }
 
     pub(crate) fn flush_telemetry_history(&self) -> std::result::Result<(), tonic::Status> {
-        self.telemetry
-            .0
-            .history
-            .flush()
-            .map_err(|error| tonic::Status::internal(error.to_string()))
+        super::super::status::internal(self.telemetry.0.history.flush())
     }
 
     pub(crate) fn telemetry_history_response(
         &self,
         limit: u32,
     ) -> std::result::Result<proto::TelemetryHistoryResponse, tonic::Status> {
-        self.telemetry
-            .0
-            .history
-            .response(limit)
-            .map_err(|error| tonic::Status::internal(error.to_string()))
+        super::super::status::internal(self.telemetry.0.history.response(limit))
     }
 }
 

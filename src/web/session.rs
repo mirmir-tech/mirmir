@@ -110,7 +110,10 @@ impl Sessions {
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, Session>>, WebError> {
-        self.0.lock().map_err(|_| WebError::internal("web session lock is poisoned"))
+        let Ok(sessions) = self.0.lock() else {
+            return Err(WebError::internal("web session lock is poisoned"));
+        };
+        Ok(sessions)
     }
 }
 
@@ -119,9 +122,9 @@ pub fn validate_origin(headers: &HeaderMap) -> Result<(), WebError> {
         .get(header::HOST)
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| WebError::forbidden_with("missing Host header"))?;
-    let authority = host
-        .parse::<Authority>()
-        .map_err(|_| WebError::forbidden_with("invalid Host header"))?;
+    let Ok(authority) = host.parse::<Authority>() else {
+        return Err(WebError::forbidden_with("invalid Host header"));
+    };
     if !local_host(authority.host()) {
         return Err(WebError::forbidden_with("web sessions require a loopback Host"));
     }
@@ -153,11 +156,14 @@ fn cookie(headers: &HeaderMap) -> Option<String> {
 
 fn random_token() -> Result<String, WebError> {
     let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes)
-        .map_err(|error| WebError::internal(format!("secure randomness unavailable: {error}")))?;
+    if let Err(error) = getrandom::fill(&mut bytes) {
+        return Err(WebError::internal(format!("secure randomness unavailable: {error}")));
+    }
     let mut token = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        write!(&mut token, "{byte:02x}").map_err(|error| WebError::internal(error.to_string()))?;
+        if let Err(error) = write!(&mut token, "{byte:02x}") {
+            return Err(WebError::internal(error.to_string()));
+        }
     }
     Ok(token)
 }

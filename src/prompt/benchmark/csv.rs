@@ -11,7 +11,7 @@ pub(super) fn write(path: &Path, report: &BenchmarkReport) -> Result<()> {
         "sample,model,prompt_tokens,completion_tokens,finish_reason,elapsed_ms,ttft_ms,e2e_tokens_per_second,prefill_tokens_per_second,decode_tokens_per_second,prefill_ms,decode_ms\n",
     );
     for (index, sample) in report.samples.iter().enumerate() {
-        write!(
+        let formatted = write!(
             output,
             "{},{},{},{},{},{},{},{},{},{},{},{}",
             index + 1,
@@ -26,8 +26,10 @@ pub(super) fn write(path: &Path, report: &BenchmarkReport) -> Result<()> {
             optional(sample.decode_tokens_per_second),
             optional(sample.prefill_ms),
             optional(sample.decode_ms),
-        )
-        .map_err(|error| Error::Config(format!("cannot format CSV output: {error}")))?;
+        );
+        if let Err(error) = formatted {
+            return Err(Error::Config(format!("cannot format CSV output: {error}")));
+        }
         output.push('\n');
     }
     fs::write(path, output)?;

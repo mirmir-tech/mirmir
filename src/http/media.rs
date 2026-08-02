@@ -77,8 +77,12 @@ fn flatten_content(content: MessageContent) -> Result<(String, Option<Vec<u8>>),
                     match part {
                         ContentPart::Text { text: part } => text.push_str(&part),
                         ContentPart::ImageUrl { image_url } => {
-                            let decoded = decode_data_url(&image_url.url)
-                                .map_err(|error| ApiError::bad_request(error.to_string()))?;
+                            let decoded = match decode_data_url(&image_url.url) {
+                                Ok(decoded) => decoded,
+                                Err(error) => {
+                                    return Err(ApiError::bad_request(error.to_string()));
+                                },
+                            };
                             if image.replace(decoded).is_some() {
                                 return Err(ApiError::bad_request(
                                     "only one image per request is supported",

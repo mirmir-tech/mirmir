@@ -39,16 +39,17 @@ pub async fn search(
     Query(query): Query<SearchQuery>,
 ) -> Result<Response, WebError> {
     state.sessions().authenticate(&headers)?;
-    let response = state
-        .service()
-        .search_models(Request::new(proto::SearchModelsRequest {
-            query: query.query,
-            limit: query.limit.unwrap_or(20),
-            cursor: query.cursor,
-        }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let response = super::result::status(
+        state
+            .service()
+            .search_models(Request::new(proto::SearchModelsRequest {
+                query: query.query,
+                limit: query.limit.unwrap_or(20),
+                cursor: query.cursor,
+            }))
+            .await,
+    )?
+    .into_inner();
     Ok((security_headers(), Json(CatalogResults::from(response))).into_response())
 }
 
@@ -58,15 +59,16 @@ pub async fn pull(
     Json(request): Json<PullRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let mut events = state
-        .service()
-        .pull_model(Request::new(proto::PullModelRequest {
-            repo_id: request.repo_id,
-            revision: request.revision,
-        }))
-        .await
-        .map_err(WebError::from_status)?
-        .into_inner();
+    let mut events = super::result::status(
+        state
+            .service()
+            .pull_model(Request::new(proto::PullModelRequest {
+                repo_id: request.repo_id,
+                revision: request.revision,
+            }))
+            .await,
+    )?
+    .into_inner();
     drop(tokio::spawn(async move { while events.next().await.is_some() {} }));
     Ok(accepted("pull"))
 }

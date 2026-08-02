@@ -85,3 +85,20 @@ fn ranks_supported_fitting_models_first() {
     let oversized = evaluate(model("BF16", 8_000_000_000), memory);
     assert_eq!(compare(&fitting, &oversized), Ordering::Less);
 }
+
+#[test]
+fn ranks_inspected_partial_models_before_unknown_models() {
+    let mut inspected = CatalogModel {
+        compatibility: "partial",
+        memory_fit: "fits",
+        ..CatalogModel::default()
+    };
+    let unknown = CatalogModel {
+        compatibility: "unknown",
+        memory_fit: "fits",
+        ..CatalogModel::default()
+    };
+    inspected.downloads = 1;
+
+    assert_eq!(compare(&inspected, &unknown), Ordering::Less);
+}

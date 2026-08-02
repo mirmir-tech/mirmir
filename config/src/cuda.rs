@@ -3,7 +3,15 @@ use std::path::PathBuf;
 use clap::{Args, ValueEnum};
 use libmir::{
     CudaConfig, CudaKernelAdmission, CudaMoeBatchPolicy, CudaNumericalPolicy, CudaOutputHeadPolicy,
+    CudaTuningMode,
 };
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum TuningArg {
+    Disabled,
+    Cached,
+    Startup,
+}
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum MoeBatchArg {
@@ -38,6 +46,12 @@ pub struct CudaArgs {
     include_paths: Vec<PathBuf>,
     #[arg(long, env = "MIRMIR_CUDA_KERNEL_CACHE")]
     kernel_cache: Option<PathBuf>,
+    #[arg(long, env = "MIRMIR_CUDA_TUNING", value_enum)]
+    tuning: Option<TuningArg>,
+    #[arg(long, env = "MIRMIR_CUDA_TUNING_CACHE")]
+    tuning_cache: Option<PathBuf>,
+    #[arg(long, env = "MIRMIR_CUDA_TUNING_BUDGET_MS")]
+    tuning_budget_ms: Option<u64>,
     #[arg(long, env = "MIRMIR_CUDA_MOE_BATCH", value_enum)]
     moe_batch: Option<MoeBatchArg>,
     #[arg(long, env = "MIRMIR_CUDA_OUTPUT_HEAD", value_enum)]
@@ -59,6 +73,14 @@ impl CudaArgs {
             config.nvrtc_include_paths.clone_from(&self.include_paths);
         }
         config.nvrtc_cache_directory = self.kernel_cache.clone().or_else(default_kernel_cache);
+        config.tuning.cache_directory =
+            self.tuning_cache.clone().or_else(default_tuning_cache);
+        if let Some(mode) = self.tuning {
+            config.tuning.mode = mode.into();
+        }
+        if let Some(budget) = self.tuning_budget_ms {
+            config.tuning.startup_budget_ms = budget;
+        }
         if let Some(policy) = self.moe_batch {
             config.planning.moe_batch = policy.into();
         }
@@ -68,6 +90,16 @@ impl CudaArgs {
                 config.planning.numerical = CudaNumericalPolicy::Throughput;
                 config.planning.admission = CudaKernelAdmission::Experimental;
             }
+        }
+    }
+}
+
+impl From<TuningArg> for CudaTuningMode {
+    fn from(value: TuningArg) -> Self {
+        match value {
+            TuningArg::Disabled => Self::Disabled,
+            TuningArg::Cached => Self::Cached,
+            TuningArg::Startup => Self::Startup,
         }
     }
 }
@@ -100,8 +132,15 @@ impl From<MoeBatchArg> for CudaMoeBatchPolicy {
 }
 
 fn default_kernel_cache() -> Option<PathBuf> {
+    default_cache_root().map(|root| root.join("mirmir/cuda/ptx-v1"))
+}
+
+fn default_tuning_cache() -> Option<PathBuf> {
+    default_cache_root().map(|root| root.join("mirmir/cuda/tuning-v1"))
+}
+
+fn default_cache_root() -> Option<PathBuf> {
     std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
-        .map(|root| root.join("mirmir/cuda/ptx-v1"))
 }

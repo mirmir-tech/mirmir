@@ -36,6 +36,10 @@ pub struct RuntimeSettings {
     pub kv_cache_dtype: Option<KvCacheDType>,
     pub max_batch_requests: Option<usize>,
     pub max_batch_tokens: Option<usize>,
+    pub decode_batch_wait_us: Option<u64>,
+    pub decode_priority_burst: Option<usize>,
+    pub memory_reserve_percent: Option<u8>,
+    pub memory_reserve_bytes: Option<u64>,
     pub vision_max_pixels: Option<usize>,
     pub vision_attention_budget_bytes: Option<u64>,
     pub vision_memory_percent: Option<u8>,
@@ -135,6 +139,11 @@ impl AppConfig {
         if matches!(self.runtime.kv_blocks, Some(0)) {
             return Err(Error::Config("runtime.kv_blocks must be positive".to_owned()));
         }
+        if self.runtime.memory_reserve_percent.is_some_and(|percent| percent > 100) {
+            return Err(Error::Config(
+                "runtime.memory_reserve_percent must be between 0 and 100".to_owned(),
+            ));
+        }
         if matches!(self.runtime.vision_max_pixels, Some(0)) {
             return Err(Error::Config("runtime.vision_max_pixels must be positive".to_owned()));
         }
@@ -159,9 +168,13 @@ impl AppConfig {
 
 impl ServerSettings {
     pub fn address(&self) -> Result<SocketAddr> {
-        self.http_bind.parse().map_err(|error| {
-            Error::Config(format!("server.http_bind `{}` is invalid: {error}", self.http_bind))
-        })
+        match self.http_bind.parse() {
+            Ok(address) => Ok(address),
+            Err(error) => Err(Error::Config(format!(
+                "server.http_bind `{}` is invalid: {error}",
+                self.http_bind
+            ))),
+        }
     }
 
     #[must_use]

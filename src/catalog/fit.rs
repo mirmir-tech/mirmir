@@ -15,7 +15,7 @@ pub struct MachineMemory {
     pub source: &'static str,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CatalogModel {
     pub id: String,
     pub downloads: u64,
@@ -37,6 +37,8 @@ pub struct CatalogModel {
     pub encoding: String,
     pub metal_compatibility: String,
     pub cuda_compatibility: String,
+    pub preflight_bytes: Option<u64>,
+    pub preflight_error: Option<String>,
     pub features: Features,
 }
 
@@ -135,6 +137,8 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         encoding: format.encoding,
         metal_compatibility: format.metal_compatibility,
         cuda_compatibility: format.cuda_compatibility,
+        preflight_bytes: None,
+        preflight_error: None,
         features: Features { tool_use, thinking, vision },
     }
 }
@@ -154,17 +158,19 @@ pub fn compare(left: &CatalogModel, right: &CatalogModel) -> Ordering {
 }
 
 fn rank(model: &CatalogModel) -> u8 {
-    match (model.compatibility, model.memory_fit) {
-        ("supported", "fits") => 0,
-        ("supported", "tight") => 1,
-        ("supported", "unknown") => 2,
-        ("supported", "does_not_fit") => 3,
-        ("unknown", "fits") => 4,
-        ("unknown", "tight") => 5,
-        ("unknown", "unknown") => 6,
-        ("unknown", "does_not_fit") => 7,
-        _ => 8,
-    }
+    let compatibility = match model.compatibility {
+        "supported" => 0,
+        "partial" => 1,
+        "unknown" => 2,
+        _ => 3,
+    };
+    let memory = match model.memory_fit {
+        "fits" => 0,
+        "tight" => 1,
+        "unknown" => 2,
+        _ => 3,
+    };
+    compatibility * 4 + memory
 }
 
 fn compatibility(model: &HubModel) -> &'static str {

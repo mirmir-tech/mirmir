@@ -11,6 +11,7 @@ mod connection;
 #[cfg(feature = "capture")]
 mod demo;
 mod pages;
+mod result;
 mod state;
 mod types;
 

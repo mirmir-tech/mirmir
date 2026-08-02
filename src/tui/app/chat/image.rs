@@ -64,6 +64,8 @@ impl App {
             model,
             prompt: String::new(),
             max_tokens: None,
+            min_tokens: None,
+            ignore_eos: None,
             temperature: None,
             top_p: None,
             top_k: None,

@@ -89,7 +89,10 @@ pub fn run_generation(
             let mut source = ReadableStream::from_raw(body).into_stream();
             let mut buffer = Vec::new();
             while let Some(chunk) = source.next().await {
-                let chunk = chunk.map_err(|error| format!("stream error: {error:?}"))?;
+                let chunk = match chunk {
+                    Ok(chunk) => chunk,
+                    Err(error) => return Err(format!("stream error: {error:?}")),
+                };
                 let bytes = Uint8Array::new(&chunk);
                 let mut current = vec![0; bytes.length() as usize];
                 bytes.copy_to(&mut current);
@@ -117,8 +120,7 @@ where
     F: FnMut(&str, &str) -> Result<(), String>,
 {
     while let Some(end) = buffer.windows(2).position(|window| window == b"\n\n") {
-        let event = String::from_utf8(buffer.drain(..end + 2).collect())
-            .map_err(|error| error.to_string())?;
+        let event = crate::result::string(String::from_utf8(buffer.drain(..end + 2).collect()))?;
         let mut kind = "message";
         let mut data = String::new();
         for line in event.lines() {
@@ -142,12 +144,12 @@ fn apply_event(
 ) -> Result<(), String> {
     match event {
         "started" => {
-            let value: Started = serde_json::from_str(data).map_err(|error| error.to_string())?;
+            let value: Started = crate::result::string(serde_json::from_str(data))?;
             chat.operation_id.set(Some(value.operation_id));
             chat.status.set("running".to_owned());
         },
         "token" => {
-            let token: Token = serde_json::from_str(data).map_err(|error| error.to_string())?;
+            let token: Token = crate::result::string(serde_json::from_str(data))?;
             update_assistant(chat, |message| {
                 message.thinking = token.reasoning;
                 if token.reasoning {
@@ -158,8 +160,7 @@ fn apply_event(
             });
         },
         "completion" => {
-            let value: Completion =
-                serde_json::from_str(data).map_err(|error| error.to_string())?;
+            let value: Completion = crate::result::string(serde_json::from_str(data))?;
             update_assistant(chat, |message| {
                 message.thinking = false;
                 message.content = value.text;
@@ -175,8 +176,7 @@ fn apply_event(
             }
         },
         "error" => {
-            let value: serde_json::Value =
-                serde_json::from_str(data).map_err(|error| error.to_string())?;
+            let value: serde_json::Value = crate::result::string(serde_json::from_str(data))?;
             return Err(value["message"].as_str().unwrap_or("generation failed").to_owned());
         },
         _ => {},

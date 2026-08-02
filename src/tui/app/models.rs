@@ -14,6 +14,15 @@ impl App {
     pub(super) async fn handle_search_key(&mut self, key: KeyEvent, client: &mut Client) {
         match key.code {
             KeyCode::Esc => self.close_search(),
+            KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Home
+            | KeyCode::End => {
+                self.handle_list_navigation(key.code);
+                self.load_more_if_needed(client);
+            },
             KeyCode::Enter if self.catalog.is_empty() => self.queue_search(client, false),
             KeyCode::Enter => self.activate_selected_model(client).await,
             KeyCode::Backspace => {
@@ -46,11 +55,8 @@ impl App {
             if !append {
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             }
-            let result = client
-                .search_models(request)
-                .await
-                .map(tonic::Response::into_inner)
-                .map_err(|error| error.to_string());
+            let result = crate::tui::string_result(client.search_models(request).await)
+                .map(tonic::Response::into_inner);
             drop(sender.send(CatalogSearchEvent { query, append, result }).await);
         }));
         self.catalog_search_rx = Some(receiver);

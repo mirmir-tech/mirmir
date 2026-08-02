@@ -40,12 +40,9 @@ impl ApiState {
 }
 
 pub async fn health(State(state): State<ApiState>) -> Result<Json<HealthResponse>, ApiError> {
-    let response = state
-        .service
-        .health(Request::new(proto::HealthRequest {}))
-        .await
-        .map_err(ApiError::from_status)?
-        .into_inner();
+    let response =
+        super::error::status(state.service.health(Request::new(proto::HealthRequest {})).await)?
+            .into_inner();
     Ok(Json(HealthResponse {
         status: "ok",
         server_version: response.server_version,
@@ -58,12 +55,10 @@ pub async fn models(
     headers: HeaderMap,
 ) -> Result<Json<ModelsResponse>, ApiError> {
     state.authorize(&headers)?;
-    let response = state
-        .service
-        .list_models(Request::new(proto::ListModelsRequest {}))
-        .await
-        .map_err(ApiError::from_status)?
-        .into_inner();
+    let response = super::error::status(
+        state.service.list_models(Request::new(proto::ListModelsRequest {})).await,
+    )?
+    .into_inner();
     Ok(Json(ModelsResponse {
         object: "list",
         data: response
@@ -85,24 +80,24 @@ pub async fn chat(
     payload: Result<Json<ChatRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     state.authorize(&headers)?;
-    let request = payload.map_err(|error| ApiError::bad_request(error.body_text()))?.0;
+    let request = match payload {
+        Ok(request) => request.0,
+        Err(error) => return Err(ApiError::bad_request(error.body_text())),
+    };
     let streaming = request.stream;
     let include_usage =
         request.stream_options.as_ref().is_some_and(|options| options.include_usage);
     let model = request.model.clone();
     let id = completion_id();
     let created = unix_seconds();
-    let mut events = state
-        .service
-        .generate(Request::new(request.into_proto()?))
-        .await
-        .map_err(ApiError::from_status)?
-        .into_inner();
+    let mut events =
+        super::error::status(state.service.generate(Request::new(request.into_proto()?)).await)?
+            .into_inner();
     if streaming {
         return Ok(stream::response(events, id, created, model, include_usage, state.shutdown()));
     }
     while let Some(event) = events.next().await {
-        let event = event.map_err(ApiError::from_status)?;
+        let event = super::error::status(event)?;
         if let Some(proto::generate_event::Event::Completion(completion)) = event.event {
             return Ok(
                 Json(CompletionResponse::new(id, created, model, completion)).into_response()

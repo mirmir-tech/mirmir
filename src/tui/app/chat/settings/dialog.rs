@@ -111,7 +111,7 @@ pub(super) fn settings_fields(
 }
 
 fn parse<T: std::str::FromStr>(value: &str, name: &str) -> Result<T, String> {
-    value.parse().map_err(|_| format!("invalid {name}: `{value}`"))
+    value.parse().map_or_else(|_| Err(format!("invalid {name}: `{value}`")), Ok)
 }
 
 fn optional<T: std::str::FromStr>(value: &str, name: &str) -> Result<Option<T>, String> {

@@ -41,6 +41,8 @@ fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
         encoding: model.encoding,
         metal_compatibility: model.metal_compatibility,
         cuda_compatibility: model.cuda_compatibility,
+        preflight_bytes: model.preflight_bytes,
+        preflight_error: model.preflight_error,
         tool_use: model.features.tool_use,
         thinking: model.features.thinking,
         vision: model.features.vision,
@@ -63,16 +65,17 @@ pub async fn search(
         |_| crate::catalog::MachineMemory::detect(),
         |memory| crate::catalog::MachineMemory::from_runtime(&memory),
     );
-    let results = service
-        .catalog
-        .search(
-            request.query.trim(),
-            usize::try_from(limit).unwrap_or(20),
-            memory,
-            request.cursor.as_deref(),
-        )
-        .await
-        .map_err(|error| Status::unavailable(error.to_string()))?;
+    let results = super::status::unavailable(
+        service
+            .catalog
+            .search(
+                request.query.trim(),
+                usize::try_from(limit).unwrap_or(20),
+                memory,
+                request.cursor.as_deref(),
+            )
+            .await,
+    )?;
     Ok(response(results))
 }
 
@@ -92,34 +95,16 @@ pub async fn remove(
     service: &RuntimeService,
     repo_id: String,
 ) -> Result<proto::RemoveModelResponse, Status> {
-    let key = crate::config::model_key(&repo_id)
-        .map_err(|error| Status::invalid_argument(error.to_string()))?;
-    if service
-        .models
-        .lock()
-        .map_err(|_| Status::internal("model registry lock poisoned"))?
-        .contains_key(&key)
-    {
+    let key = super::status::invalid(crate::config::model_key(&repo_id))?;
+    if super::status::lock(&service.models, "model registry")?.contains_key(&key) {
         return Err(Status::failed_precondition("unload the model before removing it"));
     }
-    if service
-        .loading
-        .lock()
-        .map_err(|_| Status::internal("model lifecycle lock poisoned"))?
-        .contains(&key)
-    {
+    if super::status::lock(&service.loading, "model lifecycle")?.contains(&key) {
         return Err(Status::failed_precondition("wait for model loading to finish"));
     }
-    let removal = service
-        .catalog
-        .remove(&repo_id)
-        .await
-        .map_err(|error| Status::failed_precondition(error.to_string()))?;
+    let removal = super::status::failed_precondition(service.catalog.remove(&repo_id).await)?;
     if removal.removed {
-        service
-            .store
-            .deactivate_model(&key)
-            .map_err(|error| Status::internal(error.to_string()))?;
+        super::status::internal(service.store.deactivate_model(&key))?;
     }
     Ok(proto::RemoveModelResponse {
         removed: removal.removed,

@@ -4,10 +4,13 @@ use super::{RuntimeService, models::log_progress};
 
 impl RuntimeService {
     pub fn restore_active_models(&self) -> Result<(), Status> {
-        let selectors = self.store.active_models().map_err(|error| {
-            self.startup.failed(error.to_string());
-            Status::internal(error.to_string())
-        })?;
+        let selectors = match self.store.active_models() {
+            Ok(selectors) => selectors,
+            Err(error) => {
+                self.startup.failed(error.to_string());
+                return Err(Status::internal(error.to_string()));
+            },
+        };
         let total = selectors.len();
         self.startup.restoring(total);
         self.report_state_recovery().inspect_err(|error| {
@@ -62,11 +65,7 @@ impl RuntimeService {
     }
 
     pub(super) fn report_state_recovery(&self) -> Result<(), Status> {
-        let Some(recovery) = self
-            .store
-            .take_state_recovery()
-            .map_err(|error| Status::internal(error.to_string()))?
-        else {
+        let Some(recovery) = super::status::internal(self.store.take_state_recovery())? else {
             return Ok(());
         };
         let operation = self.activity.begin("recovery", "state.toml", None);

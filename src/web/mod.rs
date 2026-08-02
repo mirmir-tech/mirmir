@@ -5,6 +5,7 @@ mod chat;
 mod configuration;
 mod management;
 mod operations;
+mod result;
 mod session;
 mod socket;
 mod types;
@@ -93,7 +94,7 @@ pub async fn asset(Path(path): Path<String>) -> Response {
 
 pub async fn bootstrap() -> Response {
     let bootstrap = Bootstrap {
-        schema_version: 6,
+        schema_version: 7,
         application: "mirmir",
         server_version: env!("CARGO_PKG_VERSION"),
         protocol_version: PROTOCOL_VERSION,

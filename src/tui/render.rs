@@ -1,14 +1,14 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
 use super::{
-    app::{App, InitialRefresh, Screen, WORKSPACE_PREFIX, WORKSPACE_TABS},
-    chat, configuration, confirm, help, load, models, overview, startup, theme,
+    app::{App, Screen, WORKSPACE_PREFIX, WORKSPACE_TABS},
+    chat, configuration, confirm, footer, help, load, models, overview, theme,
 };
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -33,9 +33,6 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
         Screen::Settings => Some(configuration::draw(frame, vertical[2], app)),
     };
     app.set_list_view(list_area);
-    if app.initial_refresh == InitialRefresh::Pending {
-        startup::draw(frame, app.animation_tick);
-    }
     if app.load_dialog.is_some() {
         load::draw(frame, app);
     }
@@ -51,7 +48,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     if app.help_open {
         help::draw(frame, app.screen);
     }
-    footer(frame, vertical[3], app);
+    footer::draw(frame, vertical[3], app);
 }
 
 fn header(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -85,7 +82,7 @@ fn header(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn workspace(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let mut spans = vec![Span::styled(WORKSPACE_PREFIX, Style::new().fg(theme::MUTED))];
-    for (screen, shortcut, name, _) in WORKSPACE_TABS {
+    for (screen, _, name, _) in WORKSPACE_TABS {
         let selected = app.screen == screen;
         let style = if selected {
             Style::new().fg(theme::GLACIER).bg(theme::RAISED).add_modifier(Modifier::BOLD)
@@ -97,30 +94,12 @@ fn workspace(frame: &mut Frame<'_>, area: Rect, app: &App) {
         } else {
             " "
         };
-        spans.push(Span::styled(format!(" {marker}[F{shortcut}] {name} "), style));
+        spans.push(Span::styled(format!(" {marker}{name} "), style));
     }
     frame.render_widget(
         Paragraph::new(Line::from(spans))
             .block(Block::bordered().border_style(Style::new().fg(theme::BORDER)))
             .style(Style::new().bg(theme::SURFACE)),
-        area,
-    );
-}
-
-fn footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let ownership = if app.server_reused {
-        "ATTACHED"
-    } else {
-        "LOCAL OWNER"
-    };
-    let text = format!(
-        " v{} · gRPC {}  ·  ? help  ·  Esc close  ·  q quit  ·  {ownership}",
-        app.server_version, app.protocol_version,
-    );
-    frame.render_widget(
-        Paragraph::new(text)
-            .alignment(Alignment::Right)
-            .style(Style::new().fg(theme::MUTED).bg(theme::CANVAS)),
         area,
     );
 }

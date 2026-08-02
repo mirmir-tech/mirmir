@@ -31,13 +31,6 @@ pub struct LoadDialog {
     pub force: bool,
     pub progress: Option<proto::ModelLifecycleEvent>,
     pub error: Option<String>,
-    pub restore: Option<RestorePosition>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct RestorePosition {
-    pub current: usize,
-    pub total: usize,
 }
 
 impl LoadDialog {
@@ -66,7 +59,7 @@ impl LoadDialog {
 }
 
 fn parse<T: std::str::FromStr>(value: &str, name: &str) -> Result<T, String> {
-    value.parse().map_err(|_| format!("invalid {name}: `{value}`"))
+    value.parse().map_or_else(|_| Err(format!("invalid {name}: `{value}`")), Ok)
 }
 
 #[cfg(test)]
@@ -93,7 +86,6 @@ mod tests {
             force: false,
             progress: None,
             error: None,
-            restore: None,
         };
 
         assert!(dialog.request().expect("load request").settings.is_none());

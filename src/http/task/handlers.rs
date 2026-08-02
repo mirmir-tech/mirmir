@@ -20,14 +20,15 @@ pub async fn embeddings(
     payload: Result<Json<EmbeddingsRequest>, JsonRejection>,
 ) -> Result<Json<EmbeddingsResponse>, ApiError> {
     state.authorize(&headers)?;
-    let request = payload.map_err(|error| ApiError::bad_request(error.body_text()))?.0;
+    let request = match payload {
+        Ok(request) => request.0,
+        Err(error) => return Err(ApiError::bad_request(error.body_text())),
+    };
     let model = request.model.clone();
-    let response = state
-        .service
-        .embed(Request::new(request.into_proto()?))
-        .await
-        .map_err(ApiError::from_status)?
-        .into_inner();
+    let response = super::super::error::status(
+        state.service.embed(Request::new(request.into_proto()?)).await,
+    )?
+    .into_inner();
     let prompt_tokens = response.prompt_tokens;
     Ok(Json(EmbeddingsResponse {
         object: "list",
@@ -55,20 +56,24 @@ pub async fn rerank(
     payload: Result<Json<RerankRequest>, JsonRejection>,
 ) -> Result<Json<RerankResponse>, ApiError> {
     state.authorize(&headers)?;
-    let request = payload.map_err(|error| ApiError::bad_request(error.body_text()))?.0;
+    let request = match payload {
+        Ok(request) => request.0,
+        Err(error) => return Err(ApiError::bad_request(error.body_text())),
+    };
     let return_documents = request.return_documents;
-    let response = state
-        .service
-        .rerank(Request::new(proto::RerankRequest {
-            model: request.model,
-            query: request.query,
-            documents: request.documents,
-            max_length: request.max_length,
-            raw_scores: request.raw_scores,
-        }))
-        .await
-        .map_err(ApiError::from_status)?
-        .into_inner();
+    let response = super::super::error::status(
+        state
+            .service
+            .rerank(Request::new(proto::RerankRequest {
+                model: request.model,
+                query: request.query,
+                documents: request.documents,
+                max_length: request.max_length,
+                raw_scores: request.raw_scores,
+            }))
+            .await,
+    )?
+    .into_inner();
     let prompt_tokens = response.prompt_tokens;
     Ok(Json(RerankResponse {
         results: response

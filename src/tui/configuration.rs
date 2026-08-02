@@ -29,7 +29,7 @@ fn paths(frame: &mut Frame<'_>, area: Rect, app: &App) {
         || "waiting for configuration snapshot".to_owned(),
         |config| {
             format!(
-                "config {}   ·   secrets {}   ·   [v] raw TOML",
+                "config {}   ·   secrets {}   ·   raw TOML available",
                 config.config_path, config.secrets_path
             )
         },
@@ -136,7 +136,7 @@ fn action(frame: &mut Frame<'_>, area: Rect, app: &App) {
         || {
             app.configuration_message
                 .clone()
-                .unwrap_or_else(|| "Enter edit · t test HF token · r remove secret".to_owned())
+                .unwrap_or_else(|| "Select a setting to inspect or change it".to_owned())
         },
         |edit| {
             let input = if edit.secret() {

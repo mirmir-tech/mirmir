@@ -108,11 +108,9 @@ fn error(frame: &mut Frame<'_>, area: Rect, dialog: &ChatSettingsDialog) {
 
 fn hint(frame: &mut Frame<'_>, area: Rect, dialog: &ChatSettingsDialog) {
     let text = match dialog.status {
-        ChatSettingsStatus::Inspecting => "Reading parameters…  ·  x/Esc close",
-        ChatSettingsStatus::Saving => "Saving defaults…  ·  x/Esc close",
-        ChatSettingsStatus::Editing => {
-            "↑/↓ field  ·  type to edit  ·  s save default  ·  Enter apply  ·  x/Esc close"
-        },
+        ChatSettingsStatus::Inspecting => "Reading parameters…",
+        ChatSettingsStatus::Saving => "Saving defaults…",
+        ChatSettingsStatus::Editing => "Review one-off parameters and optional model defaults",
     };
     frame.render_widget(
         Paragraph::new(text)

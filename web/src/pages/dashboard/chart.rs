@@ -1,65 +1,116 @@
+use std::fmt::Write;
+
 use leptos::prelude::*;
 
 use crate::{state::RuntimeState, types::TelemetryPoint};
 
+const WIDTH: f64 = 640.0;
+const BASELINE: f64 = 210.0;
+
 #[derive(Clone, Copy)]
 pub enum Metric {
-    E2e,
-    Prefill,
-    Decode,
     Memory,
-    Kv,
+    Gpu,
+    Temperature,
+    Power,
 }
 
 impl Metric {
-    const fn value(self, point: &TelemetryPoint) -> f64 {
+    const fn value(self, point: &TelemetryPoint) -> Option<f64> {
         match self {
-            Self::E2e => point.e2e,
-            Self::Prefill => point.prefill,
-            Self::Decode => point.decode,
             Self::Memory => point.memory_percent,
-            Self::Kv => point.kv_percent,
+            Self::Gpu => point.gpu_percent,
+            Self::Temperature => point.temperature_celsius,
+            Self::Power => point.power_watts,
         }
     }
 
     const fn color(self) -> &'static str {
         match self {
-            Self::E2e => "#79d7ff",
-            Self::Prefill => "#4f8ef7",
-            Self::Decode => "#61d6a3",
-            Self::Memory => "#e8b15a",
-            Self::Kv => "#c48b3a",
+            Self::Memory => "#4f8ef7",
+            Self::Gpu => "#79d7ff",
+            Self::Temperature => "#f07178",
+            Self::Power => "#61d6a3",
+        }
+    }
+
+    const fn gradient(self) -> &'static str {
+        match self {
+            Self::Memory => "memory-fill",
+            Self::Gpu => "gpu-fill",
+            Self::Temperature => "temperature-fill",
+            Self::Power => "power-fill",
         }
     }
 }
 
 #[component]
-pub fn Chart(metrics: Vec<Metric>) -> impl IntoView {
+pub fn Chart(metric: Metric, label: &'static str) -> impl IntoView {
     let state = expect_context::<RuntimeState>();
-    view! { <div class="chart-frame compact">
-        <svg class="telemetry-chart" viewBox="0 0 640 220" preserveAspectRatio="none" role="img" aria-label="Runtime telemetry over time">
-            <path class="chart-grid-line" d="M0 55H640M0 110H640M0 165H640" />
-            <For each=move || metrics.clone() key=|metric| *metric as u8 children=move |metric| {
-                let points = move || chart_points(&state.telemetry.get(), metric);
-                view! { <polyline class="chart-line" stroke=metric.color() points=points /> }
-            } />
+    let line = move || paths(&state.telemetry.get(), metric).0;
+    let area = move || paths(&state.telemetry.get(), metric).1;
+    let available = move || state.telemetry.get().iter().any(|point| metric.value(point).is_some());
+    let fill = format!("url(#{})", metric.gradient());
+    view! { <div class="chart-frame device-chart">
+        <svg class="telemetry-chart" viewBox="0 0 640 220" preserveAspectRatio="none" role="img" aria-label=label>
+            <defs>
+                <linearGradient id=metric.gradient() x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color=metric.color() stop-opacity=".34" />
+                    <stop offset="72%" stop-color=metric.color() stop-opacity=".08" />
+                    <stop offset="100%" stop-color=metric.color() stop-opacity="0" />
+                </linearGradient>
+            </defs>
+            <path class="chart-grid-line" d="M0 52.5H640M0 105H640M0 157.5H640" />
+            <path class="chart-area" fill=fill d=area />
+            <path class="chart-line" stroke=metric.color() d=line />
         </svg>
-        <Show when=move || state.telemetry.get().len() < 2><p class="chart-empty">"Collecting telemetry samples…"</p></Show>
+        <Show when=move || !available()><p class="chart-empty">"Telemetry unavailable"</p></Show>
     </div> }
 }
 
-fn chart_points(points: &[TelemetryPoint], metric: Metric) -> String {
+fn paths(points: &[TelemetryPoint], metric: Metric) -> (String, String) {
     let visible = &points[points.len().saturating_sub(300)..];
-    let maximum = visible.iter().map(|point| metric.value(point)).fold(1.0_f64, f64::max);
+    let maximum = maximum(visible, metric);
     let denominator = visible.len().saturating_sub(1).max(1) as f64;
-    visible
+    let coordinates = visible
         .iter()
         .enumerate()
-        .map(|(index, point)| {
-            let x = 640.0 * index as f64 / denominator;
-            let y = 210.0 - 200.0 * metric.value(point) / maximum;
-            format!("{x:.1},{y:.1}")
+        .filter_map(|(index, point)| {
+            let value = metric.value(point)?.max(0.0);
+            let x = WIDTH * index as f64 / denominator;
+            let y = BASELINE - 200.0 * value / maximum;
+            Some((x, y))
         })
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect::<Vec<_>>();
+    let mut line = String::new();
+    let mut area_line = String::new();
+    for (index, (x, y)) in coordinates.iter().enumerate() {
+        let command = if index == 0 {
+            "M"
+        } else {
+            "L"
+        };
+        let line_result = write!(&mut line, "{command}{x:.1},{y:.1}");
+        let area_result = write!(&mut area_line, "L{x:.1},{y:.1}");
+        debug_assert!(line_result.is_ok() && area_result.is_ok());
+    }
+    let area =
+        coordinates
+            .first()
+            .zip(coordinates.last())
+            .map_or_else(String::new, |(first, last)| {
+                format!("M{:.1},{BASELINE:.1}{area_line}L{:.1},{BASELINE:.1}Z", first.0, last.0)
+            });
+    (line, area)
+}
+
+fn maximum(points: &[TelemetryPoint], metric: Metric) -> f64 {
+    let measured = points.iter().filter_map(|point| metric.value(point)).fold(0.0, f64::max);
+    let expected = match metric {
+        Metric::Memory | Metric::Gpu | Metric::Temperature => 100.0,
+        Metric::Power => {
+            points.iter().filter_map(|point| point.power_limit_watts).fold(0.0, f64::max)
+        },
+    };
+    expected.max(measured * 1.1).max(1.0)
 }

@@ -3,7 +3,10 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, List, ListItem, ListState, Paragraph},
+    widgets::{
+        Block, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
 };
 
 use crate::{
@@ -14,7 +17,8 @@ use crate::{
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
     let columns =
         Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)]).split(area);
-    let items = app.activities.iter().map(item).collect::<Vec<_>>();
+    let items = app.activities.iter().enumerate().map(item).collect::<Vec<_>>();
+    let item_count = items.len();
     let selected =
         (!items.is_empty()).then_some(app.activity_selected.min(items.len().saturating_sub(1)));
     let mut state = ListState::default().with_selected(selected);
@@ -29,11 +33,23 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
         columns[0],
         &mut state,
     );
+    if item_count > usize::from(columns[0].height.saturating_sub(2)) {
+        let mut scrollbar = ScrollbarState::new(item_count).position(app.activity_selected);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("▲"))
+                .end_symbol(Some("▼"))
+                .thumb_symbol("┃")
+                .track_symbol(Some("┊")),
+            columns[0],
+            &mut scrollbar,
+        );
+    }
     runtime(frame, columns[1], app);
     columns[0]
 }
 
-fn item(event: &proto::ActivityEvent) -> ListItem<'static> {
+fn item((index, event): (usize, &proto::ActivityEvent)) -> ListItem<'static> {
     let (symbol, color) = match event.state.as_str() {
         "completed" => ("●", theme::SUCCESS),
         "failed" => ("●", theme::DANGER),
@@ -49,6 +65,11 @@ fn item(event: &proto::ActivityEvent) -> ListItem<'static> {
         ),
         Span::styled(format!("  {}  {}", event.target, event.stage), Style::new().fg(theme::MUTED)),
     ]))
+    .style(Style::new().bg(if index.is_multiple_of(2) {
+        theme::SURFACE
+    } else {
+        theme::CANVAS
+    }))
 }
 
 fn runtime(frame: &mut Frame<'_>, area: Rect, app: &App) {

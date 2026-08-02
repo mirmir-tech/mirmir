@@ -8,18 +8,14 @@ pub(super) async fn embed_rpc(
     service: RuntimeService,
     request: proto::EmbedRequest,
 ) -> Result<proto::EmbedResponse, Status> {
-    tokio::task::spawn_blocking(move || embed(&service, request))
-        .await
-        .map_err(|error| Status::internal(error.to_string()))?
+    super::status::internal(tokio::task::spawn_blocking(move || embed(&service, request)).await)?
 }
 
 pub(super) async fn rerank_rpc(
     service: RuntimeService,
     request: proto::RerankRequest,
 ) -> Result<proto::RerankResponse, Status> {
-    tokio::task::spawn_blocking(move || rerank(&service, request))
-        .await
-        .map_err(|error| Status::internal(error.to_string()))?
+    super::status::internal(tokio::task::spawn_blocking(move || rerank(&service, request)).await)?
 }
 
 pub(super) fn embed(
@@ -30,13 +26,15 @@ pub(super) fn embed(
         return Err(Status::invalid_argument("model and at least one input are required"));
     }
     let model = load(service, &request.model)?;
-    let output = model
-        .embed(EmbeddingRequest {
-            inputs: request.inputs,
-            dimensions: request.dimensions.map(usize::try_from).transpose().map_err(invalid)?,
-            prompt_name: request.prompt_name,
-        })
-        .map_err(|error| task_error(&error))?;
+    let output = model.embed(EmbeddingRequest {
+        inputs: request.inputs,
+        dimensions: super::status::invalid(request.dimensions.map(usize::try_from).transpose())?,
+        prompt_name: request.prompt_name,
+    });
+    let output = match output {
+        Ok(output) => output,
+        Err(error) => return Err(task_error(&error)),
+    };
     Ok(proto::EmbedResponse {
         embeddings: output
             .embeddings
@@ -57,14 +55,16 @@ pub(super) fn rerank(
         ));
     }
     let model = load(service, &request.model)?;
-    let output = model
-        .rerank(RerankRequest {
-            query: request.query,
-            documents: request.documents,
-            max_length: request.max_length.map(usize::try_from).transpose().map_err(invalid)?,
-            raw_scores: request.raw_scores,
-        })
-        .map_err(|error| task_error(&error))?;
+    let output = model.rerank(RerankRequest {
+        query: request.query,
+        documents: request.documents,
+        max_length: super::status::invalid(request.max_length.map(usize::try_from).transpose())?,
+        raw_scores: request.raw_scores,
+    });
+    let output = match output {
+        Ok(output) => output,
+        Err(error) => return Err(task_error(&error)),
+    };
     Ok(proto::RerankResponse {
         results: output
             .results
@@ -82,10 +82,6 @@ pub(super) fn rerank(
 fn load(service: &RuntimeService, selector: &str) -> Result<libmir::Model, Status> {
     let mut ignored = |_progress| {};
     service.load(selector, false, &mut ignored).map(|entry| entry.model)
-}
-
-fn invalid(error: impl std::fmt::Display) -> Status {
-    Status::invalid_argument(error.to_string())
 }
 
 fn task_error(error: &libmir::Error) -> Status {

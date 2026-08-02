@@ -27,17 +27,22 @@ pub(super) fn chat_request(
         model: request.model.clone(),
         messages: messages(request)?,
         tools: request.tools.iter().map(tool).collect::<Result<_, _>>()?,
-        tool_choice: request
-            .tool_choice_json
-            .as_deref()
-            .map(serde_json::from_str)
-            .transpose()
-            .map_err(|error| json_status(&error))?,
+        tool_choice: crate::rpc::service::status::invalid(
+            request.tool_choice_json.as_deref().map(serde_json::from_str).transpose(),
+        )?,
         stream: true,
-        max_tokens: request.max_tokens.map(usize::try_from).transpose().map_err(integer_status)?,
+        max_tokens: crate::rpc::service::status::invalid(
+            request.max_tokens.map(usize::try_from).transpose(),
+        )?,
+        min_tokens: crate::rpc::service::status::invalid(
+            request.min_tokens.map(usize::try_from).transpose(),
+        )?,
+        ignore_eos: request.ignore_eos,
         temperature: request.temperature,
         top_p: request.top_p,
-        top_k: request.top_k.map(usize::try_from).transpose().map_err(integer_status)?,
+        top_k: crate::rpc::service::status::invalid(
+            request.top_k.map(usize::try_from).transpose(),
+        )?,
         repetition_penalty: request.repetition_penalty,
         seed: request.seed,
     })
@@ -80,8 +85,9 @@ fn tool(tool: &proto::ChatTool) -> Result<ChatTool, Status> {
         function: ChatFunctionDefinition {
             name: function.name.clone(),
             description: function.description.clone(),
-            parameters: serde_json::from_str(&function.parameters_json)
-                .map_err(|error| json_status(&error))?,
+            parameters: crate::rpc::service::status::invalid(serde_json::from_str(
+                &function.parameters_json,
+            ))?,
         },
     })
 }
@@ -96,16 +102,9 @@ fn tool_call(call: &proto::ChatToolCall) -> Result<ChatToolCall, Status> {
         kind: call.r#type.clone(),
         function: ChatFunctionCall {
             name: function.name.clone(),
-            arguments: serde_json::from_str(&function.arguments_json)
-                .map_err(|error| json_status(&error))?,
+            arguments: crate::rpc::service::status::invalid(serde_json::from_str(
+                &function.arguments_json,
+            ))?,
         },
     })
-}
-
-fn json_status(error: &serde_json::Error) -> Status {
-    Status::invalid_argument(error.to_string())
-}
-
-fn integer_status(error: std::num::TryFromIntError) -> Status {
-    Status::invalid_argument(error.to_string())
 }

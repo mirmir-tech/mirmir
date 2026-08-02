@@ -110,7 +110,6 @@ mod tests {
             force: false,
             progress: None,
             error: None,
-            restore: None,
         };
 
         let embedding_summary = summary(&dialog);
