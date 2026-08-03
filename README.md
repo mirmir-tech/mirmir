@@ -63,7 +63,7 @@ We are actively improving performance with the goal of catching up to and then
 outperforming established inference engines, including
 [vLLM](https://github.com/vllm-project/vllm) and
 [MLX-LM](https://github.com/ml-explore/mlx-lm). See the
-[libmir benchmark index](https://github.com/mirmir-tech/libmir/tree/main/benchmarks)
+[libmir benchmark index](https://github.com/mirmir-tech/libmir/blob/main/benchmarks/index.md)
 for current, reproducible comparisons on CUDA and Apple Silicon.
 
 ## Links
