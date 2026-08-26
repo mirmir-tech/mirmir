@@ -125,7 +125,7 @@ impl Drop for GenerationTelemetry {
 impl RuntimeService {
     pub(super) fn telemetry_snapshot(&self) -> Result<proto::TelemetrySnapshot, Status> {
         let runtime = self
-            .coordinator
+            .coordinator()
             .telemetry()
             .map_err(|error| Status::internal(error.to_string()))?;
         let rates =

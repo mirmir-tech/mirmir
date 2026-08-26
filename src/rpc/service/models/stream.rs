@@ -14,7 +14,7 @@ pub fn stream_load(
     sender: &mpsc::Sender<Result<proto::ModelLifecycleEvent, Status>>,
 ) {
     let requested = request.selector.clone();
-    let operation = service.activity.begin("load", &requested, None);
+    let operation = service.application.activity.begin("load", &requested, None);
     operation.progress("resolving", "resolving model", Some(0), None);
     tracing::info!(model = %requested, "model load requested");
     send(
@@ -80,7 +80,7 @@ pub fn stream_load(
             ),
         );
     };
-    match service.coordinator.load_model(&selector, request.force, &mut progress) {
+    match service.coordinator().load_model(&selector, request.force, &mut progress) {
         Ok(entry) => {
             operation.finish("completed", "model is ready");
             tracing::info!(model = %entry.info.id, path = %entry.info.path, "model is ready");

@@ -1,6 +1,6 @@
-use super::{Activity, RuntimeService, Startup, Telemetry};
+use super::{RuntimeService, Telemetry};
 use crate::{
-    application::RuntimeCoordinator,
+    application::Application,
     config::{AppConfig, Store},
 };
 
@@ -9,10 +9,8 @@ impl RuntimeService {
     pub fn new(config: &AppConfig, store: Store) -> Self {
         let telemetry = Telemetry::new(store.paths().telemetry_file.clone());
         Self {
-            coordinator: RuntimeCoordinator::new(config, store),
+            application: Application::new(config, store),
             telemetry,
-            activity: Activity::new(),
-            startup: Startup::new(),
         }
     }
 }

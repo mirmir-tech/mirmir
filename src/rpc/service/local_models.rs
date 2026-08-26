@@ -5,7 +5,7 @@ use crate::{application::LocalModelInfo, rpc::proto};
 
 impl RuntimeService {
     pub(super) fn local_models(&self) -> Result<Vec<proto::LocalModelInfo>, Status> {
-        self.coordinator
+        self.coordinator()
             .local_models()
             .map(|models| models.into_iter().map(Into::into).collect())
             .map_err(|error| super::models::load_error(&error))

@@ -4,27 +4,27 @@ use super::{RuntimeService, models::log_progress};
 
 impl RuntimeService {
     pub fn restore_active_models(&self) -> Result<(), Status> {
-        let selectors = match self.coordinator.active_models() {
+        let selectors = match self.coordinator().active_models() {
             Ok(selectors) => selectors,
             Err(error) => {
-                self.startup.failed(error.to_string());
+                self.application.startup.failed(error.to_string());
                 return Err(Status::internal(error.to_string()));
             },
         };
         let total = selectors.len();
-        self.startup.restoring(total);
+        self.application.startup.restoring(total);
         self.report_state_recovery().inspect_err(|error| {
-            self.startup.failed(error.message().to_owned());
+            self.application.startup.failed(error.message().to_owned());
         })?;
         tracing::info!(models = total, "restoring active models");
         let mut restored = 0_usize;
         let mut failed = 0_usize;
         for selector in selectors {
-            let operation = self.activity.begin("restore", &selector, None);
-            self.startup.loading(&selector, "preparing model", None, None);
+            let operation = self.application.activity.begin("restore", &selector, None);
+            self.application.startup.loading(&selector, "preparing model", None, None);
             tracing::info!(model = %selector, "restoring active model");
             let progress_operation = operation.clone();
-            let startup = self.startup.clone();
+            let startup = self.application.startup.clone();
             let startup_target = selector.clone();
             let mut progress = |event: libmir::ProgressEvent| {
                 log_progress(&selector, &event);
@@ -41,7 +41,7 @@ impl RuntimeService {
                     Some(event.total),
                 );
             };
-            match self.coordinator.load_model(&selector, false, &mut progress) {
+            match self.coordinator().load_model(&selector, false, &mut progress) {
                 Ok(_) => {
                     operation.finish("completed", "active model restored");
                     restored = restored.saturating_add(1);
@@ -60,17 +60,17 @@ impl RuntimeService {
         } else {
             format!("runtime ready; {restored} models restored and {failed} failed")
         };
-        self.startup.ready(detail);
+        self.application.startup.ready(detail);
         tracing::info!(models = total, restored, failed, "active model restoration finished");
         Ok(())
     }
 
     pub(super) fn report_state_recovery(&self) -> Result<(), Status> {
-        let Some(recovery) = super::status::internal(self.coordinator.take_state_recovery())?
+        let Some(recovery) = super::status::internal(self.coordinator().take_state_recovery())?
         else {
             return Ok(());
         };
-        let operation = self.activity.begin("recovery", "state.toml", None);
+        let operation = self.application.activity.begin("recovery", "state.toml", None);
         operation.finish(
             "completed",
             &format!(
@@ -110,7 +110,7 @@ mod tests {
         let service = RuntimeService::new(&AppConfig::default(), Store::new(paths));
 
         service.restore_active_models()?;
-        let event = super::super::activity::watch(&service.activity, true)
+        let event = super::super::activity::watch(&service.application.activity, true)
             .next()
             .await
             .expect("recovery event should be present")?;

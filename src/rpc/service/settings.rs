@@ -12,7 +12,7 @@ impl RuntimeService {
         &self,
         selector: &str,
     ) -> Result<proto::InspectModelResponse, Status> {
-        self.coordinator
+        self.coordinator()
             .inspect_model(selector)
             .map(inspection)
             .map_err(|error| Status::failed_precondition(error.to_string()))
@@ -25,7 +25,7 @@ impl RuntimeService {
             revision: request.revision.clone(),
             commit: request.commit.clone(),
         });
-        self.coordinator
+        self.coordinator()
             .prepare_load(&request.selector, &request.config_id, hub, generation)
             .map_err(|error| super::models::load_error(&error))
     }
@@ -35,7 +35,7 @@ impl RuntimeService {
         selector: &str,
         settings: &proto::GenerationSettings,
     ) -> Result<String, Status> {
-        self.coordinator
+        self.coordinator()
             .save_generation_defaults(selector, config(settings)?)
             .map_err(|error| super::models::load_error(&error))
     }

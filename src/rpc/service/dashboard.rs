@@ -7,32 +7,32 @@ use crate::{application::StartupSnapshot, rpc::proto};
 
 impl RuntimeService {
     pub(crate) fn startup_snapshot(&self) -> StartupSnapshot {
-        self.startup.snapshot()
+        self.application.startup.snapshot()
     }
 
     pub(crate) fn watch_startup(&self) -> watch::Receiver<StartupSnapshot> {
-        self.startup.subscribe()
+        self.application.startup.subscribe()
     }
 
     pub(crate) fn fail_startup(&self, detail: impl Into<String>) {
-        self.startup.failed(detail);
+        self.application.startup.failed(detail);
     }
 
     pub(crate) fn activity_history(&self) -> Vec<proto::ActivityEvent> {
-        self.activity.history().into_iter().map(activity::event).collect()
+        self.application.activity.history().into_iter().map(activity::event).collect()
     }
 
     pub(crate) fn watch_activity_updates(
         &self,
     ) -> ReceiverStream<Result<proto::ActivityEvent, Status>> {
-        activity::watch(&self.activity, false)
+        activity::watch(&self.application.activity, false)
     }
 
     pub(super) async fn remove_with_activity(
         &self,
         repo_id: String,
     ) -> Result<proto::RemoveModelResponse, Status> {
-        let operation = self.activity.begin("remove", &repo_id, None);
+        let operation = self.application.activity.begin("remove", &repo_id, None);
         match catalog::remove(self, repo_id).await {
             Ok(response) => {
                 operation.finish("completed", "model files removed");

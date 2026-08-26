@@ -63,7 +63,7 @@ pub async fn search(
     };
     let results = super::status::unavailable(
         service
-            .coordinator
+            .coordinator()
             .search_catalog(
                 request.query.trim(),
                 usize::try_from(limit).unwrap_or(20),
@@ -91,7 +91,7 @@ pub async fn remove(
     repo_id: String,
 ) -> Result<proto::RemoveModelResponse, Status> {
     let removal = service
-        .coordinator
+        .coordinator()
         .remove_download(&repo_id)
         .await
         .map_err(|error| super::models::load_error(&error))?;
@@ -124,7 +124,7 @@ async fn pull(
 ) {
     let repo_id = request.repo_id;
     let cancellation = CancellationToken::new();
-    let operation = service.activity.enqueue("pull", &repo_id, cancellation.clone());
+    let operation = service.application.activity.enqueue("pull", &repo_id, cancellation.clone());
     let (updates, mut receiver) = mpsc::channel::<TransferUpdate>(64);
     let forward = output.clone();
     let forwarded_repo = repo_id.clone();
@@ -147,7 +147,7 @@ async fn pull(
         }
     });
     match service
-        .coordinator
+        .coordinator()
         .pull_model(&repo_id, request.revision.as_deref(), updates, &cancellation)
         .await
     {

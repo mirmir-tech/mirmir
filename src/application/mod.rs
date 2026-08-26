@@ -45,6 +45,29 @@ pub struct Health {
 
 pub const PROTOCOL_VERSION: &str = "1";
 
+#[derive(Clone)]
+pub struct Application {
+    pub(crate) runtime: RuntimeCoordinator,
+    pub(crate) activity: Activity,
+    pub(crate) startup: Startup,
+}
+
+impl Application {
+    #[must_use]
+    pub fn new(config: &AppConfig, store: Store) -> Self {
+        Self {
+            runtime: RuntimeCoordinator::new(config, store),
+            activity: Activity::new(),
+            startup: Startup::new(),
+        }
+    }
+
+    #[must_use]
+    pub const fn runtime(&self) -> &RuntimeCoordinator {
+        &self.runtime
+    }
+}
+
 impl RuntimeCoordinator {
     #[must_use]
     pub fn new(config: &AppConfig, store: Store) -> Self {

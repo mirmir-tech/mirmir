@@ -15,7 +15,7 @@ fn service(name: &str) -> (RuntimeService, std::path::PathBuf) {
 fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Result<()> {
     let (service, root) = service("unsupported");
     let snapshot = service
-        .coordinator
+        .coordinator()
         .store
         .paths()
         .hub_cache_dir
@@ -40,7 +40,7 @@ fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Resu
 fn lists_a_partial_download_as_paused() -> std::io::Result<()> {
     let (service, root) = service("partial");
     let partial = service
-        .coordinator
+        .coordinator()
         .store
         .paths()
         .hub_cache_dir

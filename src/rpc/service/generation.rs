@@ -20,7 +20,11 @@ pub fn stream(
 ) -> ReceiverStream<Result<proto::GenerateEvent, Status>> {
     let (sender, receiver) = mpsc::channel(64);
     let cancellation = CancellationToken::new();
-    let operation = service.activity.begin("generate", &request.model, Some(cancellation.clone()));
+    let operation =
+        service
+            .application
+            .activity
+            .begin("generate", &request.model, Some(cancellation.clone()));
     drop(sender.try_send(Ok(proto::GenerateEvent {
         event: Some(proto::generate_event::Event::Started(proto::OperationStarted {
             operation_id: operation.id().to_owned(),
@@ -169,7 +173,7 @@ fn load_for_generation(
         load_operation.progress(stage, &event.detail, Some(event.current), Some(event.total));
     };
     service
-        .coordinator
+        .coordinator()
         .load_model(selector, false, &mut progress)
         .map(|entry| entry.model)
         .map_err(|error| super::models::load_error(&error))

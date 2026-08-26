@@ -20,20 +20,18 @@ use tonic::{Request, Response, Status};
 use self::telemetry::Telemetry;
 use super::proto;
 pub use crate::application::StartupSnapshot;
-use crate::application::{Activity, RuntimeCoordinator, Startup};
+use crate::application::{Application, RuntimeCoordinator};
 
 #[derive(Clone)]
 pub struct RuntimeService {
-    coordinator: RuntimeCoordinator,
+    application: Application,
     telemetry: Telemetry,
-    activity: Activity,
-    startup: Startup,
 }
 
 impl RuntimeService {
     #[must_use]
     pub const fn coordinator(&self) -> &RuntimeCoordinator {
-        &self.coordinator
+        self.application.runtime()
     }
 }
 
@@ -66,7 +64,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         _request: Request<proto::ListActiveModelsRequest>,
     ) -> Result<Response<proto::ListActiveModelsResponse>, Status> {
-        let selectors = status::internal(self.coordinator.active_models())?;
+        let selectors = status::internal(self.coordinator().active_models())?;
         self.report_state_recovery()?;
         Ok(Response::new(proto::ListActiveModelsResponse { selectors }))
     }
@@ -124,7 +122,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::UnloadModelRequest>,
     ) -> Result<Response<proto::UnloadModelResponse>, Status> {
         let selector = request.into_inner().selector;
-        let operation = self.activity.begin("unload", &selector, None);
+        let operation = self.application.activity.begin("unload", &selector, None);
         match self.unload(&selector) {
             Ok(unloaded) => {
                 operation.finish(
@@ -219,7 +217,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::WatchActivityRequest>,
     ) -> Result<Response<Self::WatchActivityStream>, Status> {
         Ok(Response::new(activity::watch(
-            &self.activity,
+            &self.application.activity,
             request.into_inner().include_history,
         )))
     }
@@ -229,7 +227,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::CancelOperationRequest>,
     ) -> Result<Response<proto::CancelOperationResponse>, Status> {
         let operation_id = request.into_inner().operation_id;
-        let response = activity::cancellation(self.activity.cancel(&operation_id));
+        let response = activity::cancellation(self.application.activity.cancel(&operation_id));
         tracing::info!(
             operation = %operation_id,
             found = response.found,

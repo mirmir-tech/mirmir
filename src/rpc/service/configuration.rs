@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub(super) fn snapshot(service: &RuntimeService) -> Result<proto::ConfigurationSnapshot, Status> {
-    Ok(convert(super::status::internal(service.coordinator.configuration())?))
+    Ok(convert(super::status::internal(service.coordinator().configuration())?))
 }
 
 pub(super) async fn update(
@@ -29,7 +29,7 @@ pub(super) async fn update(
         None => return Err(Status::invalid_argument("configuration operation is required")),
     };
     let outcome = service
-        .coordinator
+        .coordinator()
         .update_configuration(change)
         .await
         .map_err(|error| Status::invalid_argument(error.to_string()))?;
