@@ -5,9 +5,9 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
-use super::{RuntimeService, models::log_progress, telemetry::GenerationTelemetry};
+use super::{RuntimeService, models::log_progress};
 use crate::{
-    application::{CompletionMetrics, Operation},
+    application::{CompletionMetrics, GenerationTelemetry, Operation},
     rpc::proto,
 };
 
@@ -43,7 +43,7 @@ fn run(
     operation: &Operation,
     cancellation: &CancellationToken,
 ) {
-    let (mut telemetry, started) = (service.telemetry.begin(), Instant::now());
+    let (mut telemetry, started) = (service.application.telemetry.begin(), Instant::now());
     tracing::info!(
         operation = operation.id(),
         model = %request.model,

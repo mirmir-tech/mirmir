@@ -1,15 +1,6 @@
 use sysinfo::System;
 
-use super::{Error, Result, RuntimeCoordinator};
-
-pub struct CompletionMetrics {
-    pub prompt_tokens: u64,
-    pub completion_tokens: u64,
-    pub tokens_per_second: Option<f64>,
-    pub ttft_ms: Option<f64>,
-    pub prefill_tokens_per_second: Option<f64>,
-    pub decode_tokens_per_second: Option<f64>,
-}
+use super::super::{Error, Result, RuntimeCoordinator};
 
 #[derive(Default)]
 pub struct KvTelemetry {

@@ -7,10 +7,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use super::{HistorySample, Snapshot};
 use crate::{
     config::write_toml,
     error::{Error, Result},
-    rpc::proto,
 };
 
 pub const RETENTION_LIMIT: usize = 900;
@@ -27,7 +27,7 @@ struct Inner {
 }
 
 struct State {
-    samples: VecDeque<proto::TelemetryHistorySample>,
+    samples: VecDeque<HistorySample>,
     dirty: usize,
 }
 
@@ -35,7 +35,7 @@ struct State {
 #[serde(deny_unknown_fields)]
 struct HistoryFile {
     schema_version: u32,
-    samples: Vec<proto::TelemetryHistorySample>,
+    samples: Vec<HistorySample>,
 }
 
 impl History {
@@ -50,7 +50,7 @@ impl History {
         }))
     }
 
-    pub fn record(&self, snapshot: &proto::TelemetrySnapshot) -> Result<()> {
+    pub fn record(&self, snapshot: &Snapshot) -> Result<()> {
         let Ok(mut state) = self.0.state.lock() else {
             return Err(poisoned());
         };
@@ -65,7 +65,7 @@ impl History {
         Ok(())
     }
 
-    pub fn response(&self, requested_limit: u32) -> Result<proto::TelemetryHistoryResponse> {
+    pub fn samples(&self, requested_limit: u32) -> Result<Vec<HistorySample>> {
         let Ok(state) = self.0.state.lock() else {
             return Err(poisoned());
         };
@@ -76,11 +76,7 @@ impl History {
             requested.min(RETENTION_LIMIT)
         };
         let skip = state.samples.len().saturating_sub(limit);
-        Ok(proto::TelemetryHistoryResponse {
-            samples: state.samples.iter().skip(skip).cloned().collect(),
-            retention_limit: u32::try_from(RETENTION_LIMIT).unwrap_or(u32::MAX),
-            sampling_interval_ms: SAMPLING_INTERVAL_MS,
-        })
+        Ok(state.samples.iter().skip(skip).cloned().collect())
     }
 
     pub fn flush(&self) -> Result<()> {
@@ -97,8 +93,8 @@ impl History {
     }
 }
 
-fn sample(snapshot: &proto::TelemetrySnapshot) -> proto::TelemetryHistorySample {
-    proto::TelemetryHistorySample {
+fn sample(snapshot: &Snapshot) -> HistorySample {
+    HistorySample {
         sampled_at_unix_ms: snapshot.sampled_at_unix_ms,
         loaded_models: snapshot.loaded_models,
         active_requests: snapshot.active_requests,
@@ -130,7 +126,7 @@ fn sample(snapshot: &proto::TelemetrySnapshot) -> proto::TelemetryHistorySample 
     }
 }
 
-fn load_samples(path: &Path) -> Result<VecDeque<proto::TelemetryHistorySample>> {
+fn load_samples(path: &Path) -> Result<VecDeque<HistorySample>> {
     if !path.exists() {
         return Ok(VecDeque::new());
     }
@@ -146,7 +142,7 @@ fn load_samples(path: &Path) -> Result<VecDeque<proto::TelemetryHistorySample>> 
     Ok(samples)
 }
 
-fn persist(path: &Path, samples: &VecDeque<proto::TelemetryHistorySample>) -> Result<()> {
+fn persist(path: &Path, samples: &VecDeque<HistorySample>) -> Result<()> {
     write_toml(
         path,
         &HistoryFile {
@@ -157,7 +153,7 @@ fn persist(path: &Path, samples: &VecDeque<proto::TelemetryHistorySample>) -> Re
     )
 }
 
-fn trim(samples: &mut VecDeque<proto::TelemetryHistorySample>) {
+fn trim(samples: &mut VecDeque<HistorySample>) {
     while samples.len() > RETENTION_LIMIT {
         let _oldest = samples.pop_front();
     }
@@ -169,24 +165,6 @@ fn finite(value: Option<f64>) -> Option<f64> {
 
 fn poisoned() -> Error {
     Error::Config("telemetry history lock is poisoned".to_owned())
-}
-
-impl super::super::RuntimeService {
-    pub(crate) fn record_telemetry_history(&self) -> std::result::Result<(), tonic::Status> {
-        let snapshot = self.telemetry_snapshot()?;
-        super::super::status::internal(self.telemetry.0.history.record(&snapshot))
-    }
-
-    pub(crate) fn flush_telemetry_history(&self) -> std::result::Result<(), tonic::Status> {
-        super::super::status::internal(self.telemetry.0.history.flush())
-    }
-
-    pub(crate) fn telemetry_history_response(
-        &self,
-        limit: u32,
-    ) -> std::result::Result<proto::TelemetryHistoryResponse, tonic::Status> {
-        super::super::status::internal(self.telemetry.0.history.response(limit))
-    }
 }
 
 #[cfg(test)]
@@ -204,12 +182,12 @@ mod tests {
         history.record(&snapshot(1, 12.0))?;
         history.record(&snapshot(2, 24.0))?;
         history.flush()?;
-        let restored = History::load(path.clone()).response(1)?;
-        assert_eq!(restored.samples.len(), 1);
-        assert_eq!(restored.samples[0].sampled_at_unix_ms, 2);
-        assert_eq!(restored.samples[0].e2e_tokens_per_second, Some(24.0));
-        assert_eq!(restored.samples[0].prefill_tokens_per_second, Some(48.0));
-        assert_eq!(restored.samples[0].decode_tokens_per_second, Some(12.0));
+        let restored = History::load(path.clone()).samples(1)?;
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].sampled_at_unix_ms, 2);
+        assert_eq!(restored[0].e2e_tokens_per_second, Some(24.0));
+        assert_eq!(restored[0].prefill_tokens_per_second, Some(48.0));
+        assert_eq!(restored[0].decode_tokens_per_second, Some(12.0));
         fs::remove_file(path)?;
         Ok(())
     }
@@ -217,7 +195,7 @@ mod tests {
     #[test]
     fn trims_oldest_samples() {
         let mut samples = (0..=RETENTION_LIMIT)
-            .map(|index| proto::TelemetryHistorySample {
+            .map(|index| HistorySample {
                 sampled_at_unix_ms: u64::try_from(index).unwrap_or(u64::MAX),
                 ..Default::default()
             })
@@ -232,8 +210,8 @@ mod tests {
         std::env::temp_dir().join(format!("mirmir-telemetry-{}-{id}.toml", std::process::id()))
     }
 
-    fn snapshot(sampled_at_unix_ms: u64, rate: f64) -> proto::TelemetrySnapshot {
-        proto::TelemetrySnapshot {
+    fn snapshot(sampled_at_unix_ms: u64, rate: f64) -> Snapshot {
+        Snapshot {
             sampled_at_unix_ms,
             current_tokens_per_second: Some(rate),
             last_prefill_tokens_per_second: Some(rate * 2.0),

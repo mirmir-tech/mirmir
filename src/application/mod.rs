@@ -19,7 +19,11 @@ use libmir::Library;
 pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};
 pub use settings::{ModelInspection, ModelTaskCapabilities};
 pub use startup::{Snapshot as StartupSnapshot, Startup};
-pub use telemetry::CompletionMetrics;
+pub use telemetry::{
+    CompletionMetrics, GenerationTelemetry, HistorySample,
+    RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT, SAMPLING_INTERVAL_MS,
+    Snapshot as TelemetrySnapshot, Telemetry,
+};
 
 use crate::{
     catalog::Catalog,
@@ -50,21 +54,44 @@ pub struct Application {
     pub(crate) runtime: RuntimeCoordinator,
     pub(crate) activity: Activity,
     pub(crate) startup: Startup,
+    pub(crate) telemetry: Telemetry,
+    telemetry_history: telemetry::History,
 }
 
 impl Application {
     #[must_use]
     pub fn new(config: &AppConfig, store: Store) -> Self {
+        let telemetry_history = telemetry::History::load(store.paths().telemetry_file.clone());
         Self {
             runtime: RuntimeCoordinator::new(config, store),
             activity: Activity::new(),
             startup: Startup::new(),
+            telemetry: Telemetry::new(),
+            telemetry_history,
         }
     }
 
     #[must_use]
     pub const fn runtime(&self) -> &RuntimeCoordinator {
         &self.runtime
+    }
+
+    pub fn telemetry_snapshot(&self) -> Result<TelemetrySnapshot> {
+        Ok(self.telemetry.snapshot(self.runtime.telemetry()?))
+    }
+
+    pub fn record_telemetry_history(&self) -> Result<()> {
+        self.telemetry_history.record(&self.telemetry_snapshot()?)?;
+        Ok(())
+    }
+
+    pub fn flush_telemetry_history(&self) -> Result<()> {
+        self.telemetry_history.flush()?;
+        Ok(())
+    }
+
+    pub fn telemetry_history(&self, limit: u32) -> Result<Vec<HistorySample>> {
+        Ok(self.telemetry_history.samples(limit)?)
     }
 }
 

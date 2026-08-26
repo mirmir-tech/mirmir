@@ -12,12 +12,11 @@ mod status;
 mod tasks;
 mod telemetry;
 
-pub use telemetry::history::SAMPLING_INTERVAL_MS;
+pub use telemetry::SAMPLING_INTERVAL_MS;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use self::telemetry::Telemetry;
 use super::proto;
 pub use crate::application::StartupSnapshot;
 use crate::application::{Application, RuntimeCoordinator};
@@ -25,7 +24,6 @@ use crate::application::{Application, RuntimeCoordinator};
 #[derive(Clone)]
 pub struct RuntimeService {
     application: Application,
-    telemetry: Telemetry,
 }
 
 impl RuntimeService {
