@@ -8,20 +8,19 @@ mod local_models;
 mod models;
 mod restore;
 mod settings;
-mod startup;
 mod status;
 mod tasks;
 mod telemetry;
 
-pub use startup::Snapshot as StartupSnapshot;
 pub use telemetry::history::SAMPLING_INTERVAL_MS;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use self::{activity::Activity, startup::Startup, telemetry::Telemetry};
+use self::telemetry::Telemetry;
 use super::proto;
-use crate::application::RuntimeCoordinator;
+pub use crate::application::StartupSnapshot;
+use crate::application::{Activity, RuntimeCoordinator, Startup};
 
 #[derive(Clone)]
 pub struct RuntimeService {
@@ -219,7 +218,10 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::WatchActivityRequest>,
     ) -> Result<Response<Self::WatchActivityStream>, Status> {
-        Ok(Response::new(self.activity.watch(request.into_inner().include_history)))
+        Ok(Response::new(activity::watch(
+            &self.activity,
+            request.into_inner().include_history,
+        )))
     }
 
     async fn cancel_operation(
@@ -227,7 +229,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::CancelOperationRequest>,
     ) -> Result<Response<proto::CancelOperationResponse>, Status> {
         let operation_id = request.into_inner().operation_id;
-        let response = self.activity.cancel(&operation_id);
+        let response = activity::cancellation(self.activity.cancel(&operation_id));
         tracing::info!(
             operation = %operation_id,
             found = response.found,

@@ -1,8 +1,10 @@
+mod activity;
 mod catalog;
 mod configuration;
 mod error;
 mod models;
 mod settings;
+mod startup;
 mod telemetry;
 
 use std::{
@@ -10,11 +12,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub use activity::{Activity, ActivityEvent, CancelOutcome, Operation};
 pub use configuration::ConfigurationChange;
 pub use error::{Error, Result};
 use libmir::Library;
 pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};
 pub use settings::{ModelInspection, ModelTaskCapabilities};
+pub use startup::{Snapshot as StartupSnapshot, Startup};
 
 use crate::{
     catalog::Catalog,

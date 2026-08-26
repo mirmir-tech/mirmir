@@ -2,15 +2,15 @@ use tokio::sync::watch;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
-use super::{RuntimeService, catalog, startup};
-use crate::rpc::proto;
+use super::{RuntimeService, activity, catalog};
+use crate::{application::StartupSnapshot, rpc::proto};
 
 impl RuntimeService {
-    pub(crate) fn startup_snapshot(&self) -> startup::Snapshot {
+    pub(crate) fn startup_snapshot(&self) -> StartupSnapshot {
         self.startup.snapshot()
     }
 
-    pub(crate) fn watch_startup(&self) -> watch::Receiver<startup::Snapshot> {
+    pub(crate) fn watch_startup(&self) -> watch::Receiver<StartupSnapshot> {
         self.startup.subscribe()
     }
 
@@ -19,13 +19,13 @@ impl RuntimeService {
     }
 
     pub(crate) fn activity_history(&self) -> Vec<proto::ActivityEvent> {
-        self.activity.history()
+        self.activity.history().into_iter().map(activity::event).collect()
     }
 
     pub(crate) fn watch_activity_updates(
         &self,
     ) -> ReceiverStream<Result<proto::ActivityEvent, Status>> {
-        self.activity.watch(false)
+        activity::watch(&self.activity, false)
     }
 
     pub(super) async fn remove_with_activity(

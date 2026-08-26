@@ -5,10 +5,8 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
-use super::{
-    RuntimeService, activity::Operation, models::log_progress, telemetry::GenerationTelemetry,
-};
-use crate::rpc::proto;
+use super::{RuntimeService, models::log_progress, telemetry::GenerationTelemetry};
+use crate::{application::Operation, rpc::proto};
 
 #[path = "generation/request.rs"]
 mod request_conversion;

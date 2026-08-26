@@ -110,9 +110,7 @@ mod tests {
         let service = RuntimeService::new(&AppConfig::default(), Store::new(paths));
 
         service.restore_active_models()?;
-        let event = service
-            .activity
-            .watch(true)
+        let event = super::super::activity::watch(&service.activity, true)
             .next()
             .await
             .expect("recovery event should be present")?;

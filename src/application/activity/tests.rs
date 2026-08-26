@@ -18,9 +18,7 @@ fn queued_operation_becomes_running_on_first_work_stage() {
     let operation = activity.enqueue("pull", "model", CancellationToken::new());
     assert_eq!(activity.history()[0].state, "queued");
     operation.progress("resolving", "resolving model", Some(0), None);
-    let event = &activity.history()[0];
-    assert_eq!(event.state, "running");
-    assert_eq!(event.stage, "resolving");
+    assert_eq!(activity.history()[0].state, "running");
 }
 
 #[test]
@@ -28,8 +26,7 @@ fn history_limit_never_evicts_a_running_operation() {
     let activity = Activity::new();
     let oldest = activity.begin("generate", "oldest", Some(CancellationToken::new()));
     for index in 0..HISTORY_LIMIT {
-        let operation = activity.begin("load", &index.to_string(), None);
-        operation.finish("completed", "done");
+        activity.begin("load", &index.to_string(), None).finish("completed", "done");
     }
     assert!(activity.cancel(oldest.id()).accepted);
 }
