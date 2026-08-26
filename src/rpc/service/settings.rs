@@ -21,7 +21,9 @@ impl RuntimeService {
             &resolved.path,
             overrides(resolved.generation),
         ))?;
-        let memory = super::preflight::report(&self.library, &descriptor)?;
+        let memory = self
+            .memory_report(&descriptor)
+            .map_err(|error| Status::failed_precondition(error.to_string()))?;
         Ok(proto::InspectModelResponse {
             settings: matches!(descriptor.task(), ModelTask::Generation)
                 .then(|| settings(descriptor.generation())),
@@ -117,7 +119,7 @@ const fn task_name(task: &ModelTask) -> &'static str {
     }
 }
 
-fn memory_estimate(value: super::preflight::MemoryReport) -> proto::ModelMemoryEstimate {
+fn memory_estimate(value: crate::application::MemoryReport) -> proto::ModelMemoryEstimate {
     proto::ModelMemoryEstimate {
         weight_bytes: value.estimate.weight_bytes,
         kv_cache_bytes: value.estimate.kv_cache_bytes,

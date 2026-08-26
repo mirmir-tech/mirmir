@@ -39,14 +39,12 @@ impl ApiState {
     }
 }
 
-pub async fn health(State(state): State<ApiState>) -> Result<Json<HealthResponse>, ApiError> {
-    let response =
-        super::error::status(state.service.health(Request::new(proto::HealthRequest {})).await)?
-            .into_inner();
+pub async fn health() -> Result<Json<HealthResponse>, ApiError> {
+    let response = crate::application::RuntimeCoordinator::health();
     Ok(Json(HealthResponse {
         status: "ok",
-        server_version: response.server_version,
-        protocol_version: response.protocol_version,
+        server_version: response.server_version.to_owned(),
+        protocol_version: response.protocol_version.to_owned(),
     }))
 }
 
@@ -55,14 +53,13 @@ pub async fn models(
     headers: HeaderMap,
 ) -> Result<Json<ModelsResponse>, ApiError> {
     state.authorize(&headers)?;
-    let response = super::error::status(
-        state.service.list_models(Request::new(proto::ListModelsRequest {})).await,
-    )?
-    .into_inner();
+    let models = state
+        .coordinator()
+        .models()
+        .map_err(|error| ApiError::internal(error.to_string()))?;
     Ok(Json(ModelsResponse {
         object: "list",
-        data: response
-            .models
+        data: models
             .into_iter()
             .map(|model| Model {
                 id: model.id,

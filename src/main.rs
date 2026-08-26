@@ -1,4 +1,5 @@
 #![recursion_limit = "256"]
+mod application;
 mod catalog;
 mod cli;
 mod config;

@@ -80,7 +80,7 @@ pub fn stream_load(
             ),
         );
     };
-    match service.load(&selector, request.force, &mut progress) {
+    match service.load_model(&selector, request.force, &mut progress) {
         Ok(entry) => {
             operation.finish("completed", "model is ready");
             tracing::info!(model = %entry.info.id, path = %entry.info.path, "model is ready");
@@ -95,15 +95,16 @@ pub fn stream_load(
                         total: Some(1),
                         unit: "item",
                         detail: "model is ready",
-                        model: Some(entry.info),
+                        model: Some(entry.info.into()),
                     },
                 ),
             );
         },
         Err(error) => {
-            operation.finish("failed", error.message());
+            let status = super::load_error(&error);
+            operation.finish("failed", status.message());
             tracing::error!(model = %selector, %error, "model load failed");
-            drop(sender.blocking_send(Err(error)));
+            drop(sender.blocking_send(Err(status)));
         },
     }
 }

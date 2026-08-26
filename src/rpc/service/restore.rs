@@ -41,14 +41,15 @@ impl RuntimeService {
                     Some(event.total),
                 );
             };
-            match self.load(&selector, false, &mut progress) {
+            match self.load_model(&selector, false, &mut progress) {
                 Ok(_) => {
                     operation.finish("completed", "active model restored");
                     restored = restored.saturating_add(1);
                     tracing::info!(model = %selector, "active model restored");
                 },
                 Err(error) => {
-                    operation.finish("failed", error.message());
+                    let status = super::models::load_error(&error);
+                    operation.finish("failed", status.message());
                     failed = failed.saturating_add(1);
                     tracing::error!(model = %selector, %error, "failed to restore active model");
                 },

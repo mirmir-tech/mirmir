@@ -6,8 +6,6 @@ mod dashboard;
 mod generation;
 mod local_models;
 mod models;
-mod preflight;
-mod presentation;
 mod restore;
 mod settings;
 mod startup;
@@ -15,34 +13,39 @@ mod status;
 mod tasks;
 mod telemetry;
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
-};
+use std::ops::Deref;
 
-use libmir::Library;
 pub use startup::Snapshot as StartupSnapshot;
 pub use telemetry::history::SAMPLING_INTERVAL_MS;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use self::{activity::Activity, models::ModelEntry, startup::Startup, telemetry::Telemetry};
-use super::{PROTOCOL_VERSION, proto};
-use crate::{catalog::Catalog, config::Store};
+use self::{activity::Activity, startup::Startup, telemetry::Telemetry};
+use super::proto;
+use crate::application::RuntimeCoordinator;
 
 #[derive(Clone)]
 pub struct RuntimeService {
-    library: Library,
-    store: Store,
-    catalog: Catalog,
-    models: Arc<Mutex<HashMap<String, ModelEntry>>>,
-    loading: Arc<Mutex<HashSet<String>>>,
-    model_memory_gate: Arc<Mutex<()>>,
-    model_residency: models::ModelResidency,
+    coordinator: RuntimeCoordinator,
     telemetry: Telemetry,
     activity: Activity,
     startup: Startup,
+}
+
+impl RuntimeService {
+    #[must_use]
+    pub const fn coordinator(&self) -> &RuntimeCoordinator {
+        &self.coordinator
+    }
+}
+
+impl Deref for RuntimeService {
+    type Target = RuntimeCoordinator;
+
+    fn deref(&self) -> &Self::Target {
+        &self.coordinator
+    }
 }
 
 #[tonic::async_trait]
@@ -56,9 +59,10 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         _request: Request<proto::HealthRequest>,
     ) -> Result<Response<proto::HealthResponse>, Status> {
+        let health = RuntimeCoordinator::health();
         Ok(Response::new(proto::HealthResponse {
-            protocol_version: PROTOCOL_VERSION.to_owned(),
-            server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            protocol_version: health.protocol_version.to_owned(),
+            server_version: health.server_version.to_owned(),
         }))
     }
 

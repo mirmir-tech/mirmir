@@ -8,7 +8,7 @@ mod types;
 
 use tokio::sync::{broadcast, watch};
 
-use crate::{rpc::RuntimeService, web::Sessions};
+use crate::{application::RuntimeCoordinator, rpc::RuntimeService, web::Sessions};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -42,6 +42,10 @@ impl ApiState {
 
     pub const fn service(&self) -> &RuntimeService {
         &self.service
+    }
+
+    pub const fn coordinator(&self) -> &RuntimeCoordinator {
+        self.service.coordinator()
     }
 
     pub const fn sessions(&self) -> &Sessions {

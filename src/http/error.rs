@@ -29,6 +29,10 @@ struct ErrorBody {
 }
 
 impl ApiError {
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, message, "server_error", "runtime_error")
+    }
+
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, message, "invalid_request_error", "invalid_request")
     }

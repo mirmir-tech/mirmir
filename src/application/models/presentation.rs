@@ -38,48 +38,62 @@ pub(super) fn inspect(path: &Path, generation: GenerationConfig) -> ModelPresent
         repetition_penalty: generation.repetition_penalty,
     };
     match ModelDescriptor::inspect(path, overrides) {
-        Ok(descriptor) => {
-            let kind = descriptor.template().kind();
-            let format = ModelFormat::local(path, &config, Some(&descriptor));
-            ModelPresentation {
-                class: model_class(&config),
-                library: format.legacy_library(),
-                ecosystem: format.ecosystem,
-                container: format.container,
-                encoding: format.encoding,
-                metal_compatibility: format.metal_compatibility,
-                cuda_compatibility: format.cuda_compatibility,
-                size_bytes: descriptor.layout().weights.iter().map(|weight| weight.bytes).sum(),
-                features: Features {
-                    tool_use: has_tools(template.as_deref()),
-                    thinking: matches!(kind, TemplateKind::QwenChatMl | TemplateKind::Gemma4)
-                        || has_thinking(template.as_deref()),
-                    vision: descriptor.vision().is_some(),
-                },
-                loadable: true,
-                error: String::new(),
-            }
+        Ok(descriptor) => present(&config, template.as_deref(), path, &descriptor),
+        Err(error) => unavailable(&config, template.as_deref(), path, error.to_string()),
+    }
+}
+
+fn present(
+    config: &Value,
+    template: Option<&str>,
+    path: &Path,
+    descriptor: &ModelDescriptor,
+) -> ModelPresentation {
+    let format = ModelFormat::local(path, config, Some(descriptor));
+    let kind = descriptor.template().kind();
+    ModelPresentation {
+        class: model_class(config),
+        library: format.legacy_library(),
+        ecosystem: format.ecosystem,
+        container: format.container,
+        encoding: format.encoding,
+        metal_compatibility: format.metal_compatibility,
+        cuda_compatibility: format.cuda_compatibility,
+        size_bytes: descriptor.layout().weights.iter().map(|weight| weight.bytes).sum(),
+        features: Features {
+            tool_use: has_tools(template),
+            thinking: matches!(kind, TemplateKind::QwenChatMl | TemplateKind::Gemma4)
+                || has_thinking(template),
+            vision: descriptor.vision().is_some(),
         },
-        Err(error) => {
-            let format = ModelFormat::local(path, &config, None);
-            ModelPresentation {
-                class: model_class(&config),
-                library: format.legacy_library(),
-                ecosystem: format.ecosystem,
-                container: format.container,
-                encoding: format.encoding,
-                metal_compatibility: format.metal_compatibility,
-                cuda_compatibility: format.cuda_compatibility,
-                size_bytes: weight_size(path),
-                features: Features {
-                    tool_use: has_tools(template.as_deref()),
-                    thinking: has_thinking(template.as_deref()),
-                    vision: config.get("vision_config").is_some_and(|value| !value.is_null()),
-                },
-                loadable: false,
-                error: error.to_string(),
-            }
+        loadable: true,
+        error: String::new(),
+    }
+}
+
+fn unavailable(
+    config: &Value,
+    template: Option<&str>,
+    path: &Path,
+    error: String,
+) -> ModelPresentation {
+    let format = ModelFormat::local(path, config, None);
+    ModelPresentation {
+        class: model_class(config),
+        library: format.legacy_library(),
+        ecosystem: format.ecosystem,
+        container: format.container,
+        encoding: format.encoding,
+        metal_compatibility: format.metal_compatibility,
+        cuda_compatibility: format.cuda_compatibility,
+        size_bytes: weight_size(path),
+        features: Features {
+            tool_use: has_tools(template),
+            thinking: has_thinking(template),
+            vision: config.get("vision_config").is_some_and(|value| !value.is_null()),
         },
+        loadable: false,
+        error,
     }
 }
 
