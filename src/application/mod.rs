@@ -1,5 +1,6 @@
 mod error;
 mod models;
+mod settings;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -9,6 +10,7 @@ use std::{
 pub use error::{Error, Result};
 use libmir::Library;
 pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};
+pub use settings::{ModelInspection, ModelTaskCapabilities};
 
 use crate::{
     catalog::Catalog,

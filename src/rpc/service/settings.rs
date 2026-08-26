@@ -1,11 +1,8 @@
-use libmir::{
-    GenerationOverrides, ModelDescriptor,
-    models::execution::{ModelTask, PoolingMode, TaskExecutionPlan},
-};
 use tonic::Status;
 
 use super::RuntimeService;
 use crate::{
+    application::{ModelInspection, ModelTaskCapabilities},
     config::{GenerationConfig, HubModelConfig},
     rpc::proto,
 };
@@ -15,43 +12,22 @@ impl RuntimeService {
         &self,
         selector: &str,
     ) -> Result<proto::InspectModelResponse, Status> {
-        let resolved = super::status::invalid(self.store.resolve_model(selector))?;
-        let has_mirmir_overrides = resolved.generation.has_overrides();
-        let descriptor = super::status::failed_precondition(ModelDescriptor::inspect(
-            &resolved.path,
-            overrides(resolved.generation),
-        ))?;
-        let memory = self
-            .memory_report(&descriptor)
-            .map_err(|error| Status::failed_precondition(error.to_string()))?;
-        Ok(proto::InspectModelResponse {
-            settings: matches!(descriptor.task(), ModelTask::Generation)
-                .then(|| settings(descriptor.generation())),
-            has_mirmir_overrides,
-            memory: Some(memory_estimate(memory)),
-            task: task_name(&descriptor.task()).to_owned(),
-            capabilities: Some(capabilities(&descriptor)),
-        })
+        self.coordinator
+            .inspect_model(selector)
+            .map(inspection)
+            .map_err(|error| Status::failed_precondition(error.to_string()))
     }
 
     pub(super) fn prepare_load(&self, request: &proto::LoadModelRequest) -> Result<String, Status> {
-        let Some(settings) = request.settings.as_ref() else {
-            return Ok(request.selector.clone());
-        };
-        let generation = config(settings)?;
-        let resolved = super::status::invalid(self.store.resolve_model(&request.selector))?;
-        super::status::invalid(ModelDescriptor::inspect(&resolved.path, overrides(generation)))?;
+        let generation = request.settings.as_ref().map(config).transpose()?;
         let hub = (!request.repo_id.is_empty()).then(|| HubModelConfig {
             repo_id: request.repo_id.clone(),
             revision: request.revision.clone(),
             commit: request.commit.clone(),
         });
-        super::status::invalid(self.store.save_model_generation(
-            &request.selector,
-            &request.config_id,
-            hub,
-            generation,
-        ))
+        self.coordinator
+            .prepare_load(&request.selector, &request.config_id, hub, generation)
+            .map_err(|error| super::models::load_error(&error))
     }
 
     pub(super) fn save_generation_defaults(
@@ -59,63 +35,38 @@ impl RuntimeService {
         selector: &str,
         settings: &proto::GenerationSettings,
     ) -> Result<String, Status> {
-        let generation = config(settings)?;
-        let resolved = super::status::invalid(self.store.resolve_model(selector))?;
-        super::status::invalid(ModelDescriptor::inspect(&resolved.path, overrides(generation)))?;
-        super::status::invalid(
-            self.store.save_model_generation(selector, &resolved.key, None, generation),
-        )
+        self.coordinator
+            .save_generation_defaults(selector, config(settings)?)
+            .map_err(|error| super::models::load_error(&error))
     }
 }
 
-fn capabilities(descriptor: &ModelDescriptor) -> proto::ModelTaskCapabilities {
-    let max_input_tokens = descriptor
-        .tokenizer()
-        .default_max_length()
-        .unwrap_or_else(|| descriptor.metadata().context_len)
-        .min(descriptor.metadata().context_len);
-    let (embedding, rerank) = match descriptor.task_plan() {
-        TaskExecutionPlan::Embedding { task, .. } => (
-            Some(proto::EmbeddingCapabilities {
-                native_dimensions: u64::try_from(task.native_dimensions).unwrap_or(u64::MAX),
-                pooling: pooling(task.pooling).to_owned(),
-                normalized: task.normalize,
-                prompt_names: task.prompts.keys().cloned().collect(),
-                default_prompt: task.default_prompt.clone(),
-                includes_prompt: task.include_prompt,
-            }),
-            None,
-        ),
-        TaskExecutionPlan::SequenceScoring { task, .. } => (
-            None,
-            Some(proto::RerankCapabilities {
-                labels: u64::try_from(task.labels).unwrap_or(u64::MAX),
-                pooling: pooling(task.pooling).to_owned(),
-                raw_scores: true,
-            }),
-        ),
-        TaskExecutionPlan::Generation { .. } => (None, None),
-    };
+fn inspection(value: ModelInspection) -> proto::InspectModelResponse {
+    proto::InspectModelResponse {
+        settings: value.settings.map(settings),
+        has_mirmir_overrides: value.has_mirmir_overrides,
+        memory: Some(memory_estimate(value.memory)),
+        task: value.task.to_owned(),
+        capabilities: Some(capabilities(value.capabilities)),
+    }
+}
+
+fn capabilities(value: ModelTaskCapabilities) -> proto::ModelTaskCapabilities {
     proto::ModelTaskCapabilities {
-        max_input_tokens: u64::try_from(max_input_tokens).unwrap_or(u64::MAX),
-        embedding,
-        rerank,
-    }
-}
-
-const fn pooling(mode: PoolingMode) -> &'static str {
-    match mode {
-        PoolingMode::Cls => "cls",
-        PoolingMode::LastToken => "last_token",
-        PoolingMode::Mean => "mean",
-    }
-}
-
-const fn task_name(task: &ModelTask) -> &'static str {
-    match task {
-        ModelTask::Generation => "generation",
-        ModelTask::Embedding(_) => "embedding",
-        ModelTask::SequenceScoring(_) => "rerank",
+        max_input_tokens: value.max_input_tokens,
+        embedding: value.embedding.map(|item| proto::EmbeddingCapabilities {
+            native_dimensions: item.native_dimensions,
+            pooling: item.pooling.to_owned(),
+            normalized: item.normalized,
+            prompt_names: item.prompt_names,
+            default_prompt: item.default_prompt,
+            includes_prompt: item.includes_prompt,
+        }),
+        rerank: value.rerank.map(|item| proto::RerankCapabilities {
+            labels: item.labels,
+            pooling: item.pooling.to_owned(),
+            raw_scores: item.raw_scores,
+        }),
     }
 }
 
@@ -131,18 +82,6 @@ fn memory_estimate(value: crate::application::MemoryReport) -> proto::ModelMemor
         fit: value.fit.to_owned(),
         max_safe_context_tokens: value.max_safe_context,
         configured_cache_tokens: value.estimate.cache_capacity_tokens,
-    }
-}
-
-const fn overrides(config: GenerationConfig) -> GenerationOverrides {
-    GenerationOverrides {
-        max_tokens: config.max_tokens,
-        min_tokens: None,
-        ignore_eos: None,
-        temperature: config.temperature,
-        top_p: config.top_p,
-        top_k: config.top_k,
-        repetition_penalty: config.repetition_penalty,
     }
 }
 
