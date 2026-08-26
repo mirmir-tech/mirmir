@@ -1,4 +1,4 @@
-use super::{Application, Error, Result, RuntimeCoordinator};
+use super::{Application, Result, RuntimeCoordinator};
 use crate::catalog::{MachineMemory, Removal, SearchResults};
 
 impl Application {
@@ -47,21 +47,7 @@ impl RuntimeCoordinator {
 
     pub async fn remove_download(&self, repo_id: &str) -> Result<Removal> {
         let key = crate::config::model_key(repo_id)?;
-        let loaded = {
-            let models = self.models.lock().map_err(|_| Error::StatePoisoned("model registry"))?;
-            models.contains_key(&key)
-        };
-        if loaded {
-            return Err(Error::ModelLoaded(key));
-        }
-        let is_loading = {
-            let loading =
-                self.loading.lock().map_err(|_| Error::StatePoisoned("model lifecycle"))?;
-            loading.contains(&key)
-        };
-        if is_loading {
-            return Err(Error::ModelAlreadyLoading(key));
-        }
+        self.lifecycle.ensure_removable(&key)?;
         let removal = self.catalog.remove(repo_id).await?;
         if removal.removed {
             self.store.deactivate_model(&key)?;

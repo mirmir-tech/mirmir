@@ -3,10 +3,11 @@ mod local;
 mod preflight;
 mod presentation;
 mod residency;
+pub mod state;
 
 use libmir::{Model, ModelDescriptor};
 pub use preflight::MemoryReport;
-pub use residency::ModelResidency;
+use residency::ModelResidency;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]

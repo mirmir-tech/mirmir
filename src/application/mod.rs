@@ -10,17 +10,13 @@ mod startup;
 mod telemetry;
 mod transfer;
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
-};
-
 pub use activity::{Activity, ActivityEvent, CancelOutcome, Operation};
 pub use configuration::ConfigurationChange;
 pub use error::{Error, Result};
 pub use inference::{GenerationEvent, GenerationResult, GenerationSession};
 use libmir::Library;
-pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};
+use models::state::ModelLifecycle;
+pub use models::{LocalModelInfo, MemoryReport, ModelInfo};
 pub use settings::{
     EmbeddingCapabilities, ModelInspection, ModelTaskCapabilities, RerankCapabilities,
 };
@@ -42,10 +38,7 @@ pub struct RuntimeCoordinator {
     pub(crate) library: Library,
     pub(crate) store: Store,
     pub(crate) catalog: Catalog,
-    pub(crate) models: Arc<Mutex<HashMap<String, ModelEntry>>>,
-    pub(crate) loading: Arc<Mutex<HashSet<String>>>,
-    pub(crate) model_memory_gate: Arc<Mutex<()>>,
-    pub(crate) model_residency: ModelResidency,
+    pub(crate) lifecycle: ModelLifecycle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,10 +122,7 @@ impl RuntimeCoordinator {
             library: Library::new(runtime),
             catalog: Catalog::new(store.clone()),
             store,
-            models: Arc::new(Mutex::new(HashMap::new())),
-            loading: Arc::new(Mutex::new(HashSet::new())),
-            model_memory_gate: Arc::new(Mutex::new(())),
-            model_residency: ModelResidency::default(),
+            lifecycle: ModelLifecycle::default(),
         }
     }
 
@@ -145,11 +135,10 @@ impl RuntimeCoordinator {
     }
 
     pub fn models(&self) -> Result<Vec<ModelInfo>> {
-        let Ok(models) = self.models.lock() else {
-            return Err(Error::StatePoisoned("model registry"));
-        };
-        let mut listed = models.values().map(|entry| entry.info.clone()).collect::<Vec<_>>();
-        drop(models);
+        let state = self.lifecycle.state()?;
+        let mut listed =
+            state.resident.values().map(|entry| entry.info.clone()).collect::<Vec<_>>();
+        drop(state);
         listed.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(listed)
     }

@@ -1,6 +1,6 @@
 use sysinfo::System;
 
-use super::super::{Error, Result, RuntimeCoordinator};
+use super::super::{Result, RuntimeCoordinator};
 
 #[derive(Default)]
 pub struct KvTelemetry {
@@ -22,13 +22,13 @@ pub struct RuntimeTelemetry {
 
 impl RuntimeCoordinator {
     pub fn telemetry(&self) -> Result<RuntimeTelemetry> {
-        let models = self.models.lock().map_err(|_| Error::StatePoisoned("model registry"))?;
+        let state = self.lifecycle.state()?;
         let mut kv = KvTelemetry::default();
-        for entry in models.values() {
+        for entry in state.resident.values() {
             kv.add(&entry.model.cache_stats());
         }
-        let loaded_models = u64::try_from(models.len()).unwrap_or(u64::MAX);
-        drop(models);
+        let loaded_models = u64::try_from(state.resident.len()).unwrap_or(u64::MAX);
+        drop(state);
         let (host_total, host_available, memory_source) = memory(&self.library);
         let device = self.library.device_telemetry_snapshot().unwrap_or_default();
         Ok(RuntimeTelemetry {

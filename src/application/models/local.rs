@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::{LocalModelInfo, ModelEntry, presentation};
 use crate::{
-    application::{Application, Error, Result, RuntimeCoordinator},
+    application::{Application, Result, RuntimeCoordinator},
     catalog::{
         CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
         discover_partial_downloads_in,
@@ -26,8 +26,7 @@ impl RuntimeCoordinator {
             .enumerate()
             .map(|(rank, id)| (id, u32::try_from(rank).unwrap_or(u32::MAX)))
             .collect::<HashMap<_, _>>();
-        let models = self.models.lock().map_err(|_| Error::StatePoisoned("model registry"))?;
-        let loading = self.loading.lock().map_err(|_| Error::StatePoisoned("model lifecycle"))?;
+        let state = self.lifecycle.state()?;
         let mut known_repos = configs
             .iter()
             .filter_map(|config| config.hub.as_ref().map(|hub| hub.repo_id.clone()))
@@ -36,11 +35,12 @@ impl RuntimeCoordinator {
             configs.iter().map(|config| config.path.clone()).collect::<HashSet<_>>();
         let mut listed = configs
             .iter()
-            .map(|config| configured(config, &recent, &models, &loading, self))
+            .map(|config| configured(config, &recent, &state.resident, &state.loading, self))
             .collect::<Vec<_>>();
         for cached in discover_cached_models_in(&self.store.paths().hub_cache_dir) {
             append_cached(
-                &mut listed, cached, true, &mut known_repos, &mut known_paths, &models, &loading,
+                &mut listed, cached, true, &mut known_repos, &mut known_paths, &state.resident,
+                &state.loading,
             );
         }
         for partial in discover_partial_downloads_in(&self.store.paths().hub_cache_dir) {
@@ -48,11 +48,11 @@ impl RuntimeCoordinator {
         }
         for cached in discover_cached_models() {
             append_cached(
-                &mut listed, cached, false, &mut known_repos, &mut known_paths, &models, &loading,
+                &mut listed, cached, false, &mut known_repos, &mut known_paths, &state.resident,
+                &state.loading,
             );
         }
-        drop(loading);
-        drop(models);
+        drop(state);
         listed.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(listed)
     }

@@ -53,10 +53,7 @@ impl RuntimeCoordinator {
         if let Some(model) = self.resident_model(&resolved.key)? {
             return Ok(model);
         }
-        let _memory = self
-            .model_memory_gate
-            .lock()
-            .map_err(|_| Error::StatePoisoned("model memory gate"))?;
+        let _memory = self.lifecycle.memory_gate()?;
         if let Some(model) = self.resident_model(&resolved.key)? {
             return Ok(model);
         }
@@ -73,7 +70,7 @@ impl RuntimeCoordinator {
                 Check::Pressure { message, .. } => return Err(Error::MemoryPressure(message)),
             }
         }
-        self.begin_loading(&resolved.key)?;
+        let _loading = self.lifecycle.begin_loading(&resolved.key)?;
         let defaults = generation_defaults(&resolved.generation);
         let loaded = loop {
             let attempt = self.library.load_with_options(
@@ -100,7 +97,6 @@ impl RuntimeCoordinator {
                 "accelerator profile warmup failed; retaining safe execution fallbacks"
             );
         }
-        self.finish_loading(&resolved.key)?;
         let loaded = loaded?;
         let entry = ModelEntry {
             info: super::ModelInfo::loaded(
@@ -109,11 +105,9 @@ impl RuntimeCoordinator {
                 &loaded,
             ),
             model: loaded,
-            last_used: self.model_residency.next(),
+            last_used: self.lifecycle.next_residency(),
         };
-        let mut models = self.models.lock().map_err(|_| Error::StatePoisoned("model registry"))?;
-        models.insert(resolved.key, entry.clone());
-        drop(models);
+        self.lifecycle.state()?.resident.insert(resolved.key, entry.clone());
         if let Err(error) = self.store.activate_model(&entry.info.id) {
             tracing::warn!(%error, model = entry.info.id, "failed to persist active model");
         }
@@ -124,21 +118,22 @@ impl RuntimeCoordinator {
     }
 
     pub fn resident_model(&self, key: &str) -> Result<Option<ModelEntry>> {
-        let mut models = self.models.lock().map_err(|_| Error::StatePoisoned("model registry"))?;
-        let Some(entry) = models.get_mut(key) else {
+        let mut state = self.lifecycle.state()?;
+        let Some(entry) = state.resident.get_mut(key) else {
             return Ok(None);
         };
-        entry.last_used = self.model_residency.next();
+        entry.last_used = self.lifecycle.next_residency();
         let entry = entry.clone();
-        drop(models);
+        drop(state);
         Ok(Some(entry))
     }
 
     pub fn evict_lru_model(&self, protected: &str) -> Result<bool> {
-        let mut models = self.models.lock().map_err(|_| Error::StatePoisoned("model registry"))?;
+        let mut state = self.lifecycle.state()?;
         let candidate = eviction_candidate(
             protected,
-            models
+            state
+                .resident
                 .iter()
                 .map(|(key, entry)| (key.as_str(), entry.last_used, entry.model.is_in_use())),
         )
@@ -146,10 +141,10 @@ impl RuntimeCoordinator {
         let Some(key) = candidate else {
             return Ok(false);
         };
-        let Some(entry) = models.remove(&key) else {
+        let Some(entry) = state.resident.remove(&key) else {
             return Ok(false);
         };
-        drop(models);
+        drop(state);
 
         let model_id = entry.info.id.clone();
         entry.model.unload()?;
@@ -161,18 +156,15 @@ impl RuntimeCoordinator {
     }
 
     pub fn unload_model(&self, selector: &str) -> Result<bool> {
-        let _memory = self
-            .model_memory_gate
-            .lock()
-            .map_err(|_| Error::StatePoisoned("model memory gate"))?;
+        let _memory = self.lifecycle.memory_gate()?;
         let key = self
             .store
             .resolve_model(selector)
             .map_or_else(|_| selector.to_owned(), |model| model.key);
-        let mut models = self.models.lock().map_err(|_| Error::StatePoisoned("model registry"))?;
-        let entry = models.remove(selector).or_else(|| models.remove(&key));
+        let mut state = self.lifecycle.state()?;
+        let entry = state.resident.remove(selector).or_else(|| state.resident.remove(&key));
         let Some(entry) = entry else {
-            drop(models);
+            drop(state);
             self.store
                 .deactivate_model(&key)
                 .map_err(|error| Error::Persistence(error.to_string()))?;
@@ -180,34 +172,16 @@ impl RuntimeCoordinator {
             return Ok(false);
         };
         if entry.model.is_in_use() {
-            models.insert(entry.info.id.clone(), entry);
+            state.resident.insert(entry.info.id.clone(), entry);
             return Err(Error::ModelInUse(key));
         }
-        drop(models);
+        drop(state);
         entry.model.unload()?;
         self.store
             .deactivate_model(&key)
             .map_err(|error| Error::Persistence(error.to_string()))?;
         tracing::info!(model = %key, unloaded = true, "model unload requested");
         Ok(true)
-    }
-
-    fn begin_loading(&self, key: &str) -> Result<()> {
-        let mut loading =
-            self.loading.lock().map_err(|_| Error::StatePoisoned("model lifecycle"))?;
-        if !loading.insert(key.to_owned()) {
-            return Err(Error::ModelAlreadyLoading(key.to_owned()));
-        }
-        drop(loading);
-        Ok(())
-    }
-
-    fn finish_loading(&self, key: &str) -> Result<()> {
-        let mut loading =
-            self.loading.lock().map_err(|_| Error::StatePoisoned("model lifecycle"))?;
-        loading.remove(key);
-        drop(loading);
-        Ok(())
     }
 }
 
