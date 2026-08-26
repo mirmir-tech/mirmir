@@ -43,7 +43,7 @@ impl RuntimeCoordinator {
                 ("stored Hugging Face token removed".to_owned(), false)
             },
             ConfigurationChange::TestHfToken => {
-                let identity = self.test_hf_token().await?;
+                let identity = self.catalog.test_hf_token().await?;
                 tracing::info!(%identity, "Hugging Face token verified");
                 (format!("token valid for {identity}"), false)
             },

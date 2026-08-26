@@ -1,84 +1,24 @@
 use tonic::Status;
 
-use super::{RuntimeService, models::log_progress};
+use super::RuntimeService;
 
 impl RuntimeService {
-    pub fn restore_active_models(&self) -> Result<(), Status> {
-        let selectors = match self.coordinator().active_models() {
-            Ok(selectors) => selectors,
-            Err(error) => {
-                self.application.startup.failed(error.to_string());
-                return Err(Status::internal(error.to_string()));
-            },
-        };
-        let total = selectors.len();
-        self.application.startup.restoring(total);
-        self.report_state_recovery().inspect_err(|error| {
-            self.application.startup.failed(error.message().to_owned());
-        })?;
-        tracing::info!(models = total, "restoring active models");
-        let mut restored = 0_usize;
-        let mut failed = 0_usize;
-        for selector in selectors {
-            let operation = self.application.activity.begin("restore", &selector, None);
-            self.application.startup.loading(&selector, "preparing model", None, None);
-            tracing::info!(model = %selector, "restoring active model");
-            let progress_operation = operation.clone();
-            let startup = self.application.startup.clone();
-            let startup_target = selector.clone();
-            let mut progress = |event: libmir::ProgressEvent| {
-                log_progress(&selector, &event);
-                startup.loading(
-                    &startup_target,
-                    &event.detail,
-                    Some(event.current),
-                    Some(event.total),
-                );
-                progress_operation.progress(
-                    "loading",
-                    &event.detail,
-                    Some(event.current),
-                    Some(event.total),
-                );
-            };
-            match self.coordinator().load_model(&selector, false, &mut progress) {
-                Ok(_) => {
-                    operation.finish("completed", "active model restored");
-                    restored = restored.saturating_add(1);
-                    tracing::info!(model = %selector, "active model restored");
-                },
-                Err(error) => {
-                    let status = super::models::load_error(&error);
-                    operation.finish("failed", status.message());
-                    failed = failed.saturating_add(1);
-                    tracing::error!(model = %selector, %error, "failed to restore active model");
-                },
-            }
-        }
-        let detail = if failed == 0 {
-            format!("runtime ready; {restored} active models restored")
-        } else {
-            format!("runtime ready; {restored} models restored and {failed} failed")
-        };
-        self.application.startup.ready(detail);
-        tracing::info!(models = total, restored, failed, "active model restoration finished");
-        Ok(())
+    pub(super) fn report_state_recovery(&self) -> Result<(), Status> {
+        self.application
+            .report_state_recovery()
+            .map_err(|error| Status::internal(error.to_string()))
     }
 
-    pub(super) fn report_state_recovery(&self) -> Result<(), Status> {
-        let Some(recovery) = super::status::internal(self.coordinator().take_state_recovery())?
-        else {
-            return Ok(());
-        };
-        let operation = self.application.activity.begin("recovery", "state.toml", None);
-        operation.finish(
-            "completed",
-            &format!(
-                "corrupt {} quarantined at {} ({})",
-                recovery.original.display(),
-                recovery.quarantine.display(),
-                recovery.reason
-            ),
+    pub fn restore_active_models(&self) -> Result<(), Status> {
+        let report = self
+            .application
+            .restore_active_models()
+            .map_err(|error| Status::internal(error.to_string()))?;
+        tracing::info!(
+            models = report.total,
+            restored = report.restored,
+            failed = report.failed,
+            "active model restoration finished"
         );
         Ok(())
     }

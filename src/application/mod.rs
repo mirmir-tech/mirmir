@@ -4,9 +4,11 @@ mod configuration;
 mod error;
 mod inference;
 mod models;
+mod restore;
 mod settings;
 mod startup;
 mod telemetry;
+mod transfer;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -26,6 +28,7 @@ pub use telemetry::{
     RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT, SAMPLING_INTERVAL_MS,
     Snapshot as TelemetrySnapshot, Telemetry,
 };
+pub use transfer::available_message;
 
 use crate::{
     catalog::Catalog,

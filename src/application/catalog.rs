@@ -1,8 +1,5 @@
-use libmir::CancellationToken;
-use tokio::sync::mpsc;
-
 use super::{Error, Result, RuntimeCoordinator};
-use crate::catalog::{DownloadedModel, MachineMemory, Removal, SearchResults, TransferUpdate};
+use crate::catalog::{MachineMemory, Removal, SearchResults};
 
 impl RuntimeCoordinator {
     pub async fn search_catalog(
@@ -16,16 +13,6 @@ impl RuntimeCoordinator {
             |memory| MachineMemory::from_runtime(&memory),
         );
         Ok(self.catalog.search(query, limit, memory, cursor).await?)
-    }
-
-    pub async fn pull_model(
-        &self,
-        repo_id: &str,
-        revision: Option<&str>,
-        updates: mpsc::Sender<TransferUpdate>,
-        cancellation: &CancellationToken,
-    ) -> Result<DownloadedModel> {
-        Ok(self.catalog.pull(repo_id, revision, updates, cancellation).await?)
     }
 
     pub async fn remove_download(&self, repo_id: &str) -> Result<Removal> {
@@ -50,9 +37,5 @@ impl RuntimeCoordinator {
             self.store.deactivate_model(&key)?;
         }
         Ok(removal)
-    }
-
-    pub async fn test_hf_token(&self) -> Result<String> {
-        Ok(self.catalog.test_hf_token().await?)
     }
 }

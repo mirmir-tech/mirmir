@@ -1,4 +1,3 @@
-use libmir::CancellationToken;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
@@ -123,22 +122,16 @@ async fn pull(
     output: mpsc::Sender<Result<proto::ModelTransferEvent, tonic::Status>>,
 ) {
     let repo_id = request.repo_id;
-    let cancellation = CancellationToken::new();
-    let operation = service.application.activity.enqueue("pull", &repo_id, cancellation.clone());
+    let session = service.application.start_pull(&repo_id, request.revision.clone());
+    let operation_id = session.operation_id().to_owned();
     let (updates, mut receiver) = mpsc::channel::<TransferUpdate>(64);
     let forward = output.clone();
     let forwarded_repo = repo_id.clone();
-    let forwarded_operation = operation.clone();
+    let forwarded_operation = operation_id.clone();
     let task = tokio::spawn(async move {
         while let Some(update) = receiver.recv().await {
-            forwarded_operation.progress(
-                update.phase,
-                &update.message,
-                Some(update.downloaded_bytes),
-                update.total_bytes,
-            );
             if forward
-                .send(Ok(transfer(forwarded_operation.id(), &forwarded_repo, update)))
+                .send(Ok(transfer(&forwarded_operation, &forwarded_repo, update)))
                 .await
                 .is_err()
             {
@@ -146,18 +139,10 @@ async fn pull(
             }
         }
     });
-    match service
-        .coordinator()
-        .pull_model(&repo_id, request.revision.as_deref(), updates, &cancellation)
-        .await
-    {
+    match service.application.pull(session, updates).await {
         Ok(model) => {
             drop(task.await);
-            let message = model.load_unavailable_reason.as_ref().map_or_else(
-                || "model is available".to_owned(),
-                |reason| format!("model downloaded; loading is unavailable: {reason}"),
-            );
-            operation.finish("completed", &message);
+            let message = crate::application::available_message(&model);
             let event = proto::ModelTransferEvent {
                 repo_id,
                 phase: "available".to_owned(),
@@ -165,18 +150,16 @@ async fn pull(
                 total_bytes: None,
                 path: Some(model.config.path.display().to_string()),
                 message,
-                operation_id: operation.id().to_owned(),
+                operation_id,
             };
             drop(output.send(Ok(event)).await);
         },
         Err(crate::application::Error::Configuration(crate::error::Error::Cancelled)) => {
             drop(task.await);
-            operation.finish("cancelled", "download stopped; partial files kept for resume");
             drop(output.send(Err(tonic::Status::cancelled("download stopped"))).await);
         },
         Err(error) => {
             drop(task.await);
-            operation.finish("failed", &error.to_string());
             drop(output.send(Err(tonic::Status::unavailable(error.to_string()))).await);
         },
     }
