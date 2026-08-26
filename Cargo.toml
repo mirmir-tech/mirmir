@@ -20,7 +20,7 @@ include = [
 
 [workspace]
 resolver = "3"
-exclude = ["cli", "config", "server", "web"]
+exclude = ["web"]
 
 [[bin]]
 name = "mirmir"
