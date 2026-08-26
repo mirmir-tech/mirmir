@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use super::schema::RuntimeSettings;
 
@@ -52,6 +55,15 @@ fn configure_tuning_cache(config: &mut libmir::RuntimeConfig, state_dir: &Path) 
 #[cfg(target_os = "linux")]
 fn configure_tuning_cache(config: &mut libmir::RuntimeConfig, state_dir: &Path) {
     config.cuda.tuning.cache_directory = Some(state_dir.join("tuning/cuda"));
+    if let Some(include_paths) = cuda_include_paths(std::env::var_os("MIRMIR_CUDA_INCLUDE_PATH")) {
+        config.cuda.nvrtc_include_paths = include_paths;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn cuda_include_paths(value: Option<OsString>) -> Option<Vec<PathBuf>> {
+    let paths = value.map(|value| std::env::split_paths(&value).collect::<Vec<_>>())?;
+    (!paths.is_empty()).then_some(paths)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -97,6 +109,27 @@ mod tests {
         assert!(automatic.automatic_kv_cache);
         assert!(!explicit.automatic_kv_cache);
         assert_eq!(explicit.kv_cache.block_count, 1234);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn derives_nvrtc_headers_from_configured_paths() {
+        let value = std::env::join_paths([
+            "/nix/store/cudart/include",
+            "/nix/store/nvcc/include",
+            "/nix/store/cccl/include",
+        ])
+        .expect("static paths are valid");
+        let paths = cuda_include_paths(Some(value));
+
+        assert_eq!(
+            paths,
+            Some(vec![
+                PathBuf::from("/nix/store/cudart/include"),
+                PathBuf::from("/nix/store/nvcc/include"),
+                PathBuf::from("/nix/store/cccl/include"),
+            ])
+        );
     }
 
     #[test]
