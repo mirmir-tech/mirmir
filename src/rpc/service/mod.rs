@@ -77,7 +77,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         _request: Request<proto::ListActiveModelsRequest>,
     ) -> Result<Response<proto::ListActiveModelsResponse>, Status> {
-        let selectors = status::internal(self.store.active_models())?;
+        let selectors = status::internal(self.coordinator.active_models())?;
         self.report_state_recovery()?;
         Ok(Response::new(proto::ListActiveModelsResponse { selectors }))
     }

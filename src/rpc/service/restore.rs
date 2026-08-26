@@ -4,7 +4,7 @@ use super::{RuntimeService, models::log_progress};
 
 impl RuntimeService {
     pub fn restore_active_models(&self) -> Result<(), Status> {
-        let selectors = match self.store.active_models() {
+        let selectors = match self.coordinator.active_models() {
             Ok(selectors) => selectors,
             Err(error) => {
                 self.startup.failed(error.to_string());
@@ -66,7 +66,8 @@ impl RuntimeService {
     }
 
     pub(super) fn report_state_recovery(&self) -> Result<(), Status> {
-        let Some(recovery) = super::status::internal(self.store.take_state_recovery())? else {
+        let Some(recovery) = super::status::internal(self.coordinator.take_state_recovery())?
+        else {
             return Ok(());
         };
         let operation = self.activity.begin("recovery", "state.toml", None);

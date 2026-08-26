@@ -1,6 +1,7 @@
 mod error;
 mod models;
 mod settings;
+mod telemetry;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -67,6 +68,14 @@ impl RuntimeCoordinator {
         drop(models);
         listed.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(listed)
+    }
+
+    pub fn active_models(&self) -> Result<Vec<String>> {
+        Ok(self.store.active_models()?)
+    }
+
+    pub fn take_state_recovery(&self) -> Result<Option<crate::config::StateRecovery>> {
+        Ok(self.store.take_state_recovery()?)
     }
 }
 

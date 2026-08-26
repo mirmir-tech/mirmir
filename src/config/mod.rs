@@ -17,7 +17,7 @@ pub use models::model_key;
 pub use paths::Paths;
 pub use presentation::{ConfigPresentation, SecretPresentation};
 pub use schema::{AppConfig, GenerationConfig, HubModelConfig, ModelConfig, ServerSettings};
-pub use store::Store;
+pub use store::{StateRecovery, Store};
 
 use crate::error::Result;
 

@@ -15,13 +15,11 @@ use crate::rpc::proto;
 pub(super) mod history;
 mod live;
 mod rates;
-mod system;
 
 use self::{
     history::History,
     live::{Handle as LiveHandle, Registry as LiveRegistry},
     rates::Rates,
-    system::{Kv, memory},
 };
 
 #[derive(Clone)]
@@ -126,24 +124,19 @@ impl Drop for GenerationTelemetry {
 
 impl RuntimeService {
     pub(super) fn telemetry_snapshot(&self) -> Result<proto::TelemetrySnapshot, Status> {
-        let models = super::status::lock(&self.models, "model registry")?;
-        let mut kv = Kv::default();
-        for entry in models.values() {
-            kv.add(&entry.model.cache_stats());
-        }
-        let loaded_models = u64::try_from(models.len()).unwrap_or(u64::MAX);
-        drop(models);
+        let runtime = self
+            .coordinator
+            .telemetry()
+            .map_err(|error| Status::internal(error.to_string()))?;
         let rates =
             self.telemetry.0.rates.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let rate_snapshot = rates.snapshot();
         drop(rates);
-        let (host_total, host_available, memory_source) = memory(&self.library);
-        let device = self.library.device_telemetry_snapshot().unwrap_or_default();
         let live = self.telemetry.0.live.snapshot();
         Ok(proto::TelemetrySnapshot {
             sampled_at_unix_ms: unix_ms(),
             uptime_ms: millis(self.telemetry.0.started.elapsed()),
-            loaded_models,
+            loaded_models: runtime.loaded_models,
             active_requests: live.requests,
             total_requests: self.telemetry.0.total.load(Ordering::Relaxed),
             completed_requests: self.telemetry.0.completed.load(Ordering::Relaxed),
@@ -154,14 +147,14 @@ impl RuntimeService {
             mean_tokens_per_second: rate_snapshot.mean_rate,
             last_ttft_ms: rate_snapshot.last_ttft,
             mean_ttft_ms: rate_snapshot.mean_ttft,
-            host_total_memory_bytes: host_total,
-            host_available_memory_bytes: host_available,
-            memory_source,
-            kv_total_blocks: kv.total,
-            kv_used_blocks: kv.used,
-            kv_cached_prefixes: kv.prefixes,
-            kv_hit_tokens: kv.hits,
-            kv_miss_tokens: kv.misses,
+            host_total_memory_bytes: runtime.host_total,
+            host_available_memory_bytes: runtime.host_available,
+            memory_source: runtime.memory_source,
+            kv_total_blocks: runtime.kv.total,
+            kv_used_blocks: runtime.kv.used,
+            kv_cached_prefixes: runtime.kv.prefixes,
+            kv_hit_tokens: runtime.kv.hits,
+            kv_miss_tokens: runtime.kv.misses,
             current_tokens_per_second: live.rate,
             current_prefill_tokens_per_second: live.prefill_rate,
             current_decode_tokens_per_second: live.decode_rate,
@@ -174,11 +167,11 @@ impl RuntimeService {
             mean_prefill_tokens_per_second: rate_snapshot.mean_prefill_rate,
             last_decode_tokens_per_second: rate_snapshot.last_decode_rate,
             mean_decode_tokens_per_second: rate_snapshot.mean_decode_rate,
-            gpu_utilization_percent: device.utilization_percent,
-            device_temperature_celsius: device.temperature_celsius,
-            device_power_watts: device.power_watts,
-            device_power_limit_watts: device.power_limit_watts,
-            device_name: device.device_name,
+            gpu_utilization_percent: runtime.device.utilization_percent,
+            device_temperature_celsius: runtime.device.temperature_celsius,
+            device_power_watts: runtime.device.power_watts,
+            device_power_limit_watts: runtime.device.power_limit_watts,
+            device_name: runtime.device.device_name,
         })
     }
 }
