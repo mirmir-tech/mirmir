@@ -2,6 +2,7 @@ mod activity;
 mod catalog;
 mod configuration;
 mod error;
+mod inference;
 mod models;
 mod settings;
 mod startup;
@@ -15,6 +16,7 @@ use std::{
 pub use activity::{Activity, ActivityEvent, CancelOutcome, Operation};
 pub use configuration::ConfigurationChange;
 pub use error::{Error, Result};
+pub use inference::{GenerationResult, GenerationSession};
 use libmir::Library;
 pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};
 pub use settings::{ModelInspection, ModelTaskCapabilities};

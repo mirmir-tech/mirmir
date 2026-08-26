@@ -3,7 +3,6 @@ use axum::{
     extract::{State, rejection::JsonRejection},
     http::HeaderMap,
 };
-use tonic::Request;
 
 use super::types::{
     EmbeddingData, EmbeddingsRequest, EmbeddingsResponse, RerankData, RerankDocument,
@@ -11,7 +10,7 @@ use super::types::{
 };
 use crate::{
     http::{ApiState, error::ApiError},
-    rpc::{proto, proto::runtime_server::Runtime},
+    rpc::proto,
 };
 
 pub async fn embeddings(
@@ -25,10 +24,8 @@ pub async fn embeddings(
         Err(error) => return Err(ApiError::bad_request(error.body_text())),
     };
     let model = request.model.clone();
-    let response = super::super::error::status(
-        state.service.embed(Request::new(request.into_proto()?)).await,
-    )?
-    .into_inner();
+    let response =
+        super::super::error::status(state.service.embed_request(request.into_proto()?).await)?;
     let prompt_tokens = response.prompt_tokens;
     Ok(Json(EmbeddingsResponse {
         object: "list",
@@ -64,16 +61,15 @@ pub async fn rerank(
     let response = super::super::error::status(
         state
             .service
-            .rerank(Request::new(proto::RerankRequest {
+            .rerank_request(proto::RerankRequest {
                 model: request.model,
                 query: request.query,
                 documents: request.documents,
                 max_length: request.max_length,
                 raw_scores: request.raw_scores,
-            }))
+            })
             .await,
-    )?
-    .into_inner();
+    )?;
     let prompt_tokens = response.prompt_tokens;
     Ok(Json(RerankResponse {
         results: response

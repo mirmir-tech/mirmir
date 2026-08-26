@@ -4,18 +4,26 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::rpc::proto;
 
-pub(super) async fn embed_rpc(
-    service: RuntimeService,
-    request: proto::EmbedRequest,
-) -> Result<proto::EmbedResponse, Status> {
-    super::status::internal(tokio::task::spawn_blocking(move || embed(&service, request)).await)?
-}
+impl RuntimeService {
+    pub(crate) async fn embed_request(
+        &self,
+        request: proto::EmbedRequest,
+    ) -> Result<proto::EmbedResponse, Status> {
+        let service = self.clone();
+        super::status::internal(
+            tokio::task::spawn_blocking(move || embed(&service, request)).await,
+        )?
+    }
 
-pub(super) async fn rerank_rpc(
-    service: RuntimeService,
-    request: proto::RerankRequest,
-) -> Result<proto::RerankResponse, Status> {
-    super::status::internal(tokio::task::spawn_blocking(move || rerank(&service, request)).await)?
+    pub(crate) async fn rerank_request(
+        &self,
+        request: proto::RerankRequest,
+    ) -> Result<proto::RerankResponse, Status> {
+        let service = self.clone();
+        super::status::internal(
+            tokio::task::spawn_blocking(move || rerank(&service, request)).await,
+        )?
+    }
 }
 
 pub(super) fn embed(
@@ -25,16 +33,19 @@ pub(super) fn embed(
     if request.model.trim().is_empty() || request.inputs.is_empty() {
         return Err(Status::invalid_argument("model and at least one input are required"));
     }
-    let model = load(service, &request.model)?;
-    let output = model.embed(EmbeddingRequest {
-        inputs: request.inputs,
-        dimensions: super::status::invalid(request.dimensions.map(usize::try_from).transpose())?,
-        prompt_name: request.prompt_name,
-    });
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => return Err(task_error(&error)),
-    };
+    let output = service
+        .coordinator()
+        .embed(
+            &request.model,
+            EmbeddingRequest {
+                inputs: request.inputs,
+                dimensions: super::status::invalid(
+                    request.dimensions.map(usize::try_from).transpose(),
+                )?,
+                prompt_name: request.prompt_name,
+            },
+        )
+        .map_err(task_error)?;
     Ok(proto::EmbedResponse {
         embeddings: output
             .embeddings
@@ -54,17 +65,20 @@ pub(super) fn rerank(
             "model, query, and at least one document are required",
         ));
     }
-    let model = load(service, &request.model)?;
-    let output = model.rerank(RerankRequest {
-        query: request.query,
-        documents: request.documents,
-        max_length: super::status::invalid(request.max_length.map(usize::try_from).transpose())?,
-        raw_scores: request.raw_scores,
-    });
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => return Err(task_error(&error)),
-    };
+    let output = service
+        .coordinator()
+        .rerank(
+            &request.model,
+            RerankRequest {
+                query: request.query,
+                documents: request.documents,
+                max_length: super::status::invalid(
+                    request.max_length.map(usize::try_from).transpose(),
+                )?,
+                raw_scores: request.raw_scores,
+            },
+        )
+        .map_err(task_error)?;
     Ok(proto::RerankResponse {
         results: output
             .results
@@ -79,16 +93,10 @@ pub(super) fn rerank(
     })
 }
 
-fn load(service: &RuntimeService, selector: &str) -> Result<libmir::Model, Status> {
-    let mut ignored = |_progress| {};
-    service
-        .coordinator()
-        .load_model(selector, false, &mut ignored)
-        .map(|entry| entry.model)
-        .map_err(|error| super::models::load_error(&error))
-}
-
-fn task_error(error: &libmir::Error) -> Status {
+fn task_error(error: crate::application::Error) -> Status {
+    let crate::application::Error::Inference(error) = error else {
+        return super::models::load_error(&error);
+    };
     match error {
         libmir::Error::EmptyPrompt
         | libmir::Error::TaskMismatch { .. }

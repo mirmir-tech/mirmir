@@ -1,38 +1,35 @@
-use std::time::Instant;
-
-use libmir::{CancellationToken, GenerationChannel, ProgressStage};
+use libmir::GenerationChannel;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
-use super::{RuntimeService, models::log_progress};
-use crate::{
-    application::{CompletionMetrics, GenerationTelemetry, Operation},
-    rpc::proto,
-};
+use super::RuntimeService;
+use crate::{application::GenerationResult, rpc::proto};
 
 #[path = "generation/request.rs"]
 mod request_conversion;
+
+impl RuntimeService {
+    pub(crate) fn generate_stream(
+        &self,
+        request: proto::GenerateRequest,
+    ) -> ReceiverStream<Result<proto::GenerateEvent, Status>> {
+        stream(self.clone(), request)
+    }
+}
 
 pub fn stream(
     service: RuntimeService,
     request: proto::GenerateRequest,
 ) -> ReceiverStream<Result<proto::GenerateEvent, Status>> {
     let (sender, receiver) = mpsc::channel(64);
-    let cancellation = CancellationToken::new();
-    let operation =
-        service
-            .application
-            .activity
-            .begin("generate", &request.model, Some(cancellation.clone()));
+    let session = service.application.start_generation(&request.model);
     drop(sender.try_send(Ok(proto::GenerateEvent {
         event: Some(proto::generate_event::Event::Started(proto::OperationStarted {
-            operation_id: operation.id().to_owned(),
+            operation_id: session.operation_id().to_owned(),
         })),
     })));
-    drop(tokio::task::spawn_blocking(move || {
-        run(&service, &request, &sender, &operation, &cancellation);
-    }));
+    drop(tokio::task::spawn_blocking(move || run(&service, &request, &sender, session)));
     ReceiverStream::new(receiver)
 }
 
@@ -40,64 +37,19 @@ fn run(
     service: &RuntimeService,
     request: &proto::GenerateRequest,
     sender: &mpsc::Sender<Result<proto::GenerateEvent, Status>>,
-    operation: &Operation,
-    cancellation: &CancellationToken,
+    mut session: crate::application::GenerationSession,
 ) {
-    let (mut telemetry, started) = (service.application.telemetry.begin(), Instant::now());
-    tracing::info!(
-        operation = operation.id(),
-        model = %request.model,
-        messages = request.messages.len(),
-        max_tokens = request.max_tokens,
-        "generation started"
-    );
-    let model = match load_for_generation(service, &request.model, operation, &telemetry) {
-        Ok(model) => model,
-        Err(status) => {
-            telemetry.fail();
-            operation.finish("failed", status.message());
-            tracing::warn!(operation = operation.id(), model = %request.model, error = %status, "generation could not start");
-            drop(sender.blocking_send(Err(status)));
-            return;
-        },
-    };
     let chat = match request_conversion::chat_request(request) {
         Ok(chat) => chat,
         Err(status) => {
-            telemetry.fail();
-            operation.finish("failed", status.message());
-            tracing::warn!(operation = operation.id(), model = %request.model, error = %status, "generation rejected");
+            session.reject(status.message());
             drop(sender.blocking_send(Err(status)));
             return;
         },
     };
-    let mut ttft_ms = None;
-    telemetry.stage("prefill");
-    operation.progress("prefill", "prefilling prompt", None, None);
-    let progress_operation = operation.clone();
-    let progress = &mut |event| {
-        telemetry.progress(&event);
-        let stage = match event.stage {
-            ProgressStage::LoadWeights => "loading",
-            ProgressStage::PrefillTokens => "prefill",
-            ProgressStage::DecodeTokens => "decode",
-        };
-        if event.stage != ProgressStage::DecodeTokens
-            || event.current == 0
-            || event.current == event.total
-            || event.current % 16 == 0
-        {
-            progress_operation.progress(
-                stage,
-                &event.detail,
-                Some(event.current),
-                Some(event.total),
-            );
-        }
-    };
-    let emit_token = &mut |token: libmir::GenerationToken| {
-        telemetry.token_emitted();
-        ttft_ms.get_or_insert_with(|| started.elapsed().as_secs_f64() * 1_000.0);
+    let mut progress = |_event| {};
+    let cancellation = session.cancellation();
+    let mut emit_token = |token: libmir::GenerationToken| {
         let event = proto::GenerateEvent {
             event: Some(proto::generate_event::Event::Token(proto::Token {
                 id: token.id,
@@ -110,37 +62,19 @@ fn run(
             cancellation.cancel();
         }
     };
-    let output = request_conversion::generate(
-        &model,
+    let result = service.application.generate(
+        &mut session,
         &chat,
         request.image.as_deref(),
-        &mut *progress,
-        &mut *emit_token,
-        cancellation,
+        &mut progress,
+        &mut emit_token,
     );
-    match output {
-        Ok(output) => {
-            send_completion(
-                sender, output, started, ttft_ms, &mut telemetry, operation, &request.model,
-            );
-        },
-        Err(libmir::Error::Cancelled) => {
-            telemetry.fail();
-            operation.finish("cancelled", "generation cancelled");
-            tracing::info!(operation = operation.id(), model = %request.model, "generation cancelled");
-            drop(sender.blocking_send(Err(Status::cancelled("generation cancelled"))));
-        },
-        Err(error @ libmir::Error::VisionResourceLimit { .. }) => {
-            telemetry.fail();
-            operation.finish("rejected", &error.to_string());
-            tracing::warn!(operation = operation.id(), model = %request.model, %error, "generation exceeded vision resource limits");
-            drop(sender.blocking_send(Err(Status::resource_exhausted(error.to_string()))));
-        },
+    match result {
+        Ok(result) => send_completion(sender, result, &request.model, session.operation_id()),
         Err(error) => {
-            telemetry.fail();
-            operation.finish("failed", &error.to_string());
-            tracing::error!(operation = operation.id(), model = %request.model, %error, "generation failed");
-            drop(sender.blocking_send(Err(Status::internal(error.to_string()))));
+            let status = generation_error(error);
+            tracing::warn!(operation = session.operation_id(), model = %request.model, %status, "generation failed");
+            drop(sender.blocking_send(Err(status)));
         },
     }
 }
@@ -153,92 +87,50 @@ const fn token_channel(channel: GenerationChannel) -> &'static str {
     }
 }
 
-fn load_for_generation(
-    service: &RuntimeService,
-    selector: &str,
-    operation: &Operation,
-    telemetry: &GenerationTelemetry,
-) -> Result<libmir::Model, Status> {
-    telemetry.stage("resolving");
-    operation.progress("resolving", "resolving model", None, None);
-    let load_operation = operation.clone();
-    let mut progress = |event: libmir::ProgressEvent| {
-        log_progress(selector, &event);
-        telemetry.progress(&event);
-        let stage = match event.stage {
-            ProgressStage::LoadWeights => "loading",
-            ProgressStage::PrefillTokens => "warming",
-            ProgressStage::DecodeTokens => "decoding",
-        };
-        load_operation.progress(stage, &event.detail, Some(event.current), Some(event.total));
-    };
-    service
-        .coordinator()
-        .load_model(selector, false, &mut progress)
-        .map(|entry| entry.model)
-        .map_err(|error| super::models::load_error(&error))
-}
-
 fn send_completion(
     sender: &mpsc::Sender<Result<proto::GenerateEvent, Status>>,
-    output: libmir::GenerationOutput,
-    started: Instant,
-    ttft_ms: Option<f64>,
-    telemetry: &mut GenerationTelemetry,
-    operation: &Operation,
+    result: GenerationResult,
     model: &str,
+    operation_id: &str,
 ) {
-    let elapsed = started.elapsed().as_secs_f64();
-    let tokens = output.token_ids.len();
-    let tokens_per_second = tokens
-        .to_string()
-        .parse::<f64>()
-        .ok()
-        .filter(|_| elapsed > 0.0)
-        .map(|tokens| tokens / elapsed);
-    let tool_calls = libmir::ChatToolCall::parse_mistral(&output.tool_calls)
-        .unwrap_or_default()
-        .into_iter()
-        .map(proto_tool_call)
-        .collect();
+    let output = result.output;
     let completion = proto::Completion {
         reasoning: output.reasoning,
-        tool_calls,
+        tool_calls: libmir::ChatToolCall::parse_mistral(&output.tool_calls)
+            .unwrap_or_default()
+            .into_iter()
+            .map(proto_tool_call)
+            .collect(),
         prefill_tokens_per_second: output.metrics.throughput.prefill.per_second,
         decode_tokens_per_second: output.metrics.throughput.decode.per_second,
         prefill_ms: Some(output.metrics.durations_ms.prefill),
         decode_ms: Some(output.metrics.durations_ms.decode),
         text: output.text,
         prompt_tokens: u64::try_from(output.prompt_tokens).unwrap_or(u64::MAX),
-        completion_tokens: u64::try_from(tokens).unwrap_or(u64::MAX),
+        completion_tokens: u64::try_from(output.token_ids.len()).unwrap_or(u64::MAX),
         finish_reason: output.finish_reason.to_owned(),
-        elapsed_ms: elapsed * 1_000.0,
-        tokens_per_second,
-        ttft_ms,
+        elapsed_ms: result.elapsed_ms,
+        tokens_per_second: result.tokens_per_second,
+        ttft_ms: result.ttft_ms,
     };
-    telemetry.complete(&CompletionMetrics {
-        prompt_tokens: completion.prompt_tokens,
-        completion_tokens: completion.completion_tokens,
-        tokens_per_second: completion.tokens_per_second,
-        ttft_ms: completion.ttft_ms,
-        prefill_tokens_per_second: completion.prefill_tokens_per_second,
-        decode_tokens_per_second: completion.decode_tokens_per_second,
-    });
-    operation.finish("completed", "generation completed");
-    tracing::info!(
-        operation = operation.id(),
-        model = %model,
-        prompt_tokens = completion.prompt_tokens,
-        completion_tokens = completion.completion_tokens,
-        finish_reason = %completion.finish_reason,
-        elapsed_ms = completion.elapsed_ms,
-        prefill_tokens_per_second = completion.prefill_tokens_per_second,
-        decode_tokens_per_second = completion.decode_tokens_per_second,
-        "generation completed"
-    );
+    tracing::info!(operation = operation_id, %model, prompt_tokens = completion.prompt_tokens,
+        completion_tokens = completion.completion_tokens, finish_reason = %completion.finish_reason,
+        elapsed_ms = completion.elapsed_ms, "generation completed");
     drop(sender.blocking_send(Ok(proto::GenerateEvent {
         event: Some(proto::generate_event::Event::Completion(completion)),
     })));
+}
+
+fn generation_error(error: crate::application::Error) -> Status {
+    match error {
+        crate::application::Error::Inference(libmir::Error::Cancelled) => {
+            Status::cancelled("generation cancelled")
+        },
+        crate::application::Error::Inference(error @ libmir::Error::VisionResourceLimit { .. }) => {
+            Status::resource_exhausted(error.to_string())
+        },
+        error => super::models::load_error(&error),
+    }
 }
 
 fn proto_tool_call(call: libmir::ChatToolCall) -> proto::ChatToolCall {

@@ -10,7 +10,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use futures_util::StreamExt;
-use tonic::Request;
 
 use super::{
     ApiState,
@@ -18,7 +17,7 @@ use super::{
     stream,
     types::{ChatRequest, CompletionResponse, HealthResponse, Model, ModelsResponse},
 };
-use crate::rpc::{proto, proto::runtime_server::Runtime};
+use crate::rpc::proto;
 
 static NEXT_COMPLETION: AtomicU64 = AtomicU64::new(0);
 
@@ -87,9 +86,7 @@ pub async fn chat(
     let model = request.model.clone();
     let id = completion_id();
     let created = unix_seconds();
-    let mut events =
-        super::error::status(state.service.generate(Request::new(request.into_proto()?)).await)?
-            .into_inner();
+    let mut events = state.service.generate_stream(request.into_proto()?);
     if streaming {
         return Ok(stream::response(events, id, created, model, include_usage, state.shutdown()));
     }
