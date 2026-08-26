@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
-use libmir::{FeatureToggle, FusionMode, MetalConfig};
+use libmir::metal::{FeatureToggle, FusionMode, MetalConfig};
 
 #[derive(Debug, Args, Default)]
 pub struct MetalArgs {

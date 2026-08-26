@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
-use libmir::{
+use libmir::cuda::{
     CudaConfig, CudaKernelAdmission, CudaMoeBatchPolicy, CudaNumericalPolicy, CudaOutputHeadPolicy,
     CudaTuningMode,
 };
@@ -73,8 +73,7 @@ impl CudaArgs {
             config.nvrtc_include_paths.clone_from(&self.include_paths);
         }
         config.nvrtc_cache_directory = self.kernel_cache.clone().or_else(default_kernel_cache);
-        config.tuning.cache_directory =
-            self.tuning_cache.clone().or_else(default_tuning_cache);
+        config.tuning.cache_directory = self.tuning_cache.clone().or_else(default_tuning_cache);
         if let Some(mode) = self.tuning {
             config.tuning.mode = mode.into();
         }
