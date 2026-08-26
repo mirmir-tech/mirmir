@@ -2,12 +2,13 @@ use tonic::Status;
 
 use super::RuntimeService;
 use crate::{
+    application::ConfigurationChange,
     config::{ConfigPresentation, SecretPresentation},
     rpc::proto,
 };
 
 pub(super) fn snapshot(service: &RuntimeService) -> Result<proto::ConfigurationSnapshot, Status> {
-    Ok(convert(super::status::internal(service.store.configuration())?))
+    Ok(convert(super::status::internal(service.coordinator.configuration())?))
 }
 
 pub(super) async fn update(
@@ -16,44 +17,26 @@ pub(super) async fn update(
 ) -> Result<proto::UpdateConfigurationResponse, Status> {
     use proto::update_configuration_request::Operation;
 
-    let (message, restart_required) = match request.operation {
+    let change = match request.operation {
         Some(Operation::SetValue(update)) => {
-            super::status::invalid(service.store.set_config_value(&update.key, &update.value))?;
-            let restart = update.key != "default_model";
-            tracing::info!(key = %update.key, restart_required = restart, "configuration updated");
-            (format!("saved {}", update.key), restart)
+            ConfigurationChange::SetValue { key: update.key, value: update.value }
         },
-        Some(Operation::SetHfToken(update)) => {
-            super::status::invalid(service.store.set_hf_token(update.token.trim()))?;
-            tracing::info!("Hugging Face token updated");
-            ("Hugging Face token saved".to_owned(), false)
-        },
-        Some(Operation::RemoveHfToken(_)) => {
-            super::status::internal(service.store.remove_hf_token())?;
-            tracing::info!("Hugging Face token removed from secrets.toml");
-            ("stored Hugging Face token removed".to_owned(), false)
-        },
-        Some(Operation::TestHfToken(_)) => {
-            let identity = super::status::unavailable(service.catalog.test_hf_token().await)?;
-            tracing::info!(identity = %identity, "Hugging Face token verified");
-            (format!("token valid for {identity}"), false)
-        },
-        Some(Operation::SetHttpApiKey(update)) => {
-            super::status::invalid(service.store.set_http_api_key(update.key.trim()))?;
-            tracing::info!("HTTP API key updated");
-            ("HTTP API key saved".to_owned(), true)
-        },
-        Some(Operation::RemoveHttpApiKey(_)) => {
-            super::status::internal(service.store.remove_http_api_key())?;
-            tracing::info!("HTTP API key removed from secrets.toml");
-            ("stored HTTP API key removed".to_owned(), true)
-        },
+        Some(Operation::SetHfToken(update)) => ConfigurationChange::SetHfToken(update.token),
+        Some(Operation::RemoveHfToken(_)) => ConfigurationChange::RemoveHfToken,
+        Some(Operation::TestHfToken(_)) => ConfigurationChange::TestHfToken,
+        Some(Operation::SetHttpApiKey(update)) => ConfigurationChange::SetHttpApiKey(update.key),
+        Some(Operation::RemoveHttpApiKey(_)) => ConfigurationChange::RemoveHttpApiKey,
         None => return Err(Status::invalid_argument("configuration operation is required")),
     };
+    let outcome = service
+        .coordinator
+        .update_configuration(change)
+        .await
+        .map_err(|error| Status::invalid_argument(error.to_string()))?;
     Ok(proto::UpdateConfigurationResponse {
-        configuration: Some(snapshot(service)?),
-        message,
-        restart_required,
+        configuration: Some(convert(outcome.configuration)),
+        message: outcome.message,
+        restart_required: outcome.restart_required,
     })
 }
 

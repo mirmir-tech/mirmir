@@ -13,8 +13,6 @@ mod status;
 mod tasks;
 mod telemetry;
 
-use std::ops::Deref;
-
 pub use startup::Snapshot as StartupSnapshot;
 pub use telemetry::history::SAMPLING_INTERVAL_MS;
 use tokio::sync::mpsc;
@@ -36,14 +34,6 @@ pub struct RuntimeService {
 impl RuntimeService {
     #[must_use]
     pub const fn coordinator(&self) -> &RuntimeCoordinator {
-        &self.coordinator
-    }
-}
-
-impl Deref for RuntimeService {
-    type Target = RuntimeCoordinator;
-
-    fn deref(&self) -> &Self::Target {
         &self.coordinator
     }
 }

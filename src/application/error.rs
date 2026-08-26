@@ -6,6 +6,8 @@ pub enum Error {
     ModelInUse(String),
     #[error("model `{0}` is already loading")]
     ModelAlreadyLoading(String),
+    #[error("model `{0}` must be unloaded before removal")]
+    ModelLoaded(String),
     #[error("model request is invalid: {0}")]
     InvalidModel(String),
     #[error("insufficient accelerator memory: {0}")]

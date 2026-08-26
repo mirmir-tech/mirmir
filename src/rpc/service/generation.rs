@@ -168,6 +168,7 @@ fn load_for_generation(
         load_operation.progress(stage, &event.detail, Some(event.current), Some(event.total));
     };
     service
+        .coordinator
         .load_model(selector, false, &mut progress)
         .map(|entry| entry.model)
         .map_err(|error| super::models::load_error(&error))

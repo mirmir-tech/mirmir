@@ -80,7 +80,7 @@ pub fn stream_load(
             ),
         );
     };
-    match service.load_model(&selector, request.force, &mut progress) {
+    match service.coordinator.load_model(&selector, request.force, &mut progress) {
         Ok(entry) => {
             operation.finish("completed", "model is ready");
             tracing::info!(model = %entry.info.id, path = %entry.info.path, "model is ready");

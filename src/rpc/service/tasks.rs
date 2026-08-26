@@ -82,6 +82,7 @@ pub(super) fn rerank(
 fn load(service: &RuntimeService, selector: &str) -> Result<libmir::Model, Status> {
     let mut ignored = |_progress| {};
     service
+        .coordinator
         .load_model(selector, false, &mut ignored)
         .map(|entry| entry.model)
         .map_err(|error| super::models::load_error(&error))

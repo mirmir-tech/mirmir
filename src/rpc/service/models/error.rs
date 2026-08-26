@@ -4,7 +4,8 @@ pub(in crate::rpc::service) fn load(error: &crate::application::Error) -> Status
     match error {
         crate::application::Error::InvalidModel(_) => Status::invalid_argument(error.to_string()),
         crate::application::Error::ModelAlreadyLoading(_)
-        | crate::application::Error::ModelInUse(_) => {
+        | crate::application::Error::ModelInUse(_)
+        | crate::application::Error::ModelLoaded(_) => {
             Status::failed_precondition(error.to_string())
         },
         crate::application::Error::MemoryPressure(_)

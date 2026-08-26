@@ -15,12 +15,13 @@ pub(super) use self::{error::load as load_error, events::log_progress};
 
 impl RuntimeService {
     pub(super) fn list(&self) -> Result<Vec<proto::ModelInfo>, Status> {
-        self.models()
+        self.coordinator
+            .models()
             .map(|models| models.into_iter().map(proto::ModelInfo::from).collect())
             .map_err(|error| Status::internal(error.to_string()))
     }
 
     pub(super) fn unload(&self, selector: &str) -> Result<bool, Status> {
-        self.unload_model(selector).map_err(|error| load_error(&error))
+        self.coordinator.unload_model(selector).map_err(|error| load_error(&error))
     }
 }

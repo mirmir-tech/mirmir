@@ -1,7 +1,4 @@
-use std::{
-    fmt::Display,
-    sync::{Mutex, MutexGuard},
-};
+use std::fmt::Display;
 
 use tonic::Status;
 
@@ -13,19 +10,8 @@ pub(super) fn invalid<T, E: Display>(result: Result<T, E>) -> Result<T, Status> 
     convert(result, Status::invalid_argument)
 }
 
-pub(super) fn failed_precondition<T, E: Display>(result: Result<T, E>) -> Result<T, Status> {
-    convert(result, Status::failed_precondition)
-}
-
 pub(super) fn unavailable<T, E: Display>(result: Result<T, E>) -> Result<T, Status> {
     convert(result, Status::unavailable)
-}
-
-pub(super) fn lock<'a, T>(mutex: &'a Mutex<T>, target: &str) -> Result<MutexGuard<'a, T>, Status> {
-    let Ok(guard) = mutex.lock() else {
-        return Err(Status::internal(format!("{target} lock is poisoned")));
-    };
-    Ok(guard)
 }
 
 fn convert<T, E: Display>(

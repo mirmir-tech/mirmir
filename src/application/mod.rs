@@ -1,3 +1,5 @@
+mod catalog;
+mod configuration;
 mod error;
 mod models;
 mod settings;
@@ -8,6 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub use configuration::ConfigurationChange;
 pub use error::{Error, Result};
 use libmir::Library;
 pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};

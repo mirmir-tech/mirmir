@@ -14,7 +14,12 @@ fn service(name: &str) -> (RuntimeService, std::path::PathBuf) {
 #[test]
 fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Result<()> {
     let (service, root) = service("unsupported");
-    let snapshot = service.store.paths().hub_cache_dir.join("models--Org--Unsupported/snapshots/a");
+    let snapshot = service
+        .coordinator
+        .store
+        .paths()
+        .hub_cache_dir
+        .join("models--Org--Unsupported/snapshots/a");
     std::fs::create_dir_all(&snapshot)?;
     std::fs::write(snapshot.join("config.json"), "{}")?;
 
@@ -35,6 +40,7 @@ fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Resu
 fn lists_a_partial_download_as_paused() -> std::io::Result<()> {
     let (service, root) = service("partial");
     let partial = service
+        .coordinator
         .store
         .paths()
         .hub_cache_dir

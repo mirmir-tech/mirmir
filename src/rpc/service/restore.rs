@@ -41,7 +41,7 @@ impl RuntimeService {
                     Some(event.total),
                 );
             };
-            match self.load_model(&selector, false, &mut progress) {
+            match self.coordinator.load_model(&selector, false, &mut progress) {
                 Ok(_) => {
                     operation.finish("completed", "active model restored");
                     restored = restored.saturating_add(1);

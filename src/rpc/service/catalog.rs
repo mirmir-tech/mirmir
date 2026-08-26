@@ -61,17 +61,12 @@ pub async fn search(
     } else {
         request.limit
     };
-    let memory = service.library.memory_snapshot().map_or_else(
-        |_| crate::catalog::MachineMemory::detect(),
-        |memory| crate::catalog::MachineMemory::from_runtime(&memory),
-    );
     let results = super::status::unavailable(
         service
-            .catalog
-            .search(
+            .coordinator
+            .search_catalog(
                 request.query.trim(),
                 usize::try_from(limit).unwrap_or(20),
-                memory,
                 request.cursor.as_deref(),
             )
             .await,
@@ -95,17 +90,11 @@ pub async fn remove(
     service: &RuntimeService,
     repo_id: String,
 ) -> Result<proto::RemoveModelResponse, Status> {
-    let key = super::status::invalid(crate::config::model_key(&repo_id))?;
-    if super::status::lock(&service.models, "model registry")?.contains_key(&key) {
-        return Err(Status::failed_precondition("unload the model before removing it"));
-    }
-    if super::status::lock(&service.loading, "model lifecycle")?.contains(&key) {
-        return Err(Status::failed_precondition("wait for model loading to finish"));
-    }
-    let removal = super::status::failed_precondition(service.catalog.remove(&repo_id).await)?;
-    if removal.removed {
-        super::status::internal(service.store.deactivate_model(&key))?;
-    }
+    let removal = service
+        .coordinator
+        .remove_download(&repo_id)
+        .await
+        .map_err(|error| super::models::load_error(&error))?;
     Ok(proto::RemoveModelResponse {
         removed: removal.removed,
         freed_bytes: removal.freed_bytes,
@@ -158,8 +147,8 @@ async fn pull(
         }
     });
     match service
-        .catalog
-        .pull(&repo_id, request.revision.as_deref(), updates, &cancellation)
+        .coordinator
+        .pull_model(&repo_id, request.revision.as_deref(), updates, &cancellation)
         .await
     {
         Ok(model) => {
@@ -180,7 +169,7 @@ async fn pull(
             };
             drop(output.send(Ok(event)).await);
         },
-        Err(crate::error::Error::Cancelled) => {
+        Err(crate::application::Error::Configuration(crate::error::Error::Cancelled)) => {
             drop(task.await);
             operation.finish("cancelled", "download stopped; partial files kept for resume");
             drop(output.send(Err(tonic::Status::cancelled("download stopped"))).await);
