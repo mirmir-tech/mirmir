@@ -6,18 +6,13 @@ fn records_completed_and_failed_requests() {
         std::env::temp_dir().join(format!("mirmir-telemetry-counters-{}.toml", std::process::id())),
     );
     let mut completed = telemetry.begin();
-    completed.complete(&proto::Completion {
-        reasoning: String::new(),
-        text: String::new(),
+    completed.complete(&crate::application::CompletionMetrics {
         prompt_tokens: 3,
         completion_tokens: 5,
-        finish_reason: "stop".to_owned(),
-        elapsed_ms: 10.0,
         tokens_per_second: Some(50.0),
         ttft_ms: Some(2.0),
         prefill_tokens_per_second: Some(120.0),
         decode_tokens_per_second: Some(42.0),
-        ..Default::default()
     });
     drop(completed);
     let mut failed = telemetry.begin();

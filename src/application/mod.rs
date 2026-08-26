@@ -19,6 +19,7 @@ use libmir::Library;
 pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};
 pub use settings::{ModelInspection, ModelTaskCapabilities};
 pub use startup::{Snapshot as StartupSnapshot, Startup};
+pub use telemetry::CompletionMetrics;
 
 use crate::{
     catalog::Catalog,

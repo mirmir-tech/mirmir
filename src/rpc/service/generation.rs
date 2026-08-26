@@ -6,7 +6,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
 use super::{RuntimeService, models::log_progress, telemetry::GenerationTelemetry};
-use crate::{application::Operation, rpc::proto};
+use crate::{
+    application::{CompletionMetrics, Operation},
+    rpc::proto,
+};
 
 #[path = "generation/request.rs"]
 mod request_conversion;
@@ -209,7 +212,14 @@ fn send_completion(
         tokens_per_second,
         ttft_ms,
     };
-    telemetry.complete(&completion);
+    telemetry.complete(&CompletionMetrics {
+        prompt_tokens: completion.prompt_tokens,
+        completion_tokens: completion.completion_tokens,
+        tokens_per_second: completion.tokens_per_second,
+        ttft_ms: completion.ttft_ms,
+        prefill_tokens_per_second: completion.prefill_tokens_per_second,
+        decode_tokens_per_second: completion.decode_tokens_per_second,
+    });
     operation.finish("completed", "generation completed");
     tracing::info!(
         operation = operation.id(),

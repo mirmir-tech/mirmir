@@ -10,7 +10,7 @@ use std::{
 use tonic::Status;
 
 use super::RuntimeService;
-use crate::rpc::proto;
+use crate::{application::CompletionMetrics, rpc::proto};
 
 pub(super) mod history;
 mod live;
@@ -84,7 +84,7 @@ impl GenerationTelemetry {
         self.live.token_emitted();
     }
 
-    pub fn complete(&mut self, completion: &proto::Completion) {
+    pub fn complete(&mut self, completion: &CompletionMetrics) {
         self.telemetry.0.completed.fetch_add(1, Ordering::Relaxed);
         self.telemetry
             .0
