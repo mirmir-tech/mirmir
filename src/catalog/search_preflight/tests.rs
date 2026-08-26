@@ -40,5 +40,5 @@ async fn scheduler_stops_at_the_shared_budget() {
 
     let completed = run_bounded(requests, 2, Duration::from_millis(10)).await;
 
-    assert!(completed.is_empty());
+    assert_eq!(completed, Vec::<usize>::new());
 }

@@ -118,7 +118,7 @@ mod tests {
         let health = client.health(HealthRequest {}).await?.into_inner();
         assert_eq!(health.protocol_version, PROTOCOL_VERSION);
         let models = client.list_models(ListModelsRequest {}).await?.into_inner();
-        assert!(models.models.is_empty());
+        assert_eq!(models.models, Vec::<crate::rpc::proto::ModelInfo>::new());
         let active = client.list_active_models(ListActiveModelsRequest {}).await?.into_inner();
         assert_eq!(active.selectors, ["missing"]);
         let local = client.list_local_models(ListLocalModelsRequest {}).await?.into_inner();
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(telemetry.total_requests, 0);
         assert!(telemetry.host_total_memory_bytes.is_some());
         let history = await_history(&mut client).await?;
-        assert!(!history.samples.is_empty());
+        assert_ne!(history.samples, Vec::<crate::rpc::proto::TelemetryHistorySample>::new());
         assert_eq!(history.sampling_interval_ms, 1_000);
         let configuration =
             client.get_configuration(GetConfigurationRequest {}).await?.into_inner();
@@ -169,7 +169,7 @@ mod tests {
             .into_inner();
         let resolving = load.message().await?.expect("resolving event");
         assert_eq!(resolving.phase, "resolving");
-        assert!(!resolving.operation_id.is_empty());
+        assert_ne!(resolving.operation_id, "");
         let checking = load.message().await?.expect("memory preflight event");
         assert_eq!(checking.phase, "checking_memory");
         assert!(load.message().await.is_err());
@@ -193,7 +193,7 @@ mod tests {
             .into_inner();
         assert!(!unloaded.unloaded);
         let active = client.list_active_models(ListActiveModelsRequest {}).await?.into_inner();
-        assert!(active.selectors.is_empty());
+        assert_eq!(active.selectors, Vec::<String>::new());
         drop(activity);
         drop(client);
         owner.shutdown().await?;

@@ -44,7 +44,7 @@ fn canonicalizes_active_model_paths_and_removes_aliases() -> Result<()> {
     store.activate_model("Owner--Model")?;
     assert_eq!(store.active_models()?, ["Owner--Model"]);
     store.deactivate_model("Owner--Model")?;
-    assert!(store.active_models()?.is_empty());
+    assert_eq!(store.active_models()?, Vec::<String>::new());
     Ok(())
 }
 
@@ -54,7 +54,7 @@ fn loads_state_written_before_active_models_existed() -> Result<()> {
     store.paths.ensure_config_dirs()?;
     fs::write(&store.paths.ux_state_file, "schema_version = 1\nrecent_models = ['old']\n")?;
     assert_eq!(store.recent_models()?, ["old"]);
-    assert!(store.active_models()?.is_empty());
+    assert_eq!(store.active_models()?, Vec::<String>::new());
     Ok(())
 }
 
@@ -63,12 +63,12 @@ fn quarantines_corrupt_managed_state_and_resets_it() -> Result<()> {
     let (store, _) = test_store("corrupt-state");
     store.paths.ensure_config_dirs()?;
     fs::write(&store.paths.ux_state_file, "this is not toml = [")?;
-    assert!(store.active_models()?.is_empty());
+    assert_eq!(store.active_models()?, Vec::<String>::new());
     let recovery = store.take_state_recovery()?.expect("recovery should be reported");
     assert_eq!(recovery.original, store.paths.ux_state_file);
     assert_eq!(fs::read_to_string(&recovery.quarantine)?, "this is not toml = [");
     assert!(recovery.reason.contains("TOML parse error"));
     assert!(store.take_state_recovery()?.is_none());
-    assert!(store.active_models()?.is_empty());
+    assert_eq!(store.active_models()?, Vec::<String>::new());
     Ok(())
 }

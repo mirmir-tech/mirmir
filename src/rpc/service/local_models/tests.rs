@@ -28,7 +28,7 @@ fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Resu
     assert!(model.managed);
     assert_eq!(model.state, "error");
     assert!(!model.loadable);
-    assert!(!model.load_unavailable_reason.is_empty());
+    assert_ne!(model.load_unavailable_reason, "");
     assert_eq!(model.container, "Unknown");
     assert_eq!(model.metal_compatibility, "unsupported");
     assert_eq!(model.cuda_compatibility, "unsupported");
