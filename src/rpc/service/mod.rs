@@ -18,7 +18,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::proto;
-pub use crate::application::StartupSnapshot;
 use crate::application::{Application, RuntimeCoordinator};
 
 #[derive(Clone)]
@@ -29,7 +28,7 @@ pub struct RuntimeService {
 impl RuntimeService {
     #[must_use]
     pub const fn coordinator(&self) -> &RuntimeCoordinator {
-        self.application.runtime()
+        &self.application.runtime
     }
 }
 

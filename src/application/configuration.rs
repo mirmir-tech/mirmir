@@ -1,4 +1,4 @@
-use super::{Result, RuntimeCoordinator};
+use super::{Application, Result, RuntimeCoordinator};
 use crate::config::ConfigPresentation;
 
 pub enum ConfigurationChange {
@@ -14,6 +14,19 @@ pub struct ConfigurationOutcome {
     pub configuration: ConfigPresentation,
     pub message: String,
     pub restart_required: bool,
+}
+
+impl Application {
+    pub fn configuration(&self) -> Result<ConfigPresentation> {
+        self.runtime.configuration()
+    }
+
+    pub async fn update_configuration(
+        &self,
+        change: ConfigurationChange,
+    ) -> Result<ConfigurationOutcome> {
+        self.runtime.update_configuration(change).await
+    }
 }
 
 impl RuntimeCoordinator {

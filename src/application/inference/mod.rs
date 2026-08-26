@@ -1,8 +1,26 @@
 mod generation;
 
-pub use generation::{GenerationResult, GenerationSession};
+pub use generation::{GenerationEvent, GenerationResult, GenerationSession};
 
-use super::{Result, RuntimeCoordinator};
+use super::{Application, Result, RuntimeCoordinator};
+
+impl Application {
+    pub fn embed(
+        &self,
+        selector: &str,
+        request: libmir::EmbeddingRequest,
+    ) -> Result<libmir::EmbeddingOutput> {
+        self.runtime.embed(selector, request)
+    }
+
+    pub fn rerank(
+        &self,
+        selector: &str,
+        request: libmir::RerankRequest,
+    ) -> Result<libmir::RerankOutput> {
+        self.runtime.rerank(selector, request)
+    }
+}
 
 impl RuntimeCoordinator {
     pub fn embed(

@@ -22,9 +22,9 @@ fn converts_dashboard_image_into_the_runtime_contract() {
         image: Some(PNG.to_owned()),
     };
 
-    let request = proto::GenerateRequest::try_from(request).expect("valid image request");
+    let (_, request, image) = application_request(request).expect("valid image request");
 
-    assert!(request.image.is_some_and(|image| image.starts_with(b"\x89PNG")));
+    assert!(image.is_some_and(|image| image.starts_with(b"\x89PNG")));
     assert_eq!(
         request.messages[0].content,
         format!("{}\ndescribe it", libmir::IMAGE_PLACEHOLDER)

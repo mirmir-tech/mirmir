@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use super::{error::ApiError, types::ChatMessage};
-use crate::{media::decode_data_url, rpc::proto};
+use crate::media::decode_data_url;
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -27,7 +27,7 @@ pub(super) struct ImageUrl {
 
 pub(super) fn messages(
     messages: Vec<ChatMessage>,
-) -> Result<(Vec<proto::ChatMessageInput>, Option<Vec<u8>>), ApiError> {
+) -> Result<(Vec<libmir::ChatMessage>, Option<Vec<u8>>), ApiError> {
     let mut image = None;
     let messages = messages
         .into_iter()
@@ -38,32 +38,16 @@ pub(super) fn messages(
             {
                 return Err(ApiError::bad_request("only one image per request is supported"));
             }
-            Ok(proto::ChatMessageInput {
+            Ok(libmir::ChatMessage {
                 role: message.role,
                 content,
                 reasoning_content: message.reasoning_content,
-                tool_calls: message
-                    .tool_calls
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(proto_tool_call)
-                    .collect(),
+                tool_calls: message.tool_calls,
                 tool_call_id: message.tool_call_id,
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
     Ok((messages, image))
-}
-
-fn proto_tool_call(call: libmir::ChatToolCall) -> proto::ChatToolCall {
-    proto::ChatToolCall {
-        id: call.id,
-        r#type: call.kind,
-        function: Some(proto::ChatFunctionCall {
-            name: call.function.name,
-            arguments_json: call.function.arguments.to_string(),
-        }),
-    }
 }
 
 fn flatten_content(content: MessageContent) -> Result<(String, Option<Vec<u8>>), ApiError> {

@@ -1,8 +1,8 @@
 use super::{Activity, CatalogModel, CatalogResults, Features, Model, Overview};
-use crate::rpc::proto;
+use crate::{application, catalog};
 
-impl From<proto::TelemetrySnapshot> for Overview {
-    fn from(snapshot: proto::TelemetrySnapshot) -> Self {
+impl From<application::TelemetrySnapshot> for Overview {
+    fn from(snapshot: application::TelemetrySnapshot) -> Self {
         Self {
             sampled_at_unix_ms: snapshot.sampled_at_unix_ms,
             uptime_ms: snapshot.uptime_ms,
@@ -46,8 +46,8 @@ impl From<proto::TelemetrySnapshot> for Overview {
     }
 }
 
-impl From<proto::LocalModelInfo> for Model {
-    fn from(model: proto::LocalModelInfo) -> Self {
+impl From<application::LocalModelInfo> for Model {
+    fn from(model: application::LocalModelInfo) -> Self {
         Self {
             id: model.id,
             repo_id: model.repo_id,
@@ -74,35 +74,35 @@ impl From<proto::LocalModelInfo> for Model {
     }
 }
 
-impl From<proto::SearchModelsResponse> for CatalogResults {
-    fn from(response: proto::SearchModelsResponse) -> Self {
+impl From<catalog::SearchResults> for CatalogResults {
+    fn from(response: catalog::SearchResults) -> Self {
         Self {
             models: response.models.into_iter().map(Into::into).collect(),
-            total_memory_bytes: response.total_memory_bytes,
-            available_memory_bytes: response.available_memory_bytes,
-            memory_source: response.memory_source,
+            total_memory_bytes: response.memory.total,
+            available_memory_bytes: response.memory.available,
+            memory_source: response.memory.source.to_owned(),
             next_cursor: response.next_cursor,
         }
     }
 }
 
-impl From<proto::CatalogModel> for CatalogModel {
-    fn from(model: proto::CatalogModel) -> Self {
+impl From<catalog::CatalogModel> for CatalogModel {
+    fn from(model: catalog::CatalogModel) -> Self {
         Self {
             id: model.id,
             downloads: model.downloads,
             likes: model.likes,
             gated: model.gated,
             model_class: model.model_class,
-            compatibility: model.compatibility,
-            memory_fit: model.memory_fit,
-            estimated_required_bytes: model.estimated_required_bytes,
+            compatibility: model.compatibility.to_owned(),
+            memory_fit: model.memory_fit.to_owned(),
+            estimated_required_bytes: model.required_bytes,
             budget_bytes: model.budget_bytes,
-            confidence: model.confidence,
+            confidence: model.confidence.to_owned(),
             reason: model.reason,
             downloaded: model.downloaded,
-            local_source: model.local_source,
-            estimated_weight_bytes: model.estimated_weight_bytes,
+            local_source: model.local_source.to_owned(),
+            estimated_weight_bytes: model.weight_bytes,
             library: model.library,
             ecosystem: model.ecosystem,
             container: model.container,
@@ -111,13 +111,17 @@ impl From<proto::CatalogModel> for CatalogModel {
             cuda_compatibility: model.cuda_compatibility,
             preflight_bytes: model.preflight_bytes,
             preflight_error: model.preflight_error,
-            features: features(model.tool_use, model.thinking, model.vision),
+            features: features(
+                model.features.tool_use,
+                model.features.thinking,
+                model.features.vision,
+            ),
         }
     }
 }
 
-impl From<proto::ActivityEvent> for Activity {
-    fn from(event: proto::ActivityEvent) -> Self {
+impl From<application::ActivityEvent> for Activity {
+    fn from(event: application::ActivityEvent) -> Self {
         Self {
             operation_id: event.operation_id,
             kind: event.kind,

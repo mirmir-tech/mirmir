@@ -1,31 +1,11 @@
-use tokio::sync::watch;
-use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
-use super::{RuntimeService, activity, catalog};
-use crate::{application::StartupSnapshot, rpc::proto};
+use super::{RuntimeService, catalog};
+use crate::rpc::proto;
 
 impl RuntimeService {
-    pub(crate) fn startup_snapshot(&self) -> StartupSnapshot {
-        self.application.startup.snapshot()
-    }
-
-    pub(crate) fn watch_startup(&self) -> watch::Receiver<StartupSnapshot> {
-        self.application.startup.subscribe()
-    }
-
     pub(crate) fn fail_startup(&self, detail: impl Into<String>) {
         self.application.startup.failed(detail);
-    }
-
-    pub(crate) fn activity_history(&self) -> Vec<proto::ActivityEvent> {
-        self.application.activity.history().into_iter().map(activity::event).collect()
-    }
-
-    pub(crate) fn watch_activity_updates(
-        &self,
-    ) -> ReceiverStream<Result<proto::ActivityEvent, Status>> {
-        activity::watch(&self.application.activity, false)
     }
 
     pub(super) async fn remove_with_activity(
@@ -48,7 +28,6 @@ impl RuntimeService {
 
 #[cfg(test)]
 mod tests {
-    use futures_util::StreamExt;
     use tokio::sync::mpsc;
 
     use super::*;
@@ -60,7 +39,7 @@ mod tests {
         let paths =
             Paths::from_roots(root.join("config"), root.join("state"), &root.join("runtime"));
         let service = RuntimeService::new(&AppConfig::default(), Store::new(paths));
-        let mut activity = service.watch_activity_updates();
+        let mut activity = service.application.activity_updates();
         let request = proto::LoadModelRequest {
             selector: "missing-model".to_owned(),
             ..Default::default()
@@ -75,8 +54,7 @@ mod tests {
 
         let stages = tokio::time::timeout(std::time::Duration::from_secs(2), async move {
             let mut stages = Vec::new();
-            while let Some(event) = activity.next().await {
-                let event = event.expect("activity event should be valid");
+            while let Ok(event) = activity.recv().await {
                 stages.push(event.stage.clone());
                 if event.state == "failed" {
                     break;

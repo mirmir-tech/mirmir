@@ -15,7 +15,7 @@ use std::path::Path;
 pub use file::write_toml;
 pub use models::model_key;
 pub use paths::Paths;
-pub use presentation::{ConfigPresentation, SecretPresentation};
+pub use presentation::{ConfigPresentation, PresentedValue, SecretPresentation};
 pub use schema::{AppConfig, GenerationConfig, HubModelConfig, ModelConfig, ServerSettings};
 pub use store::{StateRecovery, Store};
 

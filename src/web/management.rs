@@ -4,14 +4,12 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tonic::Request;
 
 use super::{capabilities::TaskCapabilities, security_headers, session::WebError};
 use crate::{
+    config::{GenerationConfig, HubModelConfig},
     http::ApiState,
-    rpc::{proto, proto::runtime_server::Runtime},
 };
 
 #[derive(Deserialize)]
@@ -98,20 +96,16 @@ pub async fn inspect(
     Query(query): Query<InspectQuery>,
 ) -> Result<Response, WebError> {
     state.sessions().authenticate(&headers)?;
-    let inspected = super::result::status(
-        state
-            .service()
-            .inspect_model(Request::new(proto::InspectModelRequest { selector: query.selector }))
-            .await,
-    )?
-    .into_inner();
-    let memory = inspected.memory.ok_or_else(|| WebError::runtime("memory estimate missing"))?;
+    let inspected = state
+        .application()
+        .inspect_model(&query.selector)
+        .map_err(WebError::application)?;
     let response = Inspection {
         settings: inspected.settings.map(Settings::from),
         has_mirmir_overrides: inspected.has_mirmir_overrides,
-        memory: Memory::from(memory),
-        task: inspected.task,
-        capabilities: inspected.capabilities.map(TaskCapabilities::from),
+        memory: Memory::from(inspected.memory),
+        task: inspected.task.to_owned(),
+        capabilities: Some(TaskCapabilities::from(inspected.capabilities)),
     };
     Ok((security_headers(), Json(response)).into_response())
 }
@@ -122,22 +116,20 @@ pub async fn load(
     Json(request): Json<LoadRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let mut events = super::result::status(
-        state
-            .service()
-            .load_model(Request::new(proto::LoadModelRequest {
-                selector: request.selector,
-                settings: request.settings.map(Into::into),
-                config_id: request.config_id,
-                repo_id: request.repo_id,
-                revision: request.revision,
-                commit: request.commit,
-                force: request.force,
-            }))
-            .await,
-    )?
-    .into_inner();
-    drop(tokio::spawn(async move { while events.next().await.is_some() {} }));
+    let generation = request.settings.map(Into::into);
+    let hub = (!request.repo_id.is_empty()).then_some(HubModelConfig {
+        repo_id: request.repo_id,
+        revision: request.revision,
+        commit: request.commit,
+    });
+    let selector = state
+        .application()
+        .prepare_load(&request.selector, &request.config_id, hub, generation)
+        .map_err(WebError::application)?;
+    let application = state.application().clone();
+    drop(tokio::task::spawn_blocking(move || {
+        drop(application.load_model(&selector, request.force, &mut |_| {}));
+    }));
     Ok(accepted("load"))
 }
 
@@ -147,14 +139,10 @@ pub async fn unload(
     Json(request): Json<SelectorRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let unloaded = super::result::status(
-        state
-            .service()
-            .unload_model(Request::new(proto::UnloadModelRequest { selector: request.selector }))
-            .await,
-    )?
-    .into_inner()
-    .unloaded;
+    let unloaded = state
+        .application()
+        .unload_model(&request.selector)
+        .map_err(WebError::application)?;
     Ok((security_headers(), Json(Unloaded { unloaded })).into_response())
 }
 
@@ -164,13 +152,11 @@ pub async fn remove(
     Json(request): Json<RemoveRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let removed = super::result::status(
-        state
-            .service()
-            .remove_model(Request::new(proto::RemoveModelRequest { repo_id: request.repo_id }))
-            .await,
-    )?
-    .into_inner();
+    let removed = state
+        .application()
+        .remove_download(&request.repo_id)
+        .await
+        .map_err(WebError::application)?;
     Ok((
         security_headers(),
         Json(Removed {
@@ -187,15 +173,7 @@ pub async fn cancel(
     Json(request): Json<CancelRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let cancelled = super::result::status(
-        state
-            .service()
-            .cancel_operation(Request::new(proto::CancelOperationRequest {
-                operation_id: request.operation_id,
-            }))
-            .await,
-    )?
-    .into_inner();
+    let cancelled = state.application().cancel_operation(&request.operation_id);
     Ok((
         security_headers(),
         Json(Cancelled {
@@ -211,40 +189,40 @@ fn accepted(operation: &'static str) -> Response {
     (security_headers(), Json(Accepted { accepted: true, operation })).into_response()
 }
 
-impl From<proto::GenerationSettings> for Settings {
-    fn from(settings: proto::GenerationSettings) -> Self {
+impl From<libmir::GenerationSettings> for Settings {
+    fn from(settings: libmir::GenerationSettings) -> Self {
         Self {
-            max_tokens: settings.max_tokens,
+            max_tokens: u64::try_from(settings.max_tokens).unwrap_or(u64::MAX),
             temperature: settings.temperature,
             top_p: settings.top_p,
-            top_k: settings.top_k,
+            top_k: u64::try_from(settings.top_k).unwrap_or(u64::MAX),
             repetition_penalty: settings.repetition_penalty,
         }
     }
 }
 
-impl From<Settings> for proto::GenerationSettings {
+impl From<Settings> for GenerationConfig {
     fn from(settings: Settings) -> Self {
         Self {
-            max_tokens: settings.max_tokens,
-            temperature: settings.temperature,
-            top_p: settings.top_p,
-            top_k: settings.top_k,
-            repetition_penalty: settings.repetition_penalty,
+            max_tokens: usize::try_from(settings.max_tokens).ok(),
+            temperature: Some(settings.temperature),
+            top_p: Some(settings.top_p),
+            top_k: usize::try_from(settings.top_k).ok(),
+            repetition_penalty: Some(settings.repetition_penalty),
         }
     }
 }
 
-impl From<proto::ModelMemoryEstimate> for Memory {
-    fn from(memory: proto::ModelMemoryEstimate) -> Self {
+impl From<crate::application::MemoryReport> for Memory {
+    fn from(memory: crate::application::MemoryReport) -> Self {
         Self {
-            required_bytes: memory.required_bytes,
-            available_bytes: memory.available_bytes,
-            budget_bytes: memory.budget_bytes,
-            source: memory.memory_source,
-            fit: memory.fit,
-            max_safe_context_tokens: memory.max_safe_context_tokens,
-            configured_cache_tokens: memory.configured_cache_tokens,
+            required_bytes: memory.estimate.required_bytes,
+            available_bytes: memory.available,
+            budget_bytes: memory.budget,
+            source: memory.source,
+            fit: memory.fit.to_owned(),
+            max_safe_context_tokens: memory.max_safe_context,
+            configured_cache_tokens: memory.estimate.cache_capacity_tokens,
         }
     }
 }

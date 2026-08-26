@@ -8,11 +8,11 @@ mod types;
 
 use tokio::sync::{broadcast, watch};
 
-use crate::{application::RuntimeCoordinator, rpc::RuntimeService, web::Sessions};
+use crate::{application::Application, web::Sessions};
 
 #[derive(Clone)]
 pub struct ApiState {
-    service: RuntimeService,
+    application: Application,
     api_key: Option<String>,
     sessions: Sessions,
     shutdown: watch::Receiver<bool>,
@@ -26,13 +26,13 @@ pub enum DashboardUpdate {
 
 impl ApiState {
     fn new(
-        service: RuntimeService,
+        application: Application,
         api_key: Option<String>,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
         let (updates, _receiver) = broadcast::channel(32);
         Self {
-            service,
+            application,
             api_key,
             sessions: Sessions::default(),
             shutdown,
@@ -40,12 +40,8 @@ impl ApiState {
         }
     }
 
-    pub const fn service(&self) -> &RuntimeService {
-        &self.service
-    }
-
-    pub const fn coordinator(&self) -> &RuntimeCoordinator {
-        self.service.coordinator()
+    pub const fn application(&self) -> &Application {
+        &self.application
     }
 
     pub const fn sessions(&self) -> &Sessions {

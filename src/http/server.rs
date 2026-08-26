@@ -17,9 +17,9 @@ use tracing::Level;
 
 use super::{ApiState, handlers};
 use crate::{
+    application::Application,
     config::ServerSettings,
     error::{Error, Result},
-    rpc::RuntimeService,
 };
 
 pub struct Owner {
@@ -31,7 +31,7 @@ pub struct Owner {
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub async fn start(
-    service: RuntimeService,
+    application: Application,
     settings: &ServerSettings,
     api_key: Option<String>,
 ) -> Result<Owner> {
@@ -39,7 +39,7 @@ pub async fn start(
     let listener = TcpListener::bind(settings.address()?).await?;
     let address = listener.local_addr()?;
     let (shutdown, mut receiver) = watch::channel(false);
-    let router = router(service, settings, api_key, receiver.clone())?;
+    let router = router(application, settings, api_key, receiver.clone())?;
     let task = tokio::spawn(async move {
         axum::serve(listener, router)
             .with_graceful_shutdown(async move {
@@ -51,7 +51,7 @@ pub async fn start(
 }
 
 fn router(
-    service: RuntimeService,
+    application: Application,
     settings: &ServerSettings,
     api_key: Option<String>,
     shutdown: watch::Receiver<bool>,
@@ -89,7 +89,7 @@ fn router(
     };
     Ok(router
         .fallback(handlers::not_found)
-        .with_state(ApiState::new(service, api_key, shutdown))
+        .with_state(ApiState::new(application, api_key, shutdown))
         .layer(DefaultBodyLimit::max(settings.body_limit_bytes))
         .layer(ConcurrencyLimitLayer::new(settings.max_concurrency))
         .layer(TimeoutLayer::with_status_code(

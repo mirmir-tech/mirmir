@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{http::error::ApiError, rpc::proto};
+use crate::http::error::ApiError;
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -71,7 +71,7 @@ pub(in crate::http) struct TaskUsage {
 }
 
 impl EmbeddingsRequest {
-    pub fn into_proto(self) -> Result<proto::EmbedRequest, ApiError> {
+    pub fn into_application(self) -> Result<(String, libmir::EmbeddingRequest), ApiError> {
         if self.encoding_format.as_deref().is_some_and(|format| format != "float") {
             return Err(ApiError::bad_request("only encoding_format=float is supported"));
         }
@@ -79,12 +79,22 @@ impl EmbeddingsRequest {
             EmbeddingInput::One(input) => vec![input],
             EmbeddingInput::Many(inputs) => inputs,
         };
-        Ok(proto::EmbedRequest {
-            model: self.model,
-            inputs,
-            dimensions: self.dimensions,
-            prompt_name: self.prompt_name,
-        })
+        if self.model.trim().is_empty() || inputs.is_empty() {
+            return Err(ApiError::bad_request("model and at least one input are required"));
+        }
+        let dimensions = self
+            .dimensions
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        Ok((
+            self.model,
+            libmir::EmbeddingRequest {
+                inputs,
+                dimensions,
+                prompt_name: self.prompt_name,
+            },
+        ))
     }
 }
 
@@ -98,12 +108,12 @@ mod tests {
             "model": "embedding", "input": "one"
         }))
         .expect("single input");
-        assert_eq!(one.into_proto().expect("valid").inputs, ["one"]);
+        assert_eq!(one.into_application().expect("valid").1.inputs, ["one"]);
 
         let many: EmbeddingsRequest = serde_json::from_value(serde_json::json!({
             "model": "embedding", "input": ["one", "two"], "encoding_format": "float"
         }))
         .expect("batch input");
-        assert_eq!(many.into_proto().expect("valid").inputs, ["one", "two"]);
+        assert_eq!(many.into_application().expect("valid").1.inputs, ["one", "two"]);
     }
 }

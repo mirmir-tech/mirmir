@@ -2,13 +2,19 @@ use std::collections::{HashMap, HashSet};
 
 use super::{LocalModelInfo, ModelEntry, presentation};
 use crate::{
-    application::{Error, Result, RuntimeCoordinator},
+    application::{Application, Error, Result, RuntimeCoordinator},
     catalog::{
         CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
         discover_partial_downloads_in,
     },
     config::{GenerationConfig, HubModelConfig, ModelConfig, model_key},
 };
+
+impl Application {
+    pub fn local_models(&self) -> Result<Vec<LocalModelInfo>> {
+        self.runtime.local_models()
+    }
+}
 
 impl RuntimeCoordinator {
     pub fn local_models(&self) -> Result<Vec<LocalModelInfo>> {

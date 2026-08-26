@@ -4,10 +4,10 @@ use reqwest::{Client, StatusCode, header};
 use serde_json::Value;
 
 use crate::{
+    application::Application,
     config::{AppConfig, Paths, Store},
     error::Result,
     http::start,
-    rpc::RuntimeService,
 };
 
 #[tokio::test]
@@ -17,8 +17,8 @@ async fn open_activity_stream_does_not_block_shutdown() -> Result<()> {
     let mut config = AppConfig::default();
     config.server.http_bind = "127.0.0.1:0".to_owned();
     config.server.web_enabled = true;
-    let service = RuntimeService::new(&config, Store::new(paths));
-    let owner = start(service, &config.server, None).await?;
+    let application = Application::new(&config, Store::new(paths));
+    let owner = start(application, &config.server, None).await?;
     let base = format!("http://{}", owner.address());
     let client = Client::new();
     let session = client

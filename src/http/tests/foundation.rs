@@ -4,10 +4,10 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::{
+    application::Application,
     config::{AppConfig, Paths, Store},
     error::Result,
     http::start,
-    rpc::RuntimeService,
 };
 
 static NEXT_WEB: AtomicU64 = AtomicU64::new(0);
@@ -20,8 +20,8 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     let mut config = AppConfig::default();
     config.server.http_bind = "127.0.0.1:0".to_owned();
     config.server.web_enabled = true;
-    let service = RuntimeService::new(&config, Store::new(paths));
-    let owner = start(service, &config.server, Some("openai-key".to_owned())).await?;
+    let application = Application::new(&config, Store::new(paths));
+    let owner = start(application, &config.server, Some("openai-key".to_owned())).await?;
     let base = format!("http://{}", owner.address());
     let client = reqwest::Client::new();
 

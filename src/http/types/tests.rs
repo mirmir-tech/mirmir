@@ -6,11 +6,7 @@ fn exposes_reasoning_separately_from_final_content() {
         "id".into(),
         1,
         "model".into(),
-        proto::Completion {
-            text: "answer".into(),
-            reasoning: "draft".into(),
-            ..Default::default()
-        },
+        result("answer", "draft", "", "stop"),
     );
     let value = serde_json::to_value(response).expect("serializable response");
     assert_eq!(value["choices"][0]["message"]["content"], "answer");
@@ -31,9 +27,9 @@ fn accepts_openai_image_url_content_parts() {
     }))
     .expect("OpenAI-compatible request");
 
-    let request = request.into_proto().expect("valid vision request");
+    let (request, image) = request.into_application().expect("valid vision request");
 
-    assert!(request.image.is_some_and(|image| image.starts_with(b"\x89PNG")));
+    assert!(image.is_some_and(|image| image.starts_with(b"\x89PNG")));
     assert_eq!(
         request.messages[0].content,
         format!("{}What is shown?", libmir::IMAGE_PLACEHOLDER)
@@ -51,28 +47,19 @@ fn maps_tools_and_tool_calls_through_openai_protocol() {
         }}]
     }))
     .expect("OpenAI-compatible tool request");
-    let proto = request.into_proto().expect("valid tool request");
-    assert_eq!(
-        proto.tools[0].function.as_ref().map(|function| function.name.as_str()),
-        Some("weather")
-    );
+    let (request, _image) = request.into_application().expect("valid tool request");
+    assert_eq!(request.tools[0].function.name, "weather");
 
     let response = CompletionResponse::new(
         "id".into(),
         1,
         "ministral".into(),
-        proto::Completion {
-            finish_reason: "tool_calls".into(),
-            tool_calls: vec![proto::ChatToolCall {
-                id: "abc123456".into(),
-                r#type: "function".into(),
-                function: Some(proto::ChatFunctionCall {
-                    name: "weather".into(),
-                    arguments_json: r#"{"city":"Warsaw"}"#.into(),
-                }),
-            }],
-            ..Default::default()
-        },
+        result(
+            "",
+            "",
+            r#"[{"id":"abc123456","type":"function","function":{"name":"weather","arguments":{"city":"Warsaw"}}}]"#,
+            "tool_calls",
+        ),
     );
     let value = serde_json::to_value(response).expect("serializable response");
     assert_eq!(value["choices"][0]["finish_reason"], "tool_calls");
@@ -90,8 +77,31 @@ fn forwards_exact_generation_controls() {
     }))
     .expect("OpenAI-compatible request");
 
-    let request = request.into_proto().expect("valid generation request");
+    let (request, _image) = request.into_application().expect("valid generation request");
     assert_eq!(request.max_tokens, Some(128));
     assert_eq!(request.min_tokens, Some(128));
     assert_eq!(request.ignore_eos, Some(true));
+}
+
+fn result(
+    text: &str,
+    reasoning: &str,
+    tool_calls: &str,
+    finish_reason: &'static str,
+) -> crate::application::GenerationResult {
+    let cache = libmir::runtime::kv::KvCache::new(0).stats();
+    crate::application::GenerationResult {
+        output: libmir::GenerationOutput {
+            text: text.to_owned(),
+            reasoning: reasoning.to_owned(),
+            tool_calls: tool_calls.to_owned(),
+            token_ids: Vec::new(),
+            prompt_tokens: 0,
+            finish_reason,
+            metrics: libmir::runtime::metrics::GenerationMetricsRecorder::new().snapshot(cache),
+        },
+        elapsed_ms: 0.0,
+        ttft_ms: None,
+        tokens_per_second: None,
+    }
 }

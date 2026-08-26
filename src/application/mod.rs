@@ -18,10 +18,12 @@ use std::{
 pub use activity::{Activity, ActivityEvent, CancelOutcome, Operation};
 pub use configuration::ConfigurationChange;
 pub use error::{Error, Result};
-pub use inference::{GenerationResult, GenerationSession};
+pub use inference::{GenerationEvent, GenerationResult, GenerationSession};
 use libmir::Library;
 pub use models::{LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, ModelResidency};
-pub use settings::{ModelInspection, ModelTaskCapabilities};
+pub use settings::{
+    EmbeddingCapabilities, ModelInspection, ModelTaskCapabilities, RerankCapabilities,
+};
 pub use startup::{Snapshot as StartupSnapshot, Startup};
 pub use telemetry::{
     CompletionMetrics, GenerationTelemetry, HistorySample,
@@ -77,8 +79,23 @@ impl Application {
     }
 
     #[must_use]
-    pub const fn runtime(&self) -> &RuntimeCoordinator {
-        &self.runtime
+    pub fn activity_history(&self) -> Vec<ActivityEvent> {
+        self.activity.history()
+    }
+
+    #[must_use]
+    pub fn activity_updates(&self) -> tokio::sync::broadcast::Receiver<ActivityEvent> {
+        self.activity.subscribe()
+    }
+
+    #[must_use]
+    pub fn startup_snapshot(&self) -> StartupSnapshot {
+        self.startup.snapshot()
+    }
+
+    #[must_use]
+    pub fn startup_updates(&self) -> tokio::sync::watch::Receiver<StartupSnapshot> {
+        self.startup.subscribe()
     }
 
     pub fn telemetry_snapshot(&self) -> Result<TelemetrySnapshot> {
@@ -97,6 +114,10 @@ impl Application {
 
     pub fn telemetry_history(&self, limit: u32) -> Result<Vec<HistorySample>> {
         Ok(self.telemetry_history.samples(limit)?)
+    }
+
+    pub fn models(&self) -> Result<Vec<ModelInfo>> {
+        self.runtime.models()
     }
 }
 
@@ -155,6 +176,6 @@ mod tests {
 
         assert_eq!(RuntimeCoordinator::health().protocol_version, PROTOCOL_VERSION);
         assert_eq!(RuntimeCoordinator::health().server_version, env!("CARGO_PKG_VERSION"));
-        assert!(coordinator.models().expect("model registry should be readable").is_empty());
+        assert_eq!(coordinator.models().expect("model registry should be readable").len(), 0);
     }
 }

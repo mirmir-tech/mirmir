@@ -1,5 +1,35 @@
-use super::{Error, Result, RuntimeCoordinator};
+use super::{Application, Error, Result, RuntimeCoordinator};
 use crate::catalog::{MachineMemory, Removal, SearchResults};
+
+impl Application {
+    pub async fn search_catalog(
+        &self,
+        query: &str,
+        limit: usize,
+        cursor: Option<&str>,
+    ) -> Result<SearchResults> {
+        self.runtime.search_catalog(query, limit, cursor).await
+    }
+
+    pub async fn remove_download(&self, repo_id: &str) -> Result<Removal> {
+        let operation = self.activity.begin("remove", repo_id, None);
+        let result = self.runtime.remove_download(repo_id).await;
+        operation.finish(
+            if result.is_ok() {
+                "completed"
+            } else {
+                "failed"
+            },
+            "model removal finished",
+        );
+        result
+    }
+
+    #[must_use]
+    pub fn cancel_operation(&self, operation_id: &str) -> super::CancelOutcome {
+        self.activity.cancel(operation_id)
+    }
+}
 
 impl RuntimeCoordinator {
     pub async fn search_catalog(

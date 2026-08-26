@@ -4,7 +4,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
-use tonic::Code;
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -50,32 +49,36 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, message, "invalid_request_error", "not_found")
     }
 
-    pub fn from_status(status: tonic::Status) -> Self {
-        let (http, kind, code) = match status.code() {
-            Code::InvalidArgument => {
-                (StatusCode::BAD_REQUEST, "invalid_request_error", "invalid_request")
+    pub fn from_application(error: crate::application::Error) -> Self {
+        use crate::application::Error;
+        match error {
+            Error::InvalidModel(message) => Self::bad_request(message),
+            Error::ModelAlreadyLoading(message)
+            | Error::ModelInUse(message)
+            | Error::ModelLoaded(message) => {
+                Self::new(StatusCode::CONFLICT, message, "invalid_request_error", "conflict")
             },
-            Code::NotFound => (StatusCode::NOT_FOUND, "invalid_request_error", "not_found"),
-            Code::FailedPrecondition | Code::AlreadyExists => {
-                (StatusCode::CONFLICT, "invalid_request_error", "conflict")
-            },
-            Code::ResourceExhausted => {
-                (StatusCode::TOO_MANY_REQUESTS, "rate_limit_error", "rate_limit_exceeded")
-            },
-            Code::Unauthenticated => {
-                (StatusCode::UNAUTHORIZED, "authentication_error", "invalid_api_key")
-            },
-            Code::PermissionDenied => {
-                (StatusCode::FORBIDDEN, "permission_error", "permission_denied")
-            },
-            Code::Unavailable => {
-                (StatusCode::SERVICE_UNAVAILABLE, "server_error", "service_unavailable")
-            },
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "server_error", "runtime_error"),
-        };
-        let message = status.message().to_owned();
-        drop(status);
-        Self::new(http, message, kind, code)
+            Error::MemoryPressure(message)
+            | Error::Inference(libmir::Error::MemoryAdmission { model: message, .. }) => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                message,
+                "rate_limit_error",
+                "rate_limit_exceeded",
+            ),
+            Error::Inference(
+                error @ (libmir::Error::EmptyPrompt
+                | libmir::Error::TaskMismatch { .. }
+                | libmir::Error::Model(_)
+                | libmir::Error::Context { .. }),
+            ) => Self::bad_request(error.to_string()),
+            Error::Inference(error @ libmir::Error::VisionResourceLimit { .. }) => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                error.to_string(),
+                "rate_limit_error",
+                "rate_limit_exceeded",
+            ),
+            error => Self::internal(error.to_string()),
+        }
     }
 
     fn new(
@@ -107,16 +110,9 @@ impl ApiError {
         }
     }
 
-    pub fn status_envelope(status: tonic::Status) -> ErrorEnvelope {
-        let error = Self::from_status(status);
+    pub fn application_envelope(error: crate::application::Error) -> ErrorEnvelope {
+        let error = Self::from_application(error);
         Self::envelope(error.message, error.kind, error.code)
-    }
-}
-
-pub fn status<T>(result: Result<T, tonic::Status>) -> Result<T, ApiError> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(error) => Err(ApiError::from_status(error)),
     }
 }
 

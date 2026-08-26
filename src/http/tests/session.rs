@@ -4,10 +4,10 @@ use reqwest::{Client, StatusCode, header};
 use serde_json::{Value, json};
 
 use crate::{
+    application::Application,
     config::{AppConfig, Paths, Store},
     error::Result,
     http::start,
-    rpc::RuntimeService,
 };
 
 mod activity;
@@ -26,8 +26,8 @@ async fn isolates_web_sessions_and_requires_csrf_for_mutations() -> Result<()> {
     let mut config = AppConfig::default();
     config.server.http_bind = "127.0.0.1:0".to_owned();
     config.server.web_enabled = true;
-    let service = RuntimeService::new(&config, Store::new(paths));
-    let owner = start(service, &config.server, Some("openai-key".to_owned())).await?;
+    let application = Application::new(&config, Store::new(paths));
+    let owner = start(application, &config.server, Some("openai-key".to_owned())).await?;
     let base = format!("http://{}", owner.address());
     let client = Client::new();
     let (cookie, csrf) = create_session(&client, &base).await?;

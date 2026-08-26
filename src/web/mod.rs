@@ -5,7 +5,6 @@ mod chat;
 mod configuration;
 mod management;
 mod operations;
-mod result;
 mod session;
 mod socket;
 mod types;
@@ -26,7 +25,7 @@ use serde::Serialize;
 pub use session::Sessions;
 pub use socket::updates;
 
-use crate::rpc::PROTOCOL_VERSION;
+use crate::application::PROTOCOL_VERSION;
 
 const INDEX: &str = include_str!(concat!(env!("OUT_DIR"), "/dashboard/index.html"));
 const STYLESHEET: &str = include_str!("assets/app.css");

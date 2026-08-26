@@ -2,7 +2,7 @@ mod client;
 mod service;
 
 pub use client::{Client, connect};
-pub use service::{RuntimeService, StartupSnapshot};
+pub use service::RuntimeService;
 
 pub use crate::application::PROTOCOL_VERSION;
 

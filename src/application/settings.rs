@@ -3,8 +3,24 @@ use libmir::{
     models::execution::{ModelTask, PoolingMode, TaskExecutionPlan},
 };
 
-use super::{MemoryReport, Result, RuntimeCoordinator};
+use super::{Application, MemoryReport, Result, RuntimeCoordinator};
 use crate::config::{GenerationConfig, HubModelConfig};
+
+impl Application {
+    pub fn inspect_model(&self, selector: &str) -> Result<ModelInspection> {
+        self.runtime.inspect_model(selector)
+    }
+
+    pub fn prepare_load(
+        &self,
+        selector: &str,
+        config_id: &str,
+        hub: Option<HubModelConfig>,
+        generation: Option<GenerationConfig>,
+    ) -> Result<String> {
+        self.runtime.prepare_load(selector, config_id, hub, generation)
+    }
+}
 
 pub struct ModelInspection {
     pub settings: Option<libmir::GenerationSettings>,

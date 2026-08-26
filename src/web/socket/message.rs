@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use super::super::{configuration::Configuration, types};
-use crate::rpc::StartupSnapshot;
+use crate::application::StartupSnapshot;
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

@@ -10,10 +10,10 @@ use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::{error::ApiError, types::Usage};
-use crate::rpc::proto;
+use crate::application::GenerationEvent;
 
 pub fn response(
-    mut source: ReceiverStream<Result<proto::GenerateEvent, tonic::Status>>,
+    mut source: ReceiverStream<crate::application::Result<GenerationEvent>>,
     id: String,
     created: u64,
     model: String,
@@ -41,7 +41,7 @@ pub fn response(
                         return;
                     }
                 },
-                Err(status) => {
+                Err(error) => {
                     if !role_sent
                         && !send_json(
                             &sender,
@@ -51,7 +51,7 @@ pub fn response(
                     {
                         return;
                     }
-                    let error = ApiError::status_envelope(status);
+                    let error = ApiError::application_envelope(error);
                     let _sent = send_json(&sender, error).await;
                     break;
                 },
@@ -66,35 +66,32 @@ pub fn response(
 
 async fn handle_event(
     sender: &mpsc::Sender<Result<Event, Infallible>>,
-    event: proto::GenerateEvent,
+    event: GenerationEvent,
     id: &str,
     created: u64,
     model: &str,
     include_usage: bool,
     role_sent: &mut bool,
 ) -> bool {
-    match event.event {
-        Some(proto::generate_event::Event::Token(token)) => {
+    match event {
+        GenerationEvent::Token(token) => {
             let Some(delta) = token_delta(&token) else {
                 return true;
             };
             let delta = with_role(delta, role_sent);
             send_json(sender, chunk(id, created, model, &delta, None, None)).await
         },
-        Some(proto::generate_event::Event::Completion(completion)) => {
-            if !completion.tool_calls.is_empty() {
-                let calls = completion
-                    .tool_calls
-                    .iter()
-                    .enumerate()
-                    .filter_map(tool_call_delta)
-                    .collect::<Vec<_>>();
+        GenerationEvent::Completion(completion) => {
+            let calls = libmir::ChatToolCall::parse_mistral(&completion.output.tool_calls)
+                .unwrap_or_default();
+            if !calls.is_empty() {
+                let calls = calls.iter().enumerate().map(tool_call_delta).collect::<Vec<_>>();
                 let delta = with_role(json!({"tool_calls": calls}), role_sent);
                 if !send_json(sender, chunk(id, created, model, &delta, None, None)).await {
                     return false;
                 }
             }
-            let usage = include_usage.then(|| Usage::from_completion(&completion));
+            let usage = include_usage.then(|| Usage::from_result(&completion));
             let delta = with_role(json!({}), role_sent);
             send_json(
                 sender,
@@ -103,13 +100,13 @@ async fn handle_event(
                     created,
                     model,
                     &delta,
-                    Some(completion.finish_reason.as_str()),
+                    Some(completion.output.finish_reason),
                     usage.as_ref(),
                 ),
             )
             .await
         },
-        Some(proto::generate_event::Event::Started(_)) | None => true,
+        GenerationEvent::Started { .. } => true,
     }
 }
 
@@ -123,27 +120,26 @@ fn with_role(mut delta: serde_json::Value, role_sent: &mut bool) -> serde_json::
     delta
 }
 
-fn token_delta(token: &proto::Token) -> Option<serde_json::Value> {
-    if token.channel == "tool_calls" {
+fn token_delta(token: &libmir::GenerationToken) -> Option<serde_json::Value> {
+    if token.channel == libmir::GenerationChannel::ToolCalls {
         None
-    } else if token.reasoning || token.channel == "reasoning" {
+    } else if token.channel == libmir::GenerationChannel::Reasoning {
         Some(json!({"reasoning_content": token.text}))
     } else {
         Some(json!({"content": token.text}))
     }
 }
 
-fn tool_call_delta((index, call): (usize, &proto::ChatToolCall)) -> Option<serde_json::Value> {
-    let function = call.function.as_ref()?;
-    Some(json!({
+fn tool_call_delta((index, call): (usize, &libmir::ChatToolCall)) -> serde_json::Value {
+    json!({
         "index": index,
         "id": call.id,
-        "type": call.r#type,
+        "type": call.kind,
         "function": {
-            "name": function.name,
-            "arguments": function.arguments_json,
+            "name": call.function.name,
+            "arguments": call.function.arguments.to_string(),
         }
-    }))
+    })
 }
 
 fn chunk(
@@ -180,22 +176,20 @@ mod tests {
 
     #[test]
     fn maps_reasoning_to_a_separate_openai_delta() {
-        let delta = token_delta(&proto::Token {
+        let delta = token_delta(&libmir::GenerationToken {
             id: 1,
             text: "draft".into(),
-            reasoning: true,
-            channel: "reasoning".into(),
+            channel: libmir::GenerationChannel::Reasoning,
         });
         assert_eq!(delta, Some(json!({"reasoning_content": "draft"})));
     }
 
     #[test]
     fn suppresses_native_tool_json_tokens() {
-        let delta = token_delta(&proto::Token {
+        let delta = token_delta(&libmir::GenerationToken {
             id: 9,
             text: r#"[{"name":"weather"}]"#.into(),
-            reasoning: false,
-            channel: "tool_calls".into(),
+            channel: libmir::GenerationChannel::ToolCalls,
         });
         assert_eq!(delta, None);
     }

@@ -5,12 +5,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
-use tonic::Request;
 
 use super::{security_headers, session::WebError};
 use crate::{
+    application::ConfigurationChange,
+    config::{ConfigPresentation, PresentedValue, SecretPresentation},
     http::ApiState,
-    rpc::{proto, proto::runtime_server::Runtime},
 };
 
 #[derive(Serialize)]
@@ -73,13 +73,7 @@ pub async fn configuration(
     headers: HeaderMap,
 ) -> Result<Response, WebError> {
     state.sessions().authenticate(&headers)?;
-    let configuration = super::result::status(
-        state
-            .service()
-            .get_configuration(Request::new(proto::GetConfigurationRequest {}))
-            .await,
-    )?
-    .into_inner();
+    let configuration = state.application().configuration().map_err(WebError::application)?;
     Ok((security_headers(), Json(Configuration::from(configuration))).into_response())
 }
 
@@ -89,24 +83,17 @@ pub async fn update_configuration(
     Json(update): Json<UpdateRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let operation = super::result::status(operation(update))?;
-    let response = super::result::status(
-        state
-            .service()
-            .update_configuration(Request::new(proto::UpdateConfigurationRequest {
-                operation: Some(operation),
-            }))
-            .await,
-    )?
-    .into_inner();
-    let configuration = response
-        .configuration
-        .ok_or_else(|| WebError::runtime("runtime omitted updated configuration"))?;
+    let operation = operation(update)?;
+    let response = state
+        .application()
+        .update_configuration(operation)
+        .await
+        .map_err(WebError::application)?;
     state.configuration_changed();
     Ok((
         security_headers(),
         Json(Updated {
-            configuration: Configuration::from(configuration),
+            configuration: Configuration::from(response.configuration),
             message: response.message,
             restart_required: response.restart_required,
         }),
@@ -114,49 +101,30 @@ pub async fn update_configuration(
         .into_response())
 }
 
-fn operation(
-    request: UpdateRequest,
-) -> Result<proto::update_configuration_request::Operation, tonic::Status> {
-    use proto::update_configuration_request::Operation;
+fn operation(request: UpdateRequest) -> Result<ConfigurationChange, WebError> {
     match request {
         UpdateRequest::Set { key, new_value } => match key.as_str() {
-            "hugging_face.token" => {
-                Ok(Operation::SetHfToken(proto::SetHfToken { token: new_value }))
-            },
-            "server.api_key" => {
-                Ok(Operation::SetHttpApiKey(proto::SetHttpApiKey { key: new_value }))
-            },
-            _ => Ok(Operation::SetValue(proto::SetConfigurationValue { key, value: new_value })),
+            "hugging_face.token" => Ok(ConfigurationChange::SetHfToken(new_value)),
+            "server.api_key" => Ok(ConfigurationChange::SetHttpApiKey(new_value)),
+            _ => Ok(ConfigurationChange::SetValue { key, value: new_value }),
         },
         UpdateRequest::Remove { key } => match key.as_str() {
-            "hugging_face.token" => Ok(Operation::RemoveHfToken(proto::RemoveHfToken {})),
-            "server.api_key" => Ok(Operation::RemoveHttpApiKey(proto::RemoveHttpApiKey {})),
-            _ => Err(tonic::Status::invalid_argument(format!("cannot remove `{key}`"))),
+            "hugging_face.token" => Ok(ConfigurationChange::RemoveHfToken),
+            "server.api_key" => Ok(ConfigurationChange::RemoveHttpApiKey),
+            _ => Err(WebError::invalid(format!("cannot remove `{key}`"))),
         },
         UpdateRequest::Test { key } if key == "hugging_face.token" => {
-            Ok(Operation::TestHfToken(proto::TestHfToken {}))
+            Ok(ConfigurationChange::TestHfToken)
         },
-        UpdateRequest::Test { key } => {
-            Err(tonic::Status::invalid_argument(format!("cannot test `{key}`")))
-        },
+        UpdateRequest::Test { key } => Err(WebError::invalid(format!("cannot test `{key}`"))),
     }
 }
 
-impl From<proto::ConfigurationSnapshot> for Configuration {
-    fn from(config: proto::ConfigurationSnapshot) -> Self {
+impl From<ConfigPresentation> for Configuration {
+    fn from(config: ConfigPresentation) -> Self {
         let mut values: Vec<_> = config.values.into_iter().map(Setting::from).collect();
-        values.push(Setting::secret(
-            "hugging_face.token",
-            config.hugging_face_token.unwrap_or_default(),
-            false,
-            true,
-        ));
-        values.push(Setting::secret(
-            "server.api_key",
-            config.http_api_key.unwrap_or_default(),
-            true,
-            false,
-        ));
+        values.push(Setting::secret("hugging_face.token", &config.hugging_face_token, false, true));
+        values.push(Setting::secret("server.api_key", &config.http_api_key, true, false));
         Self {
             values,
             config_path: config.config_path,
@@ -166,12 +134,12 @@ impl From<proto::ConfigurationSnapshot> for Configuration {
     }
 }
 
-impl From<proto::ConfigurationValue> for Setting {
-    fn from(value: proto::ConfigurationValue) -> Self {
+impl From<PresentedValue> for Setting {
+    fn from(value: PresentedValue) -> Self {
         Self {
-            key: value.key,
+            key: value.key.to_owned(),
             value: value.value,
-            source: value.source,
+            source: value.source.to_owned(),
             restart_required: value.restart_required,
             kind: SettingKind::Value,
             actions: if value.editable {
@@ -186,7 +154,7 @@ impl From<proto::ConfigurationValue> for Setting {
 impl Setting {
     fn secret(
         key: &str,
-        secret: proto::SecretState,
+        secret: &SecretPresentation,
         restart_required: bool,
         testable: bool,
     ) -> Self {
@@ -204,7 +172,7 @@ impl Setting {
             } else {
                 "—".to_owned()
             },
-            source: secret.source,
+            source: secret.source.to_owned(),
             restart_required,
             kind: SettingKind::Secret,
             actions,

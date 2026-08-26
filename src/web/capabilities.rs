@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::rpc::proto;
+use crate::application;
 
 #[derive(Serialize)]
 pub(super) struct TaskCapabilities {
@@ -26,8 +26,8 @@ struct RerankCapabilities {
     raw_scores: bool,
 }
 
-impl From<proto::ModelTaskCapabilities> for TaskCapabilities {
-    fn from(value: proto::ModelTaskCapabilities) -> Self {
+impl From<application::ModelTaskCapabilities> for TaskCapabilities {
+    fn from(value: application::ModelTaskCapabilities) -> Self {
         Self {
             max_input_tokens: value.max_input_tokens,
             embedding: value.embedding.map(EmbeddingCapabilities::from),
@@ -36,11 +36,11 @@ impl From<proto::ModelTaskCapabilities> for TaskCapabilities {
     }
 }
 
-impl From<proto::EmbeddingCapabilities> for EmbeddingCapabilities {
-    fn from(value: proto::EmbeddingCapabilities) -> Self {
+impl From<application::EmbeddingCapabilities> for EmbeddingCapabilities {
+    fn from(value: application::EmbeddingCapabilities) -> Self {
         Self {
             native_dimensions: value.native_dimensions,
-            pooling: value.pooling,
+            pooling: value.pooling.to_owned(),
             normalized: value.normalized,
             prompt_names: value.prompt_names,
             default_prompt: value.default_prompt,
@@ -49,11 +49,11 @@ impl From<proto::EmbeddingCapabilities> for EmbeddingCapabilities {
     }
 }
 
-impl From<proto::RerankCapabilities> for RerankCapabilities {
-    fn from(value: proto::RerankCapabilities) -> Self {
+impl From<application::RerankCapabilities> for RerankCapabilities {
+    fn from(value: application::RerankCapabilities) -> Self {
         Self {
             labels: value.labels,
-            pooling: value.pooling,
+            pooling: value.pooling.to_owned(),
             raw_scores: value.raw_scores,
         }
     }

@@ -17,7 +17,7 @@ use super::{
     stream,
     types::{ChatRequest, CompletionResponse, HealthResponse, Model, ModelsResponse},
 };
-use crate::rpc::proto;
+use crate::application::GenerationEvent;
 
 static NEXT_COMPLETION: AtomicU64 = AtomicU64::new(0);
 
@@ -53,7 +53,7 @@ pub async fn models(
 ) -> Result<Json<ModelsResponse>, ApiError> {
     state.authorize(&headers)?;
     let models = state
-        .coordinator()
+        .application()
         .models()
         .map_err(|error| ApiError::internal(error.to_string()))?;
     Ok(Json(ModelsResponse {
@@ -83,24 +83,23 @@ pub async fn chat(
     let streaming = request.stream;
     let include_usage =
         request.stream_options.as_ref().is_some_and(|options| options.include_usage);
+    let (request, image) = request.into_application()?;
     let model = request.model.clone();
     let id = completion_id();
     let created = unix_seconds();
-    let mut events = state.service.generate_stream(request.into_proto()?);
+    let mut events = state.application().generation_stream(&model, request, image);
     if streaming {
         return Ok(stream::response(events, id, created, model, include_usage, state.shutdown()));
     }
     while let Some(event) = events.next().await {
-        let event = super::error::status(event)?;
-        if let Some(proto::generate_event::Event::Completion(completion)) = event.event {
+        let event = event.map_err(ApiError::from_application)?;
+        if let GenerationEvent::Completion(completion) = event {
             return Ok(
-                Json(CompletionResponse::new(id, created, model, completion)).into_response()
+                Json(CompletionResponse::new(id, created, model, *completion)).into_response()
             );
         }
     }
-    Err(ApiError::from_status(tonic::Status::internal(
-        "generation ended without completion",
-    )))
+    Err(ApiError::internal("generation ended without completion"))
 }
 
 pub async fn not_found() -> ApiError {

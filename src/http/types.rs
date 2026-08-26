@@ -4,7 +4,7 @@ use super::{
     error::ApiError,
     media::{MessageContent, messages},
 };
-use crate::rpc::proto;
+use crate::application::GenerationResult;
 
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
@@ -118,7 +118,9 @@ pub struct Usage {
 }
 
 impl ChatRequest {
-    pub fn into_proto(self) -> Result<proto::GenerateRequest, ApiError> {
+    pub fn into_application(
+        self,
+    ) -> Result<(libmir::ChatCompletionRequest, Option<Vec<u8>>), ApiError> {
         if self.model.trim().is_empty() {
             return Err(ApiError::bad_request("model cannot be empty"));
         }
@@ -135,39 +137,41 @@ impl ChatRequest {
             (left, right) => left.or(right),
         };
         let (messages, image) = messages(self.messages)?;
-        let tools = self.tools.into_iter().map(proto_tool).collect();
-        Ok(proto::GenerateRequest {
+        let request = libmir::ChatCompletionRequest {
             model: self.model,
-            prompt: String::new(),
-            max_tokens,
-            min_tokens: self.min_tokens,
+            messages,
+            tools: self.tools,
+            tool_choice: self.tool_choice,
+            stream: self.stream,
+            max_tokens: optional_usize(max_tokens)?,
+            min_tokens: optional_usize(self.min_tokens)?,
             ignore_eos: self.ignore_eos,
             temperature: self.temperature,
             top_p: self.top_p,
-            top_k: self.top_k,
+            top_k: optional_usize(self.top_k)?,
             repetition_penalty: self.repetition_penalty,
             seed: self.seed,
-            messages,
-            image,
-            tools,
-            tool_choice_json: self.tool_choice.map(|choice| choice.to_string()),
-        })
+        };
+        Ok((request, image))
     }
 }
 
 impl Usage {
-    pub const fn from_completion(completion: &proto::Completion) -> Self {
+    pub fn from_result(result: &GenerationResult) -> Self {
+        let output = &result.output;
         Self {
-            prompt: completion.prompt_tokens,
-            completion: completion.completion_tokens,
-            total: completion.prompt_tokens.saturating_add(completion.completion_tokens),
+            prompt: u64::try_from(output.prompt_tokens).unwrap_or(u64::MAX),
+            completion: u64::try_from(output.token_ids.len()).unwrap_or(u64::MAX),
+            total: u64::try_from(output.prompt_tokens.saturating_add(output.token_ids.len()))
+                .unwrap_or(u64::MAX),
         }
     }
 }
 
 impl CompletionResponse {
-    pub fn new(id: String, created: u64, model: String, completion: proto::Completion) -> Self {
-        let usage = Usage::from_completion(&completion);
+    pub fn new(id: String, created: u64, model: String, result: GenerationResult) -> Self {
+        let usage = Usage::from_result(&result);
+        let output = result.output;
         Self {
             id,
             object: "chat.completion",
@@ -177,43 +181,37 @@ impl CompletionResponse {
                 index: 0,
                 message: ResponseMessage {
                     role: "assistant",
-                    content: completion.text,
-                    reasoning_content: (!completion.reasoning.is_empty())
-                        .then_some(completion.reasoning),
-                    tool_calls: completion
-                        .tool_calls
+                    content: output.text,
+                    reasoning_content: (!output.reasoning.is_empty()).then_some(output.reasoning),
+                    tool_calls: libmir::ChatToolCall::parse_mistral(&output.tool_calls)
+                        .unwrap_or_default()
                         .into_iter()
-                        .filter_map(response_tool_call)
+                        .map(response_tool_call)
                         .collect(),
                 },
-                finish_reason: completion.finish_reason,
+                finish_reason: output.finish_reason.to_owned(),
             }],
             usage,
         }
     }
 }
 
-fn proto_tool(tool: libmir::ChatTool) -> proto::ChatTool {
-    proto::ChatTool {
-        r#type: tool.kind,
-        function: Some(proto::ChatFunctionDefinition {
-            name: tool.function.name,
-            description: tool.function.description,
-            parameters_json: tool.function.parameters.to_string(),
-        }),
+fn response_tool_call(call: libmir::ChatToolCall) -> ResponseToolCall {
+    ResponseToolCall {
+        id: call.id,
+        kind: call.kind,
+        function: ResponseFunctionCall {
+            name: call.function.name,
+            arguments: call.function.arguments.to_string(),
+        },
     }
 }
 
-fn response_tool_call(call: proto::ChatToolCall) -> Option<ResponseToolCall> {
-    let function = call.function?;
-    Some(ResponseToolCall {
-        id: call.id,
-        kind: call.r#type,
-        function: ResponseFunctionCall {
-            name: function.name,
-            arguments: function.arguments_json,
-        },
-    })
+fn optional_usize(value: Option<u64>) -> Result<Option<usize>, ApiError> {
+    value
+        .map(usize::try_from)
+        .transpose()
+        .map_err(|error| ApiError::bad_request(error.to_string()))
 }
 
 #[cfg(test)]

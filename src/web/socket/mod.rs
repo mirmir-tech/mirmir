@@ -10,15 +10,13 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use futures_util::StreamExt;
 use tokio::time::MissedTickBehavior;
-use tonic::Request;
 
 use self::message::ServerMessage;
 use super::{configuration::Configuration, security_headers, session, session::WebError, types};
 use crate::{
+    application::{ActivityEvent, Application},
     http::{ApiState, DashboardUpdate},
-    rpc::{RuntimeService, proto, proto::runtime_server::Runtime},
 };
 
 pub async fn updates(
@@ -34,11 +32,11 @@ pub async fn updates(
 }
 
 async fn serve(mut socket: WebSocket, state: ApiState) {
-    if send_initial(&mut socket, state.service()).await.is_err() {
+    if send_initial(&mut socket, state.application()).await.is_err() {
         return;
     }
-    let mut startup = state.service().watch_startup();
-    let mut activity = state.service().watch_activity_updates();
+    let mut startup = state.application().startup_updates();
+    let mut activity = state.application().activity_updates();
     let mut shutdown = state.shutdown();
     let mut updates = state.updates();
     let mut telemetry = tokio::time::interval(Duration::from_secs(1));
@@ -48,7 +46,7 @@ async fn serve(mut socket: WebSocket, state: ApiState) {
         let event = tokio::select! {
             _ = telemetry.tick() => Next::Telemetry,
             result = startup.changed() => Next::Startup(result.is_ok()),
-            event = activity.next() => Next::Activity(event),
+            event = activity.recv() => Next::Activity(event),
             update = updates.recv() => Next::Dashboard(update),
             incoming = socket.recv() => Next::Incoming(incoming),
             _ = shutdown.changed() => Next::Shutdown,
@@ -62,7 +60,7 @@ async fn serve(mut socket: WebSocket, state: ApiState) {
 enum Next {
     Telemetry,
     Startup(bool),
-    Activity(Option<Result<proto::ActivityEvent, tonic::Status>>),
+    Activity(Result<ActivityEvent, tokio::sync::broadcast::error::RecvError>),
     Dashboard(Result<DashboardUpdate, tokio::sync::broadcast::error::RecvError>),
     Incoming(Option<Result<Message, axum::Error>>),
     Shutdown,
@@ -70,43 +68,47 @@ enum Next {
 
 async fn handle(event: Next, socket: &mut WebSocket, state: &ApiState) -> bool {
     let result = match event {
-        Next::Telemetry => send_overview(socket, state.service()).await,
-        Next::Startup(true) => send_startup(socket, state.service()).await,
+        Next::Telemetry => send_overview(socket, state.application()).await,
+        Next::Startup(true) => send_startup(socket, state.application()).await,
         Next::Startup(false)
         | Next::Shutdown
-        | Next::Activity(None)
+        | Next::Activity(Err(tokio::sync::broadcast::error::RecvError::Closed))
         | Next::Dashboard(Err(tokio::sync::broadcast::error::RecvError::Closed))
         | Next::Incoming(Some(Ok(Message::Close(_)) | Err(_)) | None) => return false,
-        Next::Activity(Some(Ok(event))) => send_activity(socket, state.service(), event).await,
-        Next::Activity(Some(Err(error))) => {
-            send(socket, ServerMessage::Error { message: error.message().to_owned() }).await
-        },
+        Next::Activity(Ok(event)) => send_activity(socket, state.application(), event).await,
         Next::Dashboard(
             Ok(DashboardUpdate::Configuration)
             | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)),
-        ) => send_configuration(socket, state.service()).await,
+        ) => send_configuration(socket, state.application()).await,
         Next::Incoming(Some(Ok(Message::Ping(data)))) => socket.send(Message::Pong(data)).await,
-        Next::Incoming(Some(Ok(_))) => Ok(()),
+        Next::Activity(Err(tokio::sync::broadcast::error::RecvError::Lagged(_)))
+        | Next::Incoming(Some(Ok(_))) => Ok(()),
     };
     result.is_ok()
 }
 
-async fn send_initial(socket: &mut WebSocket, service: &RuntimeService) -> Result<(), axum::Error> {
-    send_startup(socket, service).await?;
-    send_overview(socket, service).await?;
-    send_models(socket, service).await?;
-    send_configuration(socket, service).await?;
-    for event in service.activity_history() {
+async fn send_initial(
+    socket: &mut WebSocket,
+    application: &Application,
+) -> Result<(), axum::Error> {
+    send_startup(socket, application).await?;
+    send_overview(socket, application).await?;
+    send_models(socket, application).await?;
+    send_configuration(socket, application).await?;
+    for event in application.activity_history() {
         send(socket, ServerMessage::Activity { activity: event.into() }).await?;
     }
     Ok(())
 }
 
-async fn send_startup(socket: &mut WebSocket, service: &RuntimeService) -> Result<(), axum::Error> {
+async fn send_startup(
+    socket: &mut WebSocket,
+    application: &Application,
+) -> Result<(), axum::Error> {
     socket
         .send(Message::Text(
             serde_json::to_string(&ServerMessage::Startup {
-                startup: service.startup_snapshot().into(),
+                startup: application.startup_snapshot().into(),
             })
             .expect("websocket startup message should serialize")
             .into(),
@@ -116,12 +118,9 @@ async fn send_startup(socket: &mut WebSocket, service: &RuntimeService) -> Resul
 
 async fn send_overview(
     socket: &mut WebSocket,
-    service: &RuntimeService,
+    application: &Application,
 ) -> Result<(), axum::Error> {
-    let snapshot = service
-        .telemetry(Request::new(proto::TelemetryRequest {}))
-        .await
-        .map_or_else(|error| Err(error.message().to_owned()), |value| Ok(value.into_inner()));
+    let snapshot = application.telemetry_snapshot().map_err(|error| error.to_string());
     match snapshot {
         Ok(snapshot) => {
             send(socket, ServerMessage::Overview { overview: Box::new(snapshot.into()) }).await
@@ -130,56 +129,50 @@ async fn send_overview(
     }
 }
 
-async fn send_models(socket: &mut WebSocket, service: &RuntimeService) -> Result<(), axum::Error> {
-    let response = service.list_local_models(Request::new(proto::ListLocalModelsRequest {})).await;
-    match response {
-        Ok(response) => {
+async fn send_models(socket: &mut WebSocket, application: &Application) -> Result<(), axum::Error> {
+    match application.local_models() {
+        Ok(models) => {
             send(
                 socket,
                 ServerMessage::Models {
                     models: types::Models {
-                        models: response.into_inner().models.into_iter().map(Into::into).collect(),
+                        models: models.into_iter().map(Into::into).collect(),
                     },
                 },
             )
             .await
         },
-        Err(error) => {
-            send(socket, ServerMessage::Error { message: error.message().to_owned() }).await
-        },
+        Err(error) => send(socket, ServerMessage::Error { message: error.to_string() }).await,
     }
 }
 
 async fn send_configuration(
     socket: &mut WebSocket,
-    service: &RuntimeService,
+    application: &Application,
 ) -> Result<(), axum::Error> {
-    let response = service.get_configuration(Request::new(proto::GetConfigurationRequest {})).await;
-    match response {
-        Ok(response) => {
+    match application.configuration() {
+        Ok(configuration) => {
             send(
                 socket,
                 ServerMessage::Configuration {
-                    configuration: Configuration::from(response.into_inner()),
+                    configuration: Configuration::from(configuration),
                 },
             )
             .await
         },
-        Err(error) => {
-            send(socket, ServerMessage::Error { message: error.message().to_owned() }).await
-        },
+        Err(error) => send(socket, ServerMessage::Error { message: error.to_string() }).await,
     }
 }
 
 async fn send_activity(
     socket: &mut WebSocket,
-    service: &RuntimeService,
-    event: proto::ActivityEvent,
+    application: &Application,
+    event: ActivityEvent,
 ) -> Result<(), axum::Error> {
     let refresh_models = terminal(&event.state) && model_operation(&event.kind);
     send(socket, ServerMessage::Activity { activity: event.into() }).await?;
     if refresh_models {
-        send_models(socket, service).await?;
+        send_models(socket, application).await?;
     }
     Ok(())
 }

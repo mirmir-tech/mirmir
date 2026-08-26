@@ -202,20 +202,13 @@ impl WebError {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, message, "runtime_error")
     }
 
-    pub fn from_status(status: tonic::Status) -> Self {
-        let (http, code) = match status.code() {
-            tonic::Code::InvalidArgument => (StatusCode::BAD_REQUEST, "invalid_request"),
-            tonic::Code::NotFound => (StatusCode::NOT_FOUND, "not_found"),
-            tonic::Code::FailedPrecondition | tonic::Code::AlreadyExists => {
-                (StatusCode::CONFLICT, "conflict")
-            },
-            tonic::Code::ResourceExhausted => (StatusCode::TOO_MANY_REQUESTS, "resource_limit"),
-            tonic::Code::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "runtime_error"),
-        };
-        let message = status.message().to_owned();
-        drop(status);
-        Self::new(http, message, code)
+    #[expect(clippy::needless_pass_by_value, reason = "map_err boundary consumes the error")]
+    pub fn application(error: crate::application::Error) -> Self {
+        Self::runtime(error.to_string())
+    }
+
+    pub fn invalid(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, message, "invalid_request")
     }
 
     fn internal(message: impl Into<String>) -> Self {
