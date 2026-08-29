@@ -2,12 +2,30 @@ use libmir::ModelMemoryEstimate;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemoryFit {
+    Fits,
+    DoesNotFit,
+    Unknown,
+}
+
+impl MemoryFit {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Fits => "fits",
+            Self::DoesNotFit => "does_not_fit",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 pub struct MemoryReport {
     pub estimate: ModelMemoryEstimate,
     pub available: Option<u64>,
     pub budget: Option<u64>,
     pub source: String,
-    pub fit: &'static str,
+    pub fit: MemoryFit,
     pub max_safe_context: Option<u64>,
     pub(crate) capacity: Option<u64>,
 }

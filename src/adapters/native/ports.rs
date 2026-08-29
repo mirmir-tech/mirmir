@@ -4,10 +4,14 @@ use tokio::sync::mpsc;
 use super::NativeRuntime;
 use crate::{
     application::{
-        CatalogPort, ConfigurationChange, ConfigurationOutcome, ConfigurationPort, LocalModelInfo,
-        ModelEntry, ModelInfo, ModelInspection, ModelRuntimePort, Result, RuntimeTelemetry,
+        CatalogPort, ConfigurationChange, ConfigurationOutcome, ConfigurationPort, Error,
+        LocalModelInfo, ModelEntry, ModelInfo, ModelInspection, ModelRuntimePort, Result,
+        RuntimeTelemetry, TransferPhase, TransferProgress,
     },
-    catalog::{DownloadedModel, Removal, SearchResults, TransferUpdate},
+    catalog::{
+        DownloadedModel, Removal, SearchResults, TransferPhase as NativeTransferPhase,
+        TransferUpdate as NativeTransferUpdate,
+    },
     config::{ConfigPresentation, GenerationConfig, HubModelConfig, StateRecovery},
 };
 
@@ -30,10 +34,39 @@ impl CatalogPort for NativeRuntime {
         &self,
         repo_id: &str,
         revision: Option<&str>,
-        updates: mpsc::Sender<TransferUpdate>,
+        updates: mpsc::Sender<TransferProgress>,
         cancellation: &libmir::CancellationToken,
     ) -> Result<DownloadedModel> {
-        Ok(self.catalog.pull(repo_id, revision, updates, cancellation).await?)
+        let (native_updates, mut receiver) = mpsc::channel::<NativeTransferUpdate>(64);
+        let forward_cancellation = cancellation.clone();
+        let forward = tokio::spawn(async move {
+            while let Some(update) = receiver.recv().await {
+                let progress = TransferProgress {
+                    phase: transfer_phase(update.phase),
+                    downloaded_bytes: update.downloaded_bytes,
+                    total_bytes: update.total_bytes,
+                    message: update.message,
+                };
+                if updates.send(progress).await.is_err() {
+                    forward_cancellation.cancel();
+                    break;
+                }
+            }
+        });
+        let result = self.catalog.pull(repo_id, revision, native_updates, cancellation).await;
+        forward.await.map_err(|error| Error::Infrastructure(error.to_string()))?;
+        Ok(result?)
+    }
+}
+
+const fn transfer_phase(phase: NativeTransferPhase) -> TransferPhase {
+    match phase {
+        NativeTransferPhase::Queued => TransferPhase::Queued,
+        NativeTransferPhase::Checking => TransferPhase::Checking,
+        NativeTransferPhase::Resolving => TransferPhase::Resolving,
+        NativeTransferPhase::Downloading => TransferPhase::Downloading,
+        NativeTransferPhase::Validating => TransferPhase::Validating,
+        NativeTransferPhase::Available => TransferPhase::Available,
     }
 }
 

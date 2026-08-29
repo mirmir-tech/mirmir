@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 
 mod types;
 
-pub use types::{ActivityKind, ActivityStage, ActivityState};
+pub use types::{ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, ActivityStatus};
 
 const HISTORY_LIMIT: usize = 100;
 
@@ -18,21 +18,18 @@ pub struct ActivityEvent {
     pub operation_id: String,
     pub kind: ActivityKind,
     pub target: String,
-    pub state: ActivityState,
-    pub stage: ActivityStage,
+    pub status: ActivityStatus,
     pub detail: String,
     pub started_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
     pub cancellable: bool,
-    pub current: Option<u64>,
-    pub total: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CancelOutcome {
-    pub found: bool,
-    pub accepted: bool,
-    pub state: ActivityState,
+pub enum CancelOutcome {
+    NotFound,
+    NotCancellable(ActivityStatus),
+    Requested,
 }
 
 #[derive(Clone)]
@@ -72,7 +69,15 @@ impl Activity {
         target: &str,
         cancellation: Option<CancellationToken>,
     ) -> Operation {
-        self.begin_with_state(kind, target, ActivityState::Running, cancellation)
+        self.start(
+            kind,
+            target,
+            ActivityStatus::Running {
+                stage: ActivityStage::Starting,
+                progress: None,
+            },
+            cancellation,
+        )
     }
 
     pub fn enqueue(
@@ -81,14 +86,14 @@ impl Activity {
         target: &str,
         cancellation: CancellationToken,
     ) -> Operation {
-        self.begin_with_state(kind, target, ActivityState::Queued, Some(cancellation))
+        self.start(kind, target, ActivityStatus::Queued, Some(cancellation))
     }
 
-    fn begin_with_state(
+    fn start(
         &self,
         kind: ActivityKind,
         target: &str,
-        initial_state: ActivityState,
+        status: ActivityStatus,
         cancellation: Option<CancellationToken>,
     ) -> Operation {
         let mut state = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -102,14 +107,11 @@ impl Activity {
             operation_id: id.clone(),
             kind,
             target: target.to_owned(),
-            state: initial_state,
-            stage: ActivityStage::State(initial_state),
-            detail: format!("{} {}", kind.as_str(), initial_state.as_str()),
+            status,
+            detail: format!("{} {}", kind.as_str(), status.state_str()),
             started_at_unix_ms: now,
             updated_at_unix_ms: now,
             cancellable: state.cancellations.contains_key(&id),
-            current: None,
-            total: None,
         };
         record(&mut state, event.clone());
         drop(state);
@@ -134,43 +136,42 @@ impl Activity {
     pub fn cancel(&self, id: &str) -> CancelOutcome {
         let mut state = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(index) = state.history.iter().position(|event| event.operation_id == id) else {
-            return CancelOutcome {
-                found: false,
-                accepted: false,
-                state: ActivityState::NotFound,
-            };
+            return CancelOutcome::NotFound;
         };
         let Some(token) = state.cancellations.get(id).cloned() else {
-            return CancelOutcome {
-                found: true,
-                accepted: false,
-                state: state.history[index].state,
-            };
+            return CancelOutcome::NotCancellable(state.history[index].status);
         };
         token.cancel();
         let event = &mut state.history[index];
-        event.state = ActivityState::Cancelling;
+        let (phase, progress) = match event.status {
+            ActivityStatus::Queued => (ActivityStage::Queued, None),
+            ActivityStatus::Running { stage, progress }
+            | ActivityStatus::Cancelling { stage, progress } => (stage, progress),
+            ActivityStatus::Finished(_) => return CancelOutcome::NotCancellable(event.status),
+        };
+        event.status = ActivityStatus::Cancelling { stage: phase, progress };
         "cancellation requested".clone_into(&mut event.detail);
         event.updated_at_unix_ms = unix_ms();
         let event = event.clone();
         drop(state);
         drop(self.events.send(event));
-        CancelOutcome {
-            found: true,
-            accepted: true,
-            state: ActivityState::Cancelling,
-        }
+        CancelOutcome::Requested
     }
 
-    fn update(&self, id: &str, update: impl FnOnce(&mut ActivityEvent)) {
+    fn update(&self, id: &str, update: impl FnOnce(&mut ActivityEvent) -> bool) {
         let mut state = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(event) = state.history.iter_mut().find(|event| event.operation_id == id) else {
             return;
         };
-        update(event);
+        if !update(event) {
+            return;
+        }
         event.updated_at_unix_ms = unix_ms();
+        if event.status.is_terminal() {
+            event.cancellable = false;
+        }
         let event = event.clone();
-        if event.state.is_terminal() {
+        if event.status.is_terminal() {
             state.cancellations.remove(id);
         }
         trim_history(&mut state);
@@ -185,31 +186,25 @@ impl Operation {
         &self.id
     }
 
-    pub fn progress(
-        &self,
-        stage: ActivityStage,
-        detail: &str,
-        current: Option<u64>,
-        total: Option<u64>,
-    ) {
+    pub fn progress(&self, stage: ActivityStage, detail: &str, progress: Option<ActivityProgress>) {
         self.activity.update(&self.id, |event| {
-            if event.state == ActivityState::Queued
-                && stage != ActivityStage::State(ActivityState::Queued)
-            {
-                event.state = ActivityState::Running;
+            if !matches!(event.status, ActivityStatus::Queued | ActivityStatus::Running { .. }) {
+                return false;
             }
-            event.stage = stage;
+            event.status = ActivityStatus::Running { stage, progress };
             detail.clone_into(&mut event.detail);
-            event.current = current;
-            event.total = total;
+            true
         });
     }
 
-    pub fn finish(&self, state: ActivityState, detail: &str) {
+    pub fn finish(&self, outcome: ActivityOutcome, detail: &str) {
         self.activity.update(&self.id, |event| {
-            event.state = state;
-            event.stage = ActivityStage::State(state);
+            if event.status.is_terminal() {
+                return false;
+            }
+            event.status = ActivityStatus::Finished(outcome);
             detail.clone_into(&mut event.detail);
+            true
         });
     }
 }
@@ -221,7 +216,7 @@ fn record(state: &mut State, event: ActivityEvent) {
 
 fn trim_history(state: &mut State) {
     while state.history.len() > HISTORY_LIMIT {
-        let Some(index) = state.history.iter().position(|event| event.state.is_terminal()) else {
+        let Some(index) = state.history.iter().position(|event| event.status.is_terminal()) else {
             break;
         };
         if let Some(removed) = state.history.remove(index) {

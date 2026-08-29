@@ -43,17 +43,18 @@ pub fn stream_load(
     send(sender, checking_memory(session.operation_id(), &selector));
     let mut progress = |progress: ProgressEvent| {
         log_progress(&selector, &progress);
+        let count = progress.count();
         send(
             sender,
             event(
                 session.operation_id(),
                 &selector,
-                progress.stage.as_str(),
+                progress.stage().as_str(),
                 LifecycleState {
-                    current: progress.current,
-                    total: Some(progress.total),
-                    unit: progress.unit.as_str(),
-                    detail: &progress.detail,
+                    current: count.current(),
+                    total: Some(count.total()),
+                    unit: progress.unit().as_str(),
+                    detail: progress.detail(),
                     model: None,
                 },
             ),

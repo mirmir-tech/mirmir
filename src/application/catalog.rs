@@ -1,4 +1,4 @@
-use super::{ActivityKind, ActivityState, Application, Result};
+use super::{ActivityKind, ActivityOutcome, Application, Result};
 use crate::catalog::{Removal, SearchResults};
 
 impl Application {
@@ -16,9 +16,9 @@ impl Application {
         let result = self.catalog.remove(repo_id).await;
         operation.finish(
             if result.is_ok() {
-                ActivityState::Completed
+                ActivityOutcome::Completed
             } else {
-                ActivityState::Failed
+                ActivityOutcome::Failed
             },
             "model removal finished",
         );

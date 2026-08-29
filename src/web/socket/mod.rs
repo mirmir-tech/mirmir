@@ -108,7 +108,7 @@ async fn send_startup(
     socket
         .send(Message::Text(
             serde_json::to_string(&ServerMessage::Startup {
-                startup: application.startup_snapshot().into(),
+                startup: application.startup_status().into(),
             })
             .expect("websocket startup message should serialize")
             .into(),
@@ -169,7 +169,7 @@ async fn send_activity(
     application: &Application,
     event: ActivityEvent,
 ) -> Result<(), axum::Error> {
-    let refresh_models = event.state.is_terminal() && event.kind.changes_models();
+    let refresh_models = event.status.is_terminal() && event.kind.changes_models();
     send(socket, ServerMessage::Activity { activity: event.into() }).await?;
     if refresh_models {
         send_models(socket, application).await?;

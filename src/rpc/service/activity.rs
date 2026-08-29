@@ -34,18 +34,19 @@ pub fn watch(
 }
 
 pub fn event(value: application::ActivityEvent) -> proto::ActivityEvent {
+    let progress = value.status.progress();
     proto::ActivityEvent {
         operation_id: value.operation_id,
         kind: value.kind.as_str().to_owned(),
         target: value.target,
-        state: value.state.as_str().to_owned(),
-        stage: value.stage.as_str().to_owned(),
+        state: value.status.state_str().to_owned(),
+        stage: value.status.stage_str().to_owned(),
         detail: value.detail,
         started_at_unix_ms: value.started_at_unix_ms,
         updated_at_unix_ms: value.updated_at_unix_ms,
         cancellable: value.cancellable,
-        current: value.current,
-        total: value.total,
+        current: progress.map(application::ActivityProgress::current),
+        total: progress.and_then(application::ActivityProgress::total),
     }
 }
 
@@ -56,9 +57,21 @@ impl From<application::ActivityEvent> for proto::ActivityEvent {
 }
 
 pub fn cancellation(value: application::CancelOutcome) -> proto::CancelOperationResponse {
-    proto::CancelOperationResponse {
-        found: value.found,
-        accepted: value.accepted,
-        state: value.state.as_str().to_owned(),
+    match value {
+        application::CancelOutcome::NotFound => proto::CancelOperationResponse {
+            found: false,
+            accepted: false,
+            state: "not_found".to_owned(),
+        },
+        application::CancelOutcome::NotCancellable(status) => proto::CancelOperationResponse {
+            found: true,
+            accepted: false,
+            state: status.state_str().to_owned(),
+        },
+        application::CancelOutcome::Requested => proto::CancelOperationResponse {
+            found: true,
+            accepted: true,
+            state: "cancelling".to_owned(),
+        },
     }
 }

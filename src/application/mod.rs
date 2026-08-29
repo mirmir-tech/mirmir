@@ -14,20 +14,24 @@ mod transfer;
 use std::{path::PathBuf, sync::Arc};
 
 use activity::{Activity, Operation};
-pub use activity::{ActivityEvent, ActivityKind, ActivityStage, ActivityState, CancelOutcome};
+pub use activity::{
+    ActivityEvent, ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, CancelOutcome,
+};
 pub use configuration::{ConfigurationChange, ConfigurationOutcome};
 pub use error::{Error, ErrorClass, Result};
 pub use inference::{GenerationEvent, GenerationResult, GenerationSession};
 pub use models::{
-    Check, LocalModelInfo, MemoryReport, ModelEntry, ModelInfo, eviction_can_help,
-    eviction_candidate, rejection, safe_context, state::ModelLifecycle,
+    Check, LocalModelInfo, LocalModelState, MemoryFit, MemoryReport, ModelEntry, ModelInfo,
+    eviction_can_help, eviction_candidate, rejection, safe_context, state::ModelLifecycle,
 };
-pub use ports::{CatalogPort, ConfigurationPort, ModelRuntimePort};
+pub use ports::{
+    CatalogPort, ConfigurationPort, ModelRuntimePort, TransferPhase, TransferProgress,
+};
 pub use settings::{
     EmbeddingCapabilities, ModelInspection, ModelTaskCapabilities, RerankCapabilities,
 };
-pub use startup::Snapshot as StartupSnapshot;
 use startup::Startup;
+pub use startup::StartupStatus;
 use telemetry::Telemetry;
 pub use telemetry::{
     CompletionMetrics, GenerationTelemetry, HistorySample, KvTelemetry,
@@ -102,12 +106,12 @@ impl Application {
     }
 
     #[must_use]
-    pub fn startup_snapshot(&self) -> StartupSnapshot {
-        self.startup.snapshot()
+    pub fn startup_status(&self) -> StartupStatus {
+        self.startup.status()
     }
 
     #[must_use]
-    pub fn startup_updates(&self) -> tokio::sync::watch::Receiver<StartupSnapshot> {
+    pub fn startup_updates(&self) -> tokio::sync::watch::Receiver<StartupStatus> {
         self.startup.subscribe()
     }
 

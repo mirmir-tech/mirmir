@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{capabilities::TaskCapabilities, security_headers, session::WebError};
 use crate::{
+    application,
     config::{GenerationConfig, HubModelConfig},
     http::ApiState,
 };
@@ -174,12 +175,17 @@ pub async fn cancel(
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
     let cancelled = state.application().cancel_operation(&request.operation_id);
+    let (found, accepted, status) = match cancelled {
+        application::CancelOutcome::NotFound => (false, false, "not_found"),
+        application::CancelOutcome::NotCancellable(status) => (true, false, status.state_str()),
+        application::CancelOutcome::Requested => (true, true, "cancelling"),
+    };
     Ok((
         security_headers(),
         Json(Cancelled {
-            found: cancelled.found,
-            accepted: cancelled.accepted,
-            state: cancelled.state.as_str().to_owned(),
+            found,
+            accepted,
+            state: status.to_owned(),
         }),
     )
         .into_response())
@@ -220,7 +226,7 @@ impl From<crate::application::MemoryReport> for Memory {
             available_bytes: memory.available,
             budget_bytes: memory.budget,
             source: memory.source,
-            fit: memory.fit.to_owned(),
+            fit: memory.fit.as_str().to_owned(),
             max_safe_context_tokens: memory.max_safe_context,
             configured_cache_tokens: memory.estimate.cache_capacity_tokens,
         }

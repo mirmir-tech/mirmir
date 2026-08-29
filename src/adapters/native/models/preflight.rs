@@ -3,7 +3,9 @@ use std::path::Path;
 use libmir::{GenerationOverrides, ModelDescriptor};
 
 use super::super::NativeRuntime;
-use crate::application::{Check, MemoryReport, Result, eviction_can_help, rejection, safe_context};
+use crate::application::{
+    Check, MemoryFit, MemoryReport, Result, eviction_can_help, rejection, safe_context,
+};
 
 impl NativeRuntime {
     pub(super) fn preflight(
@@ -25,7 +27,7 @@ impl NativeRuntime {
             available_bytes = report.available,
             budget_bytes = report.budget,
             memory_source = report.source,
-            fit = report.fit,
+            fit = report.fit.as_str(),
             max_safe_context = report.max_safe_context,
             forced = force,
             "model memory preflight"
@@ -60,9 +62,9 @@ impl NativeRuntime {
         let budget = available.map(|free| free.saturating_sub(reserve));
         let capacity = memory.total_bytes.map(|total| total.saturating_sub(reserve));
         let fit = match budget {
-            Some(budget) if estimate.required_bytes <= budget => "fits",
-            Some(_) => "does_not_fit",
-            None => "unknown",
+            Some(budget) if estimate.required_bytes <= budget => MemoryFit::Fits,
+            Some(_) => MemoryFit::DoesNotFit,
+            None => MemoryFit::Unknown,
         };
         let max_safe_context = budget.and_then(|budget| safe_context(estimate, budget));
         Ok(MemoryReport {

@@ -79,7 +79,7 @@ fn memory_estimate(value: crate::application::MemoryReport) -> proto::ModelMemor
         available_bytes: value.available,
         budget_bytes: value.budget,
         memory_source: value.source,
-        fit: value.fit.to_owned(),
+        fit: value.fit.as_str().to_owned(),
         max_safe_context_tokens: value.max_safe_context,
         configured_cache_tokens: value.estimate.cache_capacity_tokens,
     }

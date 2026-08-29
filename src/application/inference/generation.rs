@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::super::{
-    ActivityKind, ActivityStage, ActivityState, Application, CompletionMetrics,
+    ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, Application, CompletionMetrics,
     GenerationTelemetry, Operation, Result,
 };
 
@@ -96,28 +96,24 @@ impl Application {
         token: &mut dyn FnMut(GenerationToken),
     ) -> Result<GenerationResult> {
         session.telemetry.resolving();
-        session
-            .operation
-            .progress(ActivityStage::Resolving, "resolving model", None, None);
+        session.operation.progress(ActivityStage::Resolving, "resolving model", None);
         let telemetry = &session.telemetry;
         let operation = session.operation.clone();
         let selector = session.selector.clone();
         let mut loading = |event: ProgressEvent| {
             telemetry.progress(&event);
             operation.progress(
-                ActivityStage::Runtime(event.stage),
-                &event.detail,
-                Some(event.current),
-                Some(event.total),
+                ActivityStage::Runtime(event.stage()),
+                event.detail(),
+                Some(activity_progress(&event)),
             );
-            tracing::debug!(model = %selector, ?event.stage, current = event.current, total = event.total, "model progress");
+            tracing::debug!(model = %selector, stage = ?event.stage(), current = event.count().current(), total = event.count().total(), "model progress");
         };
         let model = self.runtime.load_model(&session.selector, false, &mut loading)?.model;
         session.telemetry.stage(ProgressStage::PrefillTokens);
         session.operation.progress(
             ActivityStage::Runtime(ProgressStage::PrefillTokens),
             "prefilling prompt",
-            None,
             None,
         );
         let mut ttft_ms = None;
@@ -168,7 +164,7 @@ impl GenerationSession {
     pub fn reject(&mut self, detail: &str) {
         self.cancellation.cancel();
         self.telemetry.fail();
-        self.operation.finish(ActivityState::Failed, detail);
+        self.operation.finish(ActivityOutcome::Failed, detail);
     }
 
     #[must_use]
@@ -193,7 +189,7 @@ impl GenerationSession {
             prefill_tokens_per_second: output.metrics.throughput.prefill.per_second,
             decode_tokens_per_second: output.metrics.throughput.decode.per_second,
         });
-        self.operation.finish(ActivityState::Completed, "generation completed");
+        self.operation.finish(ActivityOutcome::Completed, "generation completed");
         GenerationResult {
             output,
             elapsed_ms: elapsed * 1_000.0,
@@ -205,25 +201,30 @@ impl GenerationSession {
     fn fail(&mut self, error: &libmir::Error) {
         self.telemetry.fail();
         let state = if matches!(error, libmir::Error::Cancelled) {
-            ActivityState::Cancelled
+            ActivityOutcome::Cancelled
         } else {
-            ActivityState::Failed
+            ActivityOutcome::Failed
         };
         self.operation.finish(state, &error.to_string());
     }
 }
 
 fn update_progress(operation: &Operation, event: &ProgressEvent) {
-    if event.stage != ProgressStage::DecodeTokens
-        || event.current == 0
-        || event.current == event.total
-        || event.current.is_multiple_of(16)
+    let count = event.count();
+    if event.stage() != ProgressStage::DecodeTokens
+        || count.current() == 0
+        || count.current() == count.total()
+        || count.current().is_multiple_of(16)
     {
         operation.progress(
-            ActivityStage::Runtime(event.stage),
-            &event.detail,
-            Some(event.current),
-            Some(event.total),
+            ActivityStage::Runtime(event.stage()),
+            event.detail(),
+            Some(activity_progress(event)),
         );
     }
+}
+
+const fn activity_progress(event: &ProgressEvent) -> ActivityProgress {
+    let count = event.count();
+    ActivityProgress::new(count.current(), Some(count.total()))
 }

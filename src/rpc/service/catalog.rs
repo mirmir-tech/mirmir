@@ -3,10 +3,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
 use super::RuntimeService;
-use crate::{
-    catalog::{SearchResults, TransferUpdate},
-    rpc::proto,
-};
+use crate::{application::TransferProgress, catalog::SearchResults, rpc::proto};
 
 pub fn response(results: SearchResults) -> proto::SearchModelsResponse {
     proto::SearchModelsResponse {
@@ -102,7 +99,7 @@ pub async fn remove(
 pub fn transfer(
     operation_id: &str,
     repo_id: &str,
-    update: TransferUpdate,
+    update: TransferProgress,
 ) -> proto::ModelTransferEvent {
     proto::ModelTransferEvent {
         repo_id: repo_id.to_owned(),
@@ -123,7 +120,7 @@ async fn pull(
     let repo_id = request.repo_id;
     let session = service.application.start_pull(&repo_id, request.revision.clone());
     let operation_id = session.operation_id().to_owned();
-    let (updates, mut receiver) = mpsc::channel::<TransferUpdate>(64);
+    let (updates, mut receiver) = mpsc::channel::<TransferProgress>(64);
     let forward = output.clone();
     let forwarded_repo = repo_id.clone();
     let forwarded_operation = operation_id.clone();

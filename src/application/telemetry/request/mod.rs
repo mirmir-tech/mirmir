@@ -88,7 +88,7 @@ impl Telemetry {
             active_elapsed_ms: live.elapsed_ms,
             active_prompt_tokens: live.prompt_tokens,
             active_completion_tokens: live.completion_tokens,
-            active_stage: live.stage,
+            active_stage: live.stage.map_or_else(String::new, |stage| stage.as_str().to_owned()),
             last_prefill_tokens_per_second: rates.last_prefill_rate,
             mean_prefill_tokens_per_second: rates.mean_prefill_rate,
             last_decode_tokens_per_second: rates.last_decode_rate,

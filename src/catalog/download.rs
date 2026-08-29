@@ -18,20 +18,6 @@ pub enum TransferPhase {
     Available,
 }
 
-impl TransferPhase {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Checking => "checking",
-            Self::Resolving => "resolving",
-            Self::Downloading => "downloading",
-            Self::Validating => "validating",
-            Self::Available => "available",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct TransferUpdate {
     pub phase: TransferPhase,

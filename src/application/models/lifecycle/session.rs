@@ -2,7 +2,7 @@ use libmir::ProgressEvent;
 
 use super::super::ModelEntry;
 use crate::application::{
-    ActivityKind, ActivityStage, ActivityState, Application, Operation, Result,
+    ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, Application, Operation, Result,
 };
 
 pub struct ModelLoadSession {
@@ -13,7 +13,11 @@ impl Application {
     #[must_use]
     pub fn start_model_load(&self, selector: &str) -> ModelLoadSession {
         let operation = self.activity.begin(ActivityKind::Load, selector, None);
-        operation.progress(ActivityStage::Resolving, "resolving model", Some(0), None);
+        operation.progress(
+            ActivityStage::Resolving,
+            "resolving model",
+            Some(ActivityProgress::new(0, None)),
+        );
         ModelLoadSession { operation }
     }
 
@@ -40,11 +44,11 @@ impl Application {
         };
         match self.runtime.load_model(selector, force, &mut tracked) {
             Ok(entry) => {
-                session.operation.finish(ActivityState::Completed, "model is ready");
+                session.operation.finish(ActivityOutcome::Completed, "model is ready");
                 Ok(entry)
             },
             Err(error) => {
-                session.operation.finish(ActivityState::Failed, &error.to_string());
+                session.operation.finish(ActivityOutcome::Failed, &error.to_string());
                 Err(error)
             },
         }
@@ -55,9 +59,9 @@ impl Application {
         let result = self.runtime.unload_model(selector);
         operation.finish(
             if result.is_ok() {
-                ActivityState::Completed
+                ActivityOutcome::Completed
             } else {
-                ActivityState::Failed
+                ActivityOutcome::Failed
             },
             "model unload finished",
         );
@@ -75,21 +79,22 @@ impl ModelLoadSession {
         self.operation.progress(
             ActivityStage::CheckingMemory,
             "checking weights, KV cache, workspace, and device budget",
-            Some(0),
-            None,
+            Some(ActivityProgress::new(0, None)),
         );
     }
 
     pub fn reject(&self, detail: &str) {
-        self.operation.finish(ActivityState::Failed, detail);
+        self.operation.finish(ActivityOutcome::Failed, detail);
     }
 
     fn track(&self, progress: &ProgressEvent) {
         self.operation.progress(
-            ActivityStage::Runtime(progress.stage),
-            &progress.detail,
-            Some(progress.current),
-            Some(progress.total),
+            ActivityStage::Runtime(progress.stage()),
+            progress.detail(),
+            Some(ActivityProgress::new(
+                progress.count().current(),
+                Some(progress.count().total()),
+            )),
         );
     }
 }

@@ -1,8 +1,11 @@
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
 
-use super::{ActivityKind, ActivityStage, ActivityState, Application, Operation, Result};
-use crate::catalog::{DownloadedModel, TransferUpdate};
+use super::{
+    ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, Application, Operation, Result,
+    TransferProgress,
+};
+use crate::catalog::DownloadedModel;
 
 pub struct TransferSession {
     repo_id: String,
@@ -25,9 +28,9 @@ impl Application {
     pub async fn pull(
         &self,
         session: TransferSession,
-        output: mpsc::Sender<TransferUpdate>,
+        output: mpsc::Sender<TransferProgress>,
     ) -> Result<DownloadedModel> {
-        let (updates, mut receiver) = mpsc::channel::<TransferUpdate>(64);
+        let (updates, mut receiver) = mpsc::channel::<TransferProgress>(64);
         let operation = session.operation.clone();
         let cancellation = session.cancellation.clone();
         let forward = tokio::spawn(async move {
@@ -35,8 +38,7 @@ impl Application {
                 operation.progress(
                     ActivityStage::Transfer(update.phase),
                     &update.message,
-                    Some(update.downloaded_bytes),
-                    update.total_bytes,
+                    Some(ActivityProgress::new(update.downloaded_bytes, update.total_bytes)),
                 );
                 if output.send(update).await.is_err() {
                     cancellation.cancel();
@@ -51,13 +53,13 @@ impl Application {
         forward.await.map_err(|error| super::Error::Infrastructure(error.to_string()))?;
         match &result {
             Ok(model) => {
-                session.operation.finish(ActivityState::Completed, &available_message(model));
+                session.operation.finish(ActivityOutcome::Completed, &available_message(model));
             },
             Err(super::Error::Cancelled) => session.operation.finish(
-                ActivityState::Cancelled,
+                ActivityOutcome::Cancelled,
                 "download stopped; partial files kept for resume",
             ),
-            Err(error) => session.operation.finish(ActivityState::Failed, &error.to_string()),
+            Err(error) => session.operation.finish(ActivityOutcome::Failed, &error.to_string()),
         }
         result
     }

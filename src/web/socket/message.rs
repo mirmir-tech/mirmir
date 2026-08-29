@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use super::super::{configuration::Configuration, types};
-use crate::application::StartupSnapshot;
+use crate::application::StartupStatus;
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -24,15 +24,16 @@ pub struct Startup {
     ready: bool,
 }
 
-impl From<StartupSnapshot> for Startup {
-    fn from(snapshot: StartupSnapshot) -> Self {
+impl From<StartupStatus> for Startup {
+    fn from(status: StartupStatus) -> Self {
+        let progress = status.progress();
         Self {
-            phase: snapshot.phase,
-            target: snapshot.target,
-            detail: snapshot.detail,
-            current: snapshot.current,
-            total: snapshot.total,
-            ready: snapshot.ready,
+            phase: status.phase().to_owned(),
+            target: status.target().to_owned(),
+            detail: status.detail().to_owned(),
+            current: progress.map(libmir::ProgressCount::current),
+            total: progress.map(libmir::ProgressCount::total),
+            ready: status.is_ready(),
         }
     }
 }
@@ -44,13 +45,10 @@ mod tests {
     #[test]
     fn startup_message_has_a_stable_tagged_contract() {
         let message = ServerMessage::Startup {
-            startup: StartupSnapshot {
-                phase: "loading".to_owned(),
+            startup: StartupStatus::Loading {
                 target: "model".to_owned(),
                 detail: "weights".to_owned(),
-                current: Some(1),
-                total: Some(2),
-                ready: false,
+                progress: Some(libmir::ProgressCount::new(1, 2)),
             }
             .into(),
         };

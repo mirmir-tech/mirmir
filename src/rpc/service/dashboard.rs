@@ -22,7 +22,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        application::{ActivityStage, ActivityState},
+        application::ActivityStage,
         config::{AppConfig, Paths, Store},
     };
 
@@ -47,21 +47,25 @@ mod tests {
 
         let events = tokio::time::timeout(std::time::Duration::from_secs(2), async move {
             let mut operation_ids = std::collections::HashSet::new();
-            let mut stages = Vec::new();
+            let mut statuses = Vec::new();
             while let Ok(event) = activity.recv().await {
                 operation_ids.insert(event.operation_id.clone());
-                stages.push(event.stage);
-                if event.state == ActivityState::Failed {
+                statuses.push(event.status);
+                if event.status.is_terminal() {
                     break;
                 }
             }
-            (operation_ids, stages)
+            (operation_ids, statuses)
         })
         .await
         .expect("activity stream should reach a terminal event");
-        let (operation_ids, stages) = events;
+        let (operation_ids, statuses) = events;
         assert_eq!(operation_ids.len(), 1, "load must own exactly one application operation");
-        assert!(stages.contains(&ActivityStage::Resolving));
-        assert_eq!(stages.last(), Some(&ActivityStage::State(ActivityState::Failed)));
+        assert!(
+            statuses
+                .iter()
+                .any(|status| status.stage_str() == ActivityStage::Resolving.as_str())
+        );
+        assert_eq!(statuses.last().map(|status| status.state_str()), Some("failed"));
     }
 }

@@ -20,7 +20,7 @@ impl From<LocalModelInfo> for proto::LocalModelInfo {
             revision: value.revision,
             commit: value.commit,
             path: value.path,
-            state: value.state,
+            state: value.state.as_str().to_owned(),
             recent_rank: value.recent_rank,
             selector: value.selector,
             managed: value.managed,

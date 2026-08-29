@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::{super::NativeRuntime, presentation};
 use crate::{
-    application::{LocalModelInfo, ModelEntry, Result},
+    application::{LocalModelInfo, LocalModelState, ModelEntry, Result},
     catalog::{
         CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
         discover_partial_downloads_in,
@@ -69,7 +69,7 @@ fn append_partial(
         revision: "main".to_owned(),
         commit: String::new(),
         path: String::new(),
-        state: "paused".to_owned(),
+        state: LocalModelState::Paused,
         recent_rank: None,
         selector: partial.repo_id.clone(),
         managed: true,
@@ -161,7 +161,7 @@ fn info(
     revision: String,
     commit: String,
     path: String,
-    state: &str,
+    state: LocalModelState,
     selector: String,
     managed: bool,
     recent_rank: Option<u32>,
@@ -174,7 +174,7 @@ fn info(
         revision,
         commit,
         path,
-        state: state.to_owned(),
+        state,
         recent_rank,
         selector,
         managed,
@@ -198,22 +198,22 @@ fn info(
     }
 }
 
-fn state<'a>(
+fn state(
     selector: &str,
     path: &std::path::Path,
     loadable: bool,
     models: &HashMap<String, ModelEntry>,
     loading: &HashSet<String>,
-) -> &'a str {
+) -> LocalModelState {
     if models.contains_key(selector) {
-        "ready"
+        LocalModelState::Ready
     } else if loading.contains(selector) {
-        "loading"
+        LocalModelState::Loading
     } else if !loadable {
-        "error"
+        LocalModelState::Error
     } else if path.exists() {
-        "available"
+        LocalModelState::Available
     } else {
-        "missing"
+        LocalModelState::Missing
     }
 }

@@ -44,13 +44,14 @@ pub fn checking_memory(operation_id: &str, selector: &str) -> proto::ModelLifecy
 }
 
 pub fn log_progress(selector: &str, event: &ProgressEvent) {
+    let count = event.count();
     tracing::info!(
         model = %selector,
-        stage = ?event.stage,
-        current = event.current,
-        total = event.total,
-        unit = ?event.unit,
-        detail = %event.detail,
+        stage = ?event.stage(),
+        current = count.current(),
+        total = count.total(),
+        unit = ?event.unit(),
+        detail = %event.detail(),
         "model load progress"
     );
 }

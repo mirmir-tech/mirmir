@@ -16,6 +16,7 @@ pub struct Registry(Arc<RegistryInner>);
 
 struct RegistryInner {
     next: AtomicU64,
+    updates: AtomicU64,
     requests: Mutex<HashMap<u64, Arc<Mutex<Request>>>>,
 }
 
@@ -28,6 +29,7 @@ pub struct Handle {
 struct Request {
     started: Instant,
     stage_started: Instant,
+    stage_sequence: u64,
     stage: Stage,
     prompt_current: u64,
     prompt_total: u64,
@@ -46,23 +48,26 @@ pub struct Snapshot {
     pub elapsed_ms: f64,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
-    pub stage: String,
+    pub(super) stage: Option<Stage>,
 }
 
 impl Registry {
     pub fn new() -> Self {
         Self(Arc::new(RegistryInner {
             next: AtomicU64::new(1),
+            updates: AtomicU64::new(1),
             requests: Mutex::new(HashMap::new()),
         }))
     }
 
     pub fn begin(&self) -> Handle {
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
+        let stage_sequence = self.0.updates.fetch_add(1, Ordering::Relaxed);
         let now = Instant::now();
         let request = Arc::new(Mutex::new(Request {
             started: now,
             stage_started: now,
+            stage_sequence,
             stage: Stage::Starting,
             prompt_current: 0,
             prompt_total: 0,
@@ -91,11 +96,11 @@ impl Registry {
         let mut selected_stage = None;
         for request in requests {
             let stage = add_request(&mut snapshot, &request);
-            if selected_stage.is_none_or(|selected: Stage| stage.priority() > selected.priority()) {
+            if selected_stage.is_none_or(|selected: (u64, Stage)| stage.0 > selected.0) {
                 selected_stage = Some(stage);
             }
         }
-        snapshot.stage = selected_stage.map_or_else(String::new, |stage| stage.as_str().to_owned());
+        snapshot.stage = selected_stage.map(|(_, stage)| stage);
         snapshot
     }
 }
@@ -103,30 +108,32 @@ impl Registry {
 impl Handle {
     pub fn resolving(&self) {
         let mut request = self.request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        set_stage(&mut request, Stage::Resolving);
+        set_stage(&self.registry, &mut request, Stage::Resolving);
     }
 
     pub fn stage(&self, stage: ProgressStage) {
         let mut request = self.request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        set_stage(&mut request, Stage::Runtime(stage));
+        set_stage(&self.registry, &mut request, Stage::Runtime(stage));
     }
 
     pub fn progress(&self, event: &ProgressEvent) {
         let mut request = self.request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if event.stage == ProgressStage::DecodeTokens
+        let stage = event.stage();
+        let count = event.count();
+        if stage == ProgressStage::DecodeTokens
             && request.stage == Stage::Runtime(ProgressStage::PrefillTokens)
         {
             request.prefill_rate =
                 Some(rate(request.prompt_current, request.stage_started.elapsed().as_secs_f64()));
         }
-        set_stage(&mut request, Stage::Runtime(event.stage));
-        match event.stage {
+        set_stage(&self.registry, &mut request, Stage::Runtime(stage));
+        match stage {
             ProgressStage::PrefillTokens => {
-                request.prompt_current = event.current;
-                request.prompt_total = event.total;
+                request.prompt_current = count.current();
+                request.prompt_total = count.total();
             },
             ProgressStage::DecodeTokens => {
-                request.completion_tokens = event.current;
+                request.completion_tokens = count.current();
             },
             ProgressStage::LoadWeights
             | ProgressStage::InitializeRuntime
@@ -151,7 +158,7 @@ impl Handle {
     }
 }
 
-fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) -> Stage {
+fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) -> (u64, Stage) {
     let request = request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let elapsed = request.started.elapsed().as_secs_f64();
     let stage_elapsed = request.stage_started.elapsed().as_secs_f64();
@@ -177,13 +184,14 @@ fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) -> Stage 
     snapshot.prompt_tokens = snapshot.prompt_tokens.saturating_add(request.prompt_total);
     snapshot.completion_tokens =
         snapshot.completion_tokens.saturating_add(request.completion_tokens);
-    request.stage
+    (request.stage_sequence, request.stage)
 }
 
-fn set_stage(request: &mut Request, stage: Stage) {
+fn set_stage(registry: &Registry, request: &mut Request, stage: Stage) {
     if request.stage != stage {
         request.stage = stage;
         request.stage_started = Instant::now();
+        request.stage_sequence = registry.0.updates.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -219,28 +227,4 @@ fn ms(seconds: f64) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn snapshots_active_prefill_and_decode_without_waiting_for_completion() {
-        let registry = Registry::new();
-        let request = registry.begin();
-        request.progress(&ProgressEvent::prefill_tokens(3, 8));
-        let prefill = registry.snapshot();
-        assert_eq!(prefill.requests, 1);
-        assert_eq!(prefill.prompt_tokens, 8);
-        assert!(prefill.prefill_rate.is_some());
-        request.progress(&ProgressEvent::decode_tokens(2, 8));
-        request.token_emitted();
-        let decode = registry.snapshot();
-        assert_eq!(decode.completion_tokens, 2);
-        assert!(decode.prefill_rate.is_some());
-        assert!(decode.decode_rate.is_some());
-        assert_eq!(decode.stage, "decode");
-        request.finish();
-        let finished = registry.snapshot();
-        assert_eq!(finished.requests, 0);
-        assert!(finished.rate.is_none());
-    }
-}
+mod tests;
