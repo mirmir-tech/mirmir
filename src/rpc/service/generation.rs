@@ -122,10 +122,7 @@ fn send_completion(
 }
 
 fn generation_error(error: crate::application::Error) -> Status {
-    match error {
-        crate::application::Error::Cancelled => Status::cancelled("generation cancelled"),
-        error => super::models::load_error(&error),
-    }
+    super::status::application(error)
 }
 
 fn proto_tool_call(call: libmir::ToolCall) -> proto::ChatToolCall {

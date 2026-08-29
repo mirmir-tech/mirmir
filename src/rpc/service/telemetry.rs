@@ -12,29 +12,23 @@ impl RuntimeService {
         self.application
             .telemetry_snapshot()
             .map(Into::into)
-            .map_err(|error| Status::internal(error.to_string()))
+            .map_err(super::status::application)
     }
 
     pub(crate) fn record_telemetry_history(&self) -> Result<(), Status> {
-        self.application
-            .record_telemetry_history()
-            .map_err(|error| Status::internal(error.to_string()))
+        self.application.record_telemetry_history().map_err(super::status::application)
     }
 
     pub(crate) fn flush_telemetry_history(&self) -> Result<(), Status> {
-        self.application
-            .flush_telemetry_history()
-            .map_err(|error| Status::internal(error.to_string()))
+        self.application.flush_telemetry_history().map_err(super::status::application)
     }
 
     pub(crate) fn telemetry_history_response(
         &self,
         limit: u32,
     ) -> Result<proto::TelemetryHistoryResponse, Status> {
-        let samples = self
-            .application
-            .telemetry_history(limit)
-            .map_err(|error| Status::internal(error.to_string()))?;
+        let samples =
+            self.application.telemetry_history(limit).map_err(super::status::application)?;
         Ok(proto::TelemetryHistoryResponse {
             samples: samples.into_iter().map(Into::into).collect(),
             retention_limit: u32::try_from(TELEMETRY_RETENTION_LIMIT).unwrap_or(u32::MAX),

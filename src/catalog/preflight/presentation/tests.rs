@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use libmir::{
-    RemoteModelContract,
-    models::weights::{TensorCatalog, TensorInfo},
-};
+use libmir::{RemoteModelContract, TensorCatalog, TensorInfo};
 
 use super::*;
 use crate::catalog::preflight::RemoteModelMetadata;

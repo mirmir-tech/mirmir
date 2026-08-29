@@ -34,7 +34,7 @@ pub(super) fn embed(
         return Err(Status::invalid_argument("model and at least one input are required"));
     }
     let output = service
-        .coordinator()
+        .application
         .embed(
             &request.model,
             EmbeddingRequest {
@@ -45,7 +45,7 @@ pub(super) fn embed(
                 prompt_name: request.prompt_name,
             },
         )
-        .map_err(|error| task_error(&error))?;
+        .map_err(super::status::application)?;
     Ok(proto::EmbedResponse {
         embeddings: output
             .embeddings
@@ -66,7 +66,7 @@ pub(super) fn rerank(
         ));
     }
     let output = service
-        .coordinator()
+        .application
         .rerank(
             &request.model,
             RerankRequest {
@@ -78,7 +78,7 @@ pub(super) fn rerank(
                 raw_scores: request.raw_scores,
             },
         )
-        .map_err(|error| task_error(&error))?;
+        .map_err(super::status::application)?;
     Ok(proto::RerankResponse {
         results: output
             .results
@@ -91,8 +91,4 @@ pub(super) fn rerank(
             .collect(),
         prompt_tokens: u64::try_from(output.prompt_tokens).unwrap_or(u64::MAX),
     })
-}
-
-fn task_error(error: &crate::application::Error) -> Status {
-    super::models::load_error(error)
 }

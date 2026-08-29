@@ -7,7 +7,7 @@ mod snapshot;
 
 pub use history::{History, RETENTION_LIMIT, SAMPLING_INTERVAL_MS};
 pub use request::{GenerationTelemetry, Telemetry};
-pub use runtime::RuntimeTelemetry;
+pub use runtime::{KvTelemetry, RuntimeTelemetry};
 pub use snapshot::{HistorySample, Snapshot};
 
 pub struct CompletionMetrics {

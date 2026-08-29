@@ -5,13 +5,13 @@ use tonic::Status;
 use crate::{application, rpc::proto};
 
 pub fn watch(
-    activity: &application::Activity,
+    application: &application::Application,
     include_history: bool,
 ) -> ReceiverStream<Result<proto::ActivityEvent, Status>> {
     let (sender, receiver) = mpsc::channel(128);
-    let mut events = activity.subscribe();
+    let mut events = application.activity_updates();
     if include_history {
-        for event in activity.history() {
+        for event in application.activity_history() {
             if sender.try_send(Ok(event.into())).is_err() {
                 break;
             }

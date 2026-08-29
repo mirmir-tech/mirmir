@@ -60,16 +60,15 @@ pub async fn search(
     } else {
         request.limit
     };
-    let results = super::status::unavailable(
-        service
-            .coordinator()
-            .search_catalog(
-                request.query.trim(),
-                usize::try_from(limit).unwrap_or(20),
-                request.cursor.as_deref(),
-            )
-            .await,
-    )?;
+    let results = service
+        .application
+        .search_catalog(
+            request.query.trim(),
+            usize::try_from(limit).unwrap_or(20),
+            request.cursor.as_deref(),
+        )
+        .await
+        .map_err(super::status::application)?;
     Ok(response(results))
 }
 
@@ -90,10 +89,10 @@ pub async fn remove(
     repo_id: String,
 ) -> Result<proto::RemoveModelResponse, Status> {
     let removal = service
-        .coordinator()
+        .application
         .remove_download(&repo_id)
         .await
-        .map_err(|error| super::models::load_error(&error))?;
+        .map_err(super::status::application)?;
     Ok(proto::RemoveModelResponse {
         removed: removal.removed,
         freed_bytes: removal.freed_bytes,
@@ -154,13 +153,13 @@ async fn pull(
             };
             drop(output.send(Ok(event)).await);
         },
-        Err(crate::application::Error::Configuration(crate::error::Error::Cancelled)) => {
+        Err(crate::application::Error::Cancelled) => {
             drop(task.await);
             drop(output.send(Err(tonic::Status::cancelled("download stopped"))).await);
         },
         Err(error) => {
             drop(task.await);
-            drop(output.send(Err(tonic::Status::unavailable(error.to_string()))).await);
+            drop(output.send(Err(super::status::application(error))).await);
         },
     }
 }

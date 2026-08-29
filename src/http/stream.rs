@@ -51,7 +51,7 @@ pub fn response(
                     {
                         return;
                     }
-                    let error = ApiError::application_envelope(error);
+                    let error = ApiError::application_envelope(&error);
                     let _sent = send_json(&sender, error).await;
                     break;
                 },

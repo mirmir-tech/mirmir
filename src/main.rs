@@ -1,4 +1,5 @@
 #![recursion_limit = "256"]
+mod adapters;
 mod application;
 mod catalog;
 mod cli;

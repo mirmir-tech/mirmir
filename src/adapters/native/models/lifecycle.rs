@@ -1,45 +1,12 @@
 use libmir::{GenerationOverrides, ProgressEvent};
 
-use super::{ModelEntry, preflight::Check, residency::eviction_candidate};
-use crate::application::{Application, Error, Result, RuntimeCoordinator};
+use super::super::NativeRuntime;
+use crate::{
+    application::{Check, Error, ModelEntry, ModelInfo, Result, eviction_candidate},
+    config::GenerationConfig,
+};
 
-impl Application {
-    pub fn load_model(
-        &self,
-        selector: &str,
-        force: bool,
-        progress: &mut dyn FnMut(ProgressEvent),
-    ) -> Result<ModelEntry> {
-        let operation = self.activity.begin("load", selector, None);
-        operation.progress("resolving", "resolving model", None, None);
-        match self.runtime.load_model(selector, force, progress) {
-            Ok(entry) => {
-                operation.finish("completed", "model is ready");
-                Ok(entry)
-            },
-            Err(error) => {
-                operation.finish("failed", &error.to_string());
-                Err(error)
-            },
-        }
-    }
-
-    pub fn unload_model(&self, selector: &str) -> Result<bool> {
-        let operation = self.activity.begin("unload", selector, None);
-        let result = self.runtime.unload_model(selector);
-        operation.finish(
-            if result.is_ok() {
-                "completed"
-            } else {
-                "failed"
-            },
-            "model unload finished",
-        );
-        result
-    }
-}
-
-impl RuntimeCoordinator {
+impl NativeRuntime {
     pub fn load_model(
         &self,
         selector: &str,
@@ -99,7 +66,7 @@ impl RuntimeCoordinator {
         }
         let loaded = loaded?;
         let entry = ModelEntry {
-            info: super::ModelInfo::loaded(
+            info: ModelInfo::loaded(
                 resolved.key.clone(),
                 resolved.path.display().to_string(),
                 &loaded,
@@ -185,7 +152,7 @@ impl RuntimeCoordinator {
     }
 }
 
-const fn generation_defaults(generation: &crate::config::GenerationConfig) -> GenerationOverrides {
+const fn generation_defaults(generation: &GenerationConfig) -> GenerationOverrides {
     GenerationOverrides {
         max_tokens: generation.max_tokens,
         min_tokens: None,

@@ -89,7 +89,6 @@ fn result(
     tool_calls: &str,
     finish_reason: &'static str,
 ) -> crate::application::GenerationResult {
-    let cache = libmir::runtime::kv::KvCache::new(0).stats();
     crate::application::GenerationResult {
         output: libmir::GenerationOutput {
             text: text.to_owned(),
@@ -98,7 +97,7 @@ fn result(
             token_ids: Vec::new(),
             prompt_tokens: 0,
             finish_reason,
-            metrics: libmir::runtime::metrics::GenerationMetricsRecorder::new().snapshot(cache),
+            metrics: libmir::GenerationMetrics::default(),
         },
         elapsed_ms: 0.0,
         ttft_ms: None,

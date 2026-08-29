@@ -1,25 +1,21 @@
 use super::*;
 use crate::config::{AppConfig, Paths, Store};
 
-fn service(name: &str) -> (RuntimeService, std::path::PathBuf) {
+fn service(name: &str) -> (RuntimeService, std::path::PathBuf, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!(
         "mirmir-local-{name}-{}-{}",
         std::process::id(),
         std::thread::current().name().unwrap_or("model")
     ));
     let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
-    (RuntimeService::new(&AppConfig::default(), Store::new(paths)), root)
+    let cache = paths.hub_cache_dir.clone();
+    (RuntimeService::new(&AppConfig::default(), Store::new(paths)), root, cache)
 }
 
 #[test]
 fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Result<()> {
-    let (service, root) = service("unsupported");
-    let snapshot = service
-        .coordinator()
-        .store
-        .paths()
-        .hub_cache_dir
-        .join("models--Org--Unsupported/snapshots/a");
+    let (service, root, cache) = service("unsupported");
+    let snapshot = cache.join("models--Org--Unsupported/snapshots/a");
     std::fs::create_dir_all(&snapshot)?;
     std::fs::write(snapshot.join("config.json"), "{}")?;
 
@@ -38,13 +34,8 @@ fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Resu
 
 #[test]
 fn lists_a_partial_download_as_paused() -> std::io::Result<()> {
-    let (service, root) = service("partial");
-    let partial = service
-        .coordinator()
-        .store
-        .paths()
-        .hub_cache_dir
-        .join("models--Org--Partial/blobs/a.incomplete");
+    let (service, root, cache) = service("partial");
+    let partial = cache.join("models--Org--Partial/blobs/a.incomplete");
     std::fs::create_dir_all(partial.parent().unwrap())?;
     std::fs::write(partial, b"partial")?;
 

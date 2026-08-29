@@ -45,19 +45,18 @@ impl Application {
             }
         });
         let result = self
-            .runtime
             .catalog
             .pull(&session.repo_id, session.revision.as_deref(), updates, &session.cancellation)
             .await;
-        forward.await.map_err(crate::error::Error::from)?;
+        forward.await.map_err(|error| super::Error::Infrastructure(error.to_string()))?;
         match &result {
             Ok(model) => session.operation.finish("completed", &available_message(model)),
-            Err(crate::error::Error::Cancelled) => session
+            Err(super::Error::Cancelled) => session
                 .operation
                 .finish("cancelled", "download stopped; partial files kept for resume"),
             Err(error) => session.operation.finish("failed", &error.to_string()),
         }
-        Ok(result?)
+        result
     }
 }
 

@@ -1,4 +1,4 @@
-use libmir::{AdmissionStatus, foundation::model::BackendTarget};
+use libmir::{AdmissionStatus, BackendTarget};
 
 use super::RemoteHeaderPreflight;
 use crate::catalog::CatalogModel;

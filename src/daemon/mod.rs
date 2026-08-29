@@ -6,7 +6,7 @@ mod telemetry;
 pub use connection::connect_or_start;
 
 use crate::{
-    application::Application,
+    adapters,
     cli::ServeArgs,
     config::{AppConfig, Paths, Store},
     error::Result,
@@ -32,7 +32,7 @@ pub async fn serve(paths: Paths, mut config: AppConfig, args: ServeArgs) -> Resu
             "a non-loopback HTTP bind requires an API key".to_owned(),
         ));
     }
-    let application = Application::new(&config, store);
+    let application = adapters::native::application(&config, store);
     let service = RuntimeService::from_application(application.clone());
     let owner = server::start_service(paths.clone(), service.clone())?;
     tracing::info!(socket = %paths.socket_file.display(), "gRPC server listening");

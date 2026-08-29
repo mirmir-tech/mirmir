@@ -5,24 +5,14 @@ use crate::rpc::proto;
 
 impl RuntimeService {
     pub(crate) fn fail_startup(&self, detail: impl Into<String>) {
-        self.application.startup.failed(detail);
+        self.application.fail_startup(detail);
     }
 
-    pub(super) async fn remove_with_activity(
+    pub(super) async fn remove_request(
         &self,
         repo_id: String,
     ) -> Result<proto::RemoveModelResponse, Status> {
-        let operation = self.application.activity.begin("remove", &repo_id, None);
-        match catalog::remove(self, repo_id).await {
-            Ok(response) => {
-                operation.finish("completed", "model files removed");
-                Ok(response)
-            },
-            Err(error) => {
-                operation.finish("failed", error.message());
-                Err(error)
-            },
-        }
+        catalog::remove(self, repo_id).await
     }
 }
 
@@ -52,18 +42,22 @@ mod tests {
         .await
         .expect("load task should finish");
 
-        let stages = tokio::time::timeout(std::time::Duration::from_secs(2), async move {
+        let events = tokio::time::timeout(std::time::Duration::from_secs(2), async move {
+            let mut operation_ids = std::collections::HashSet::new();
             let mut stages = Vec::new();
             while let Ok(event) = activity.recv().await {
+                operation_ids.insert(event.operation_id.clone());
                 stages.push(event.stage.clone());
                 if event.state == "failed" {
                     break;
                 }
             }
-            stages
+            (operation_ids, stages)
         })
         .await
         .expect("activity stream should reach a terminal event");
+        let (operation_ids, stages) = events;
+        assert_eq!(operation_ids.len(), 1, "load must own exactly one application operation");
         assert!(stages.iter().any(|stage| stage == "resolving"));
         assert_eq!(stages.last().map(String::as_str), Some("failed"));
     }

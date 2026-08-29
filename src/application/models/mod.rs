@@ -1,13 +1,13 @@
 mod lifecycle;
 mod local;
 mod preflight;
-mod presentation;
 mod residency;
 pub mod state;
 
 use libmir::{Model, ModelDescriptor};
-pub use preflight::MemoryReport;
+pub use preflight::{Check, MemoryReport, eviction_can_help, rejection, safe_context};
 use residency::ModelResidency;
+pub use residency::eviction_candidate;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]

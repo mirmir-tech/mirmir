@@ -19,7 +19,7 @@ pub use cache::{
 };
 pub use download::{DownloadedModel, Removal, TransferUpdate};
 pub use fit::{CatalogModel, MachineMemory};
-use libmir::{CancellationToken, foundation::model::BackendTarget};
+use libmir::{BackendTarget, CancellationToken};
 pub use preflight::RemoteHeaderPreflight;
 use queue::TransferQueue;
 

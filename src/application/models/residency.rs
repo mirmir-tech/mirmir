@@ -12,7 +12,7 @@ impl ModelResidency {
     }
 }
 
-pub(super) fn eviction_candidate<'a>(
+pub fn eviction_candidate<'a>(
     protected: &str,
     candidates: impl Iterator<Item = (&'a str, u64, bool)>,
 ) -> Option<&'a str> {
