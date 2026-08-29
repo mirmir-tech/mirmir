@@ -21,7 +21,10 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::*;
-    use crate::config::{AppConfig, Paths, Store};
+    use crate::{
+        application::{ActivityStage, ActivityState},
+        config::{AppConfig, Paths, Store},
+    };
 
     #[tokio::test]
     async fn load_progress_reaches_activity_subscribers() {
@@ -47,8 +50,8 @@ mod tests {
             let mut stages = Vec::new();
             while let Ok(event) = activity.recv().await {
                 operation_ids.insert(event.operation_id.clone());
-                stages.push(event.stage.clone());
-                if event.state == "failed" {
+                stages.push(event.stage);
+                if event.state == ActivityState::Failed {
                     break;
                 }
             }
@@ -58,7 +61,7 @@ mod tests {
         .expect("activity stream should reach a terminal event");
         let (operation_ids, stages) = events;
         assert_eq!(operation_ids.len(), 1, "load must own exactly one application operation");
-        assert!(stages.iter().any(|stage| stage == "resolving"));
-        assert_eq!(stages.last().map(String::as_str), Some("failed"));
+        assert!(stages.contains(&ActivityStage::Resolving));
+        assert_eq!(stages.last(), Some(&ActivityStage::State(ActivityState::Failed)));
     }
 }

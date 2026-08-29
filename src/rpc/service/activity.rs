@@ -36,10 +36,10 @@ pub fn watch(
 pub fn event(value: application::ActivityEvent) -> proto::ActivityEvent {
     proto::ActivityEvent {
         operation_id: value.operation_id,
-        kind: value.kind,
+        kind: value.kind.as_str().to_owned(),
         target: value.target,
-        state: value.state,
-        stage: value.stage,
+        state: value.state.as_str().to_owned(),
+        stage: value.stage.as_str().to_owned(),
         detail: value.detail,
         started_at_unix_ms: value.started_at_unix_ms,
         updated_at_unix_ms: value.updated_at_unix_ms,
@@ -59,6 +59,6 @@ pub fn cancellation(value: application::CancelOutcome) -> proto::CancelOperation
     proto::CancelOperationResponse {
         found: value.found,
         accepted: value.accepted,
-        state: value.state,
+        state: value.state.as_str().to_owned(),
     }
 }

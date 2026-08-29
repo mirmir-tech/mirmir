@@ -62,7 +62,7 @@ pub async fn snapshot(
     let mut completed = completed_bytes(&root, &metadata);
     send(
         updates,
-        "downloading",
+        super::TransferPhase::Downloading,
         completed,
         Some(total),
         format!("{} files", metadata.len()),

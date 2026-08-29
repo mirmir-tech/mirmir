@@ -101,7 +101,7 @@ impl<'a> Download<'a> {
             if last_emit.elapsed() >= Duration::from_millis(250) {
                 send(
                     self.updates,
-                    "downloading",
+                    super::super::TransferPhase::Downloading,
                     base.saturating_add(current),
                     Some(self.total),
                     format!("downloading {}", metadata.filename),

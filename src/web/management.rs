@@ -179,7 +179,7 @@ pub async fn cancel(
         Json(Cancelled {
             found: cancelled.found,
             accepted: cancelled.accepted,
-            state: cancelled.state,
+            state: cancelled.state.as_str().to_owned(),
         }),
     )
         .into_response())

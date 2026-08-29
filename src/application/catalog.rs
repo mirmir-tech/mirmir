@@ -1,4 +1,4 @@
-use super::{Application, Result};
+use super::{ActivityKind, ActivityState, Application, Result};
 use crate::catalog::{Removal, SearchResults};
 
 impl Application {
@@ -12,13 +12,13 @@ impl Application {
     }
 
     pub async fn remove_download(&self, repo_id: &str) -> Result<Removal> {
-        let operation = self.activity.begin("remove", repo_id, None);
+        let operation = self.activity.begin(ActivityKind::Remove, repo_id, None);
         let result = self.catalog.remove(repo_id).await;
         operation.finish(
             if result.is_ok() {
-                "completed"
+                ActivityState::Completed
             } else {
-                "failed"
+                ActivityState::Failed
             },
             "model removal finished",
         );

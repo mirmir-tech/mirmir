@@ -9,6 +9,8 @@ use std::{
 
 use libmir::{ProgressEvent, ProgressStage};
 
+use super::stage::Stage;
+
 #[derive(Clone)]
 pub struct Registry(Arc<RegistryInner>);
 
@@ -26,7 +28,7 @@ pub struct Handle {
 struct Request {
     started: Instant,
     stage_started: Instant,
-    stage: &'static str,
+    stage: Stage,
     prompt_current: u64,
     prompt_total: u64,
     prefill_rate: Option<f64>,
@@ -61,7 +63,7 @@ impl Registry {
         let request = Arc::new(Mutex::new(Request {
             started: now,
             stage_started: now,
-            stage: "starting",
+            stage: Stage::Starting,
             prompt_current: 0,
             prompt_total: 0,
             prefill_rate: None,
@@ -86,38 +88,49 @@ impl Registry {
             .cloned()
             .collect::<Vec<_>>();
         let mut snapshot = Snapshot::default();
+        let mut selected_stage = None;
         for request in requests {
-            add_request(&mut snapshot, &request);
+            let stage = add_request(&mut snapshot, &request);
+            if selected_stage.is_none_or(|selected: Stage| stage.priority() > selected.priority()) {
+                selected_stage = Some(stage);
+            }
         }
+        snapshot.stage = selected_stage.map_or_else(String::new, |stage| stage.as_str().to_owned());
         snapshot
     }
 }
 
 impl Handle {
-    pub fn stage(&self, stage: &'static str) {
+    pub fn resolving(&self) {
         let mut request = self.request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        set_stage(&mut request, stage);
+        set_stage(&mut request, Stage::Resolving);
+    }
+
+    pub fn stage(&self, stage: ProgressStage) {
+        let mut request = self.request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        set_stage(&mut request, Stage::Runtime(stage));
     }
 
     pub fn progress(&self, event: &ProgressEvent) {
         let mut request = self.request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if event.stage == ProgressStage::DecodeTokens
+            && request.stage == Stage::Runtime(ProgressStage::PrefillTokens)
+        {
+            request.prefill_rate =
+                Some(rate(request.prompt_current, request.stage_started.elapsed().as_secs_f64()));
+        }
+        set_stage(&mut request, Stage::Runtime(event.stage));
         match event.stage {
-            ProgressStage::LoadWeights => set_stage(&mut request, "loading"),
             ProgressStage::PrefillTokens => {
-                set_stage(&mut request, "prefill");
                 request.prompt_current = event.current;
                 request.prompt_total = event.total;
             },
             ProgressStage::DecodeTokens => {
-                if request.stage == "prefill" {
-                    request.prefill_rate = Some(rate(
-                        request.prompt_current,
-                        request.stage_started.elapsed().as_secs_f64(),
-                    ));
-                }
-                set_stage(&mut request, "decode");
                 request.completion_tokens = event.current;
             },
+            ProgressStage::LoadWeights
+            | ProgressStage::InitializeRuntime
+            | ProgressStage::Warmup => {},
         }
     }
 
@@ -138,7 +151,7 @@ impl Handle {
     }
 }
 
-fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) {
+fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) -> Stage {
     let request = request.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let elapsed = request.started.elapsed().as_secs_f64();
     let stage_elapsed = request.stage_started.elapsed().as_secs_f64();
@@ -148,8 +161,10 @@ fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) {
         add_value(&mut snapshot.prefill_rate, value);
     }
     match request.stage {
-        "prefill" => add_rate(&mut snapshot.prefill_rate, request.prompt_current, stage_elapsed),
-        "decode" => add_rate(
+        Stage::Runtime(ProgressStage::PrefillTokens) => {
+            add_rate(&mut snapshot.prefill_rate, request.prompt_current, stage_elapsed);
+        },
+        Stage::Runtime(ProgressStage::DecodeTokens) => add_rate(
             &mut snapshot.decode_rate,
             request.completion_tokens.saturating_sub(1),
             stage_elapsed,
@@ -162,12 +177,10 @@ fn add_request(snapshot: &mut Snapshot, request: &Arc<Mutex<Request>>) {
     snapshot.prompt_tokens = snapshot.prompt_tokens.saturating_add(request.prompt_total);
     snapshot.completion_tokens =
         snapshot.completion_tokens.saturating_add(request.completion_tokens);
-    if stage_priority(request.stage) > stage_priority(&snapshot.stage) {
-        request.stage.clone_into(&mut snapshot.stage);
-    }
+    request.stage
 }
 
-fn set_stage(request: &mut Request, stage: &'static str) {
+fn set_stage(request: &mut Request, stage: Stage) {
     if request.stage != stage {
         request.stage = stage;
         request.stage_started = Instant::now();
@@ -194,16 +207,6 @@ fn max_option(left: Option<f64>, right: Option<f64>) -> Option<f64> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left.max(right)),
         (left, right) => left.or(right),
-    }
-}
-
-fn stage_priority(stage: &str) -> u8 {
-    match stage {
-        "decode" => 4,
-        "prefill" => 3,
-        "loading" => 2,
-        "resolving" => 1,
-        _ => 0,
     }
 }
 

@@ -1,4 +1,4 @@
-use libmir::{ProgressEvent, ProgressStage, ProgressUnit};
+use libmir::ProgressEvent;
 use tokio::sync::mpsc;
 use tonic::Status;
 
@@ -43,30 +43,16 @@ pub fn stream_load(
     send(sender, checking_memory(session.operation_id(), &selector));
     let mut progress = |progress: ProgressEvent| {
         log_progress(&selector, &progress);
-        let phase = match progress.stage {
-            ProgressStage::LoadWeights
-                if progress.total > 0 && progress.current >= progress.total =>
-            {
-                "initializing"
-            },
-            ProgressStage::LoadWeights => "loading",
-            ProgressStage::PrefillTokens => "warming",
-            ProgressStage::DecodeTokens => "decoding",
-        };
-        let unit = match progress.unit {
-            ProgressUnit::Byte => "byte",
-            ProgressUnit::Token => "token",
-        };
         send(
             sender,
             event(
                 session.operation_id(),
                 &selector,
-                phase,
+                progress.stage.as_str(),
                 LifecycleState {
                     current: progress.current,
                     total: Some(progress.total),
-                    unit,
+                    unit: progress.unit.as_str(),
                     detail: &progress.detail,
                     model: None,
                 },

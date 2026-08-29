@@ -103,7 +103,11 @@ impl Telemetry {
 }
 
 impl GenerationTelemetry {
-    pub fn stage(&self, stage: &'static str) {
+    pub fn resolving(&self) {
+        self.live.resolving();
+    }
+
+    pub fn stage(&self, stage: libmir::ProgressStage) {
         self.live.stage(stage);
     }
 

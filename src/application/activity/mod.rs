@@ -7,15 +7,19 @@ use std::{
 use libmir::CancellationToken;
 use tokio::sync::broadcast;
 
+mod types;
+
+pub use types::{ActivityKind, ActivityStage, ActivityState};
+
 const HISTORY_LIMIT: usize = 100;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActivityEvent {
     pub operation_id: String,
-    pub kind: String,
+    pub kind: ActivityKind,
     pub target: String,
-    pub state: String,
-    pub stage: String,
+    pub state: ActivityState,
+    pub stage: ActivityStage,
     pub detail: String,
     pub started_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
@@ -24,10 +28,11 @@ pub struct ActivityEvent {
     pub total: Option<u64>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CancelOutcome {
     pub found: bool,
     pub accepted: bool,
-    pub state: String,
+    pub state: ActivityState,
 }
 
 #[derive(Clone)]
@@ -63,22 +68,27 @@ impl Activity {
 
     pub fn begin(
         &self,
-        kind: &str,
+        kind: ActivityKind,
         target: &str,
         cancellation: Option<CancellationToken>,
     ) -> Operation {
-        self.begin_with_state(kind, target, "running", cancellation)
+        self.begin_with_state(kind, target, ActivityState::Running, cancellation)
     }
 
-    pub fn enqueue(&self, kind: &str, target: &str, cancellation: CancellationToken) -> Operation {
-        self.begin_with_state(kind, target, "queued", Some(cancellation))
+    pub fn enqueue(
+        &self,
+        kind: ActivityKind,
+        target: &str,
+        cancellation: CancellationToken,
+    ) -> Operation {
+        self.begin_with_state(kind, target, ActivityState::Queued, Some(cancellation))
     }
 
     fn begin_with_state(
         &self,
-        kind: &str,
+        kind: ActivityKind,
         target: &str,
-        state_name: &str,
+        initial_state: ActivityState,
         cancellation: Option<CancellationToken>,
     ) -> Operation {
         let mut state = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -90,11 +100,11 @@ impl Activity {
         let now = unix_ms();
         let event = ActivityEvent {
             operation_id: id.clone(),
-            kind: kind.to_owned(),
+            kind,
             target: target.to_owned(),
-            state: state_name.to_owned(),
-            stage: state_name.to_owned(),
-            detail: format!("{kind} {state_name}"),
+            state: initial_state,
+            stage: ActivityStage::State(initial_state),
+            detail: format!("{} {}", kind.as_str(), initial_state.as_str()),
             started_at_unix_ms: now,
             updated_at_unix_ms: now,
             cancellable: state.cancellations.contains_key(&id),
@@ -127,19 +137,19 @@ impl Activity {
             return CancelOutcome {
                 found: false,
                 accepted: false,
-                state: "not_found".to_owned(),
+                state: ActivityState::NotFound,
             };
         };
         let Some(token) = state.cancellations.get(id).cloned() else {
             return CancelOutcome {
                 found: true,
                 accepted: false,
-                state: state.history[index].state.clone(),
+                state: state.history[index].state,
             };
         };
         token.cancel();
         let event = &mut state.history[index];
-        "cancelling".clone_into(&mut event.state);
+        event.state = ActivityState::Cancelling;
         "cancellation requested".clone_into(&mut event.detail);
         event.updated_at_unix_ms = unix_ms();
         let event = event.clone();
@@ -148,7 +158,7 @@ impl Activity {
         CancelOutcome {
             found: true,
             accepted: true,
-            state: "cancelling".to_owned(),
+            state: ActivityState::Cancelling,
         }
     }
 
@@ -160,7 +170,7 @@ impl Activity {
         update(event);
         event.updated_at_unix_ms = unix_ms();
         let event = event.clone();
-        if terminal(&event.state) {
+        if event.state.is_terminal() {
             state.cancellations.remove(id);
         }
         trim_history(&mut state);
@@ -175,22 +185,30 @@ impl Operation {
         &self.id
     }
 
-    pub fn progress(&self, stage: &str, detail: &str, current: Option<u64>, total: Option<u64>) {
+    pub fn progress(
+        &self,
+        stage: ActivityStage,
+        detail: &str,
+        current: Option<u64>,
+        total: Option<u64>,
+    ) {
         self.activity.update(&self.id, |event| {
-            if event.state == "queued" && stage != "queued" {
-                "running".clone_into(&mut event.state);
+            if event.state == ActivityState::Queued
+                && stage != ActivityStage::State(ActivityState::Queued)
+            {
+                event.state = ActivityState::Running;
             }
-            stage.clone_into(&mut event.stage);
+            event.stage = stage;
             detail.clone_into(&mut event.detail);
             event.current = current;
             event.total = total;
         });
     }
 
-    pub fn finish(&self, state: &str, detail: &str) {
+    pub fn finish(&self, state: ActivityState, detail: &str) {
         self.activity.update(&self.id, |event| {
-            state.clone_into(&mut event.state);
-            state.clone_into(&mut event.stage);
+            event.state = state;
+            event.stage = ActivityStage::State(state);
             detail.clone_into(&mut event.detail);
         });
     }
@@ -203,17 +221,13 @@ fn record(state: &mut State, event: ActivityEvent) {
 
 fn trim_history(state: &mut State) {
     while state.history.len() > HISTORY_LIMIT {
-        let Some(index) = state.history.iter().position(|event| terminal(&event.state)) else {
+        let Some(index) = state.history.iter().position(|event| event.state.is_terminal()) else {
             break;
         };
         if let Some(removed) = state.history.remove(index) {
             state.cancellations.remove(&removed.operation_id);
         }
     }
-}
-
-fn terminal(state: &str) -> bool {
-    matches!(state, "completed" | "failed" | "cancelled")
 }
 
 fn unix_ms() -> u64 {

@@ -1,4 +1,4 @@
-use super::{Application, Result};
+use super::{ActivityKind, ActivityStage, ActivityState, Application, Result};
 
 pub struct RestoreReport {
     pub total: usize,
@@ -31,14 +31,14 @@ impl Application {
     }
 
     fn restore_model(&self, selector: &str, report: &mut RestoreReport) {
-        let operation = self.activity.begin("restore", selector, None);
+        let operation = self.activity.begin(ActivityKind::Restore, selector, None);
         self.startup.loading(selector, "preparing model", None, None);
         let startup = self.startup.clone();
         let operation_progress = operation.clone();
         let mut progress = |event: libmir::ProgressEvent| {
             startup.loading(selector, &event.detail, Some(event.current), Some(event.total));
             operation_progress.progress(
-                "loading",
+                ActivityStage::Runtime(event.stage),
                 &event.detail,
                 Some(event.current),
                 Some(event.total),
@@ -46,11 +46,11 @@ impl Application {
         };
         match self.runtime.load_model(selector, false, &mut progress) {
             Ok(_) => {
-                operation.finish("completed", "active model restored");
+                operation.finish(ActivityState::Completed, "active model restored");
                 report.restored = report.restored.saturating_add(1);
             },
             Err(error) => {
-                operation.finish("failed", &error.to_string());
+                operation.finish(ActivityState::Failed, &error.to_string());
                 report.failed = report.failed.saturating_add(1);
                 tracing::error!(model = %selector, %error, "failed to restore active model");
             },
@@ -61,9 +61,9 @@ impl Application {
         let Some(recovery) = self.runtime.take_state_recovery()? else {
             return Ok(());
         };
-        let operation = self.activity.begin("recovery", "state.toml", None);
+        let operation = self.activity.begin(ActivityKind::Recovery, "state.toml", None);
         operation.finish(
-            "completed",
+            ActivityState::Completed,
             &format!(
                 "corrupt {} quarantined at {} ({})",
                 recovery.original.display(),

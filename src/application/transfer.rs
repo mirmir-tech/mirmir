@@ -1,7 +1,7 @@
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
 
-use super::{Application, Operation, Result};
+use super::{ActivityKind, ActivityStage, ActivityState, Application, Operation, Result};
 use crate::catalog::{DownloadedModel, TransferUpdate};
 
 pub struct TransferSession {
@@ -17,7 +17,7 @@ impl Application {
         TransferSession {
             repo_id: repo_id.to_owned(),
             revision,
-            operation: self.activity.enqueue("pull", repo_id, cancellation.clone()),
+            operation: self.activity.enqueue(ActivityKind::Pull, repo_id, cancellation.clone()),
             cancellation,
         }
     }
@@ -33,7 +33,7 @@ impl Application {
         let forward = tokio::spawn(async move {
             while let Some(update) = receiver.recv().await {
                 operation.progress(
-                    update.phase,
+                    ActivityStage::Transfer(update.phase),
                     &update.message,
                     Some(update.downloaded_bytes),
                     update.total_bytes,
@@ -50,11 +50,14 @@ impl Application {
             .await;
         forward.await.map_err(|error| super::Error::Infrastructure(error.to_string()))?;
         match &result {
-            Ok(model) => session.operation.finish("completed", &available_message(model)),
-            Err(super::Error::Cancelled) => session
-                .operation
-                .finish("cancelled", "download stopped; partial files kept for resume"),
-            Err(error) => session.operation.finish("failed", &error.to_string()),
+            Ok(model) => {
+                session.operation.finish(ActivityState::Completed, &available_message(model));
+            },
+            Err(super::Error::Cancelled) => session.operation.finish(
+                ActivityState::Cancelled,
+                "download stopped; partial files kept for resume",
+            ),
+            Err(error) => session.operation.finish(ActivityState::Failed, &error.to_string()),
         }
         result
     }

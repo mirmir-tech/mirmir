@@ -106,7 +106,7 @@ pub fn transfer(
 ) -> proto::ModelTransferEvent {
     proto::ModelTransferEvent {
         repo_id: repo_id.to_owned(),
-        phase: update.phase.to_owned(),
+        phase: update.phase.as_str().to_owned(),
         downloaded_bytes: update.downloaded_bytes,
         total_bytes: update.total_bytes,
         path: None,

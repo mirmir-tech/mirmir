@@ -39,6 +39,10 @@ encapsulated by its backend dependencies.
 - Keep nightly rustfmt and strict clippy clean for all targets and features.
 - Keep OpenAI API routes grouped under a shared `/v1` router.
 - Keep persistent paths and environment names under the `mirmir` prefix.
+- Keep domain states, stages, kinds, units, outcomes, and error codes typed
+  through application layers. Convert them to stable strings only at protocol,
+  serialization, persistence, logging, or UI boundaries. Never infer state from
+  display strings or duplicate enum-to-string mappings across consumers.
 
 The manifest uses a versioned crates.io release of `libmir`; do not add a Git or
 relative path dependency here.

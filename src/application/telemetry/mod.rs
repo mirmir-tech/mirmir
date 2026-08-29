@@ -4,6 +4,7 @@ mod rates;
 mod request;
 mod runtime;
 mod snapshot;
+mod stage;
 
 pub use history::{History, RETENTION_LIMIT, SAMPLING_INTERVAL_MS};
 pub use request::{GenerationTelemetry, Telemetry};

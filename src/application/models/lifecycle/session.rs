@@ -1,7 +1,9 @@
 use libmir::ProgressEvent;
 
 use super::super::ModelEntry;
-use crate::application::{Application, Operation, Result};
+use crate::application::{
+    ActivityKind, ActivityStage, ActivityState, Application, Operation, Result,
+};
 
 pub struct ModelLoadSession {
     operation: Operation,
@@ -10,8 +12,8 @@ pub struct ModelLoadSession {
 impl Application {
     #[must_use]
     pub fn start_model_load(&self, selector: &str) -> ModelLoadSession {
-        let operation = self.activity.begin("load", selector, None);
-        operation.progress("resolving", "resolving model", Some(0), None);
+        let operation = self.activity.begin(ActivityKind::Load, selector, None);
+        operation.progress(ActivityStage::Resolving, "resolving model", Some(0), None);
         ModelLoadSession { operation }
     }
 
@@ -38,24 +40,24 @@ impl Application {
         };
         match self.runtime.load_model(selector, force, &mut tracked) {
             Ok(entry) => {
-                session.operation.finish("completed", "model is ready");
+                session.operation.finish(ActivityState::Completed, "model is ready");
                 Ok(entry)
             },
             Err(error) => {
-                session.operation.finish("failed", &error.to_string());
+                session.operation.finish(ActivityState::Failed, &error.to_string());
                 Err(error)
             },
         }
     }
 
     pub fn unload_model(&self, selector: &str) -> Result<bool> {
-        let operation = self.activity.begin("unload", selector, None);
+        let operation = self.activity.begin(ActivityKind::Unload, selector, None);
         let result = self.runtime.unload_model(selector);
         operation.finish(
             if result.is_ok() {
-                "completed"
+                ActivityState::Completed
             } else {
-                "failed"
+                ActivityState::Failed
             },
             "model unload finished",
         );
@@ -71,7 +73,7 @@ impl ModelLoadSession {
 
     pub fn checking_memory(&self) {
         self.operation.progress(
-            "checking_memory",
+            ActivityStage::CheckingMemory,
             "checking weights, KV cache, workspace, and device budget",
             Some(0),
             None,
@@ -79,22 +81,12 @@ impl ModelLoadSession {
     }
 
     pub fn reject(&self, detail: &str) {
-        self.operation.finish("failed", detail);
+        self.operation.finish(ActivityState::Failed, detail);
     }
 
     fn track(&self, progress: &ProgressEvent) {
-        let stage = match progress.stage {
-            libmir::ProgressStage::LoadWeights
-                if progress.total > 0 && progress.current >= progress.total =>
-            {
-                "initializing"
-            },
-            libmir::ProgressStage::LoadWeights => "loading",
-            libmir::ProgressStage::PrefillTokens => "warming",
-            libmir::ProgressStage::DecodeTokens => "decoding",
-        };
         self.operation.progress(
-            stage,
+            ActivityStage::Runtime(progress.stage),
             &progress.detail,
             Some(progress.current),
             Some(progress.total),

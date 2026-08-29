@@ -124,10 +124,10 @@ impl From<application::ActivityEvent> for Activity {
     fn from(event: application::ActivityEvent) -> Self {
         Self {
             operation_id: event.operation_id,
-            kind: event.kind,
+            kind: event.kind.as_str().to_owned(),
             target: event.target,
-            state: event.state,
-            stage: event.stage,
+            state: event.state.as_str().to_owned(),
+            stage: event.stage.as_str().to_owned(),
             detail: event.detail,
             updated_at_unix_ms: event.updated_at_unix_ms,
             cancellable: event.cancellable,

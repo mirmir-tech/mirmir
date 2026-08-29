@@ -7,7 +7,10 @@ use libmir::{
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::super::{Application, CompletionMetrics, GenerationTelemetry, Operation, Result};
+use super::super::{
+    ActivityKind, ActivityStage, ActivityState, Application, CompletionMetrics,
+    GenerationTelemetry, Operation, Result,
+};
 
 pub struct GenerationSession {
     selector: String,
@@ -35,7 +38,11 @@ impl Application {
         let cancellation = CancellationToken::new();
         GenerationSession {
             selector: selector.to_owned(),
-            operation: self.activity.begin("generate", selector, Some(cancellation.clone())),
+            operation: self.activity.begin(
+                ActivityKind::Generate,
+                selector,
+                Some(cancellation.clone()),
+            ),
             cancellation,
             telemetry: self.telemetry.begin(),
             started: Instant::now(),
@@ -88,24 +95,31 @@ impl Application {
         progress: &mut dyn FnMut(ProgressEvent),
         token: &mut dyn FnMut(GenerationToken),
     ) -> Result<GenerationResult> {
-        session.telemetry.stage("resolving");
-        session.operation.progress("resolving", "resolving model", None, None);
+        session.telemetry.resolving();
+        session
+            .operation
+            .progress(ActivityStage::Resolving, "resolving model", None, None);
         let telemetry = &session.telemetry;
         let operation = session.operation.clone();
         let selector = session.selector.clone();
         let mut loading = |event: ProgressEvent| {
             telemetry.progress(&event);
-            let stage = match event.stage {
-                ProgressStage::LoadWeights => "loading",
-                ProgressStage::PrefillTokens => "warming",
-                ProgressStage::DecodeTokens => "decoding",
-            };
-            operation.progress(stage, &event.detail, Some(event.current), Some(event.total));
+            operation.progress(
+                ActivityStage::Runtime(event.stage),
+                &event.detail,
+                Some(event.current),
+                Some(event.total),
+            );
             tracing::debug!(model = %selector, ?event.stage, current = event.current, total = event.total, "model progress");
         };
         let model = self.runtime.load_model(&session.selector, false, &mut loading)?.model;
-        session.telemetry.stage("prefill");
-        session.operation.progress("prefill", "prefilling prompt", None, None);
+        session.telemetry.stage(ProgressStage::PrefillTokens);
+        session.operation.progress(
+            ActivityStage::Runtime(ProgressStage::PrefillTokens),
+            "prefilling prompt",
+            None,
+            None,
+        );
         let mut ttft_ms = None;
         let telemetry = &session.telemetry;
         let operation = session.operation.clone();
@@ -154,7 +168,7 @@ impl GenerationSession {
     pub fn reject(&mut self, detail: &str) {
         self.cancellation.cancel();
         self.telemetry.fail();
-        self.operation.finish("failed", detail);
+        self.operation.finish(ActivityState::Failed, detail);
     }
 
     #[must_use]
@@ -179,7 +193,7 @@ impl GenerationSession {
             prefill_tokens_per_second: output.metrics.throughput.prefill.per_second,
             decode_tokens_per_second: output.metrics.throughput.decode.per_second,
         });
-        self.operation.finish("completed", "generation completed");
+        self.operation.finish(ActivityState::Completed, "generation completed");
         GenerationResult {
             output,
             elapsed_ms: elapsed * 1_000.0,
@@ -191,25 +205,25 @@ impl GenerationSession {
     fn fail(&mut self, error: &libmir::Error) {
         self.telemetry.fail();
         let state = if matches!(error, libmir::Error::Cancelled) {
-            "cancelled"
+            ActivityState::Cancelled
         } else {
-            "failed"
+            ActivityState::Failed
         };
         self.operation.finish(state, &error.to_string());
     }
 }
 
 fn update_progress(operation: &Operation, event: &ProgressEvent) {
-    let stage = match event.stage {
-        ProgressStage::LoadWeights => "loading",
-        ProgressStage::PrefillTokens => "prefill",
-        ProgressStage::DecodeTokens => "decode",
-    };
     if event.stage != ProgressStage::DecodeTokens
         || event.current == 0
         || event.current == event.total
         || event.current.is_multiple_of(16)
     {
-        operation.progress(stage, &event.detail, Some(event.current), Some(event.total));
+        operation.progress(
+            ActivityStage::Runtime(event.stage),
+            &event.detail,
+            Some(event.current),
+            Some(event.total),
+        );
     }
 }

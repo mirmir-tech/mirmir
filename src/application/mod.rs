@@ -14,7 +14,7 @@ mod transfer;
 use std::{path::PathBuf, sync::Arc};
 
 use activity::{Activity, Operation};
-pub use activity::{ActivityEvent, CancelOutcome};
+pub use activity::{ActivityEvent, ActivityKind, ActivityStage, ActivityState, CancelOutcome};
 pub use configuration::{ConfigurationChange, ConfigurationOutcome};
 pub use error::{Error, ErrorClass, Result};
 pub use inference::{GenerationEvent, GenerationResult, GenerationSession};
