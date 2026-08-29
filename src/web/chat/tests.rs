@@ -26,7 +26,7 @@ fn converts_dashboard_image_into_the_runtime_contract() {
 
     assert!(image.is_some_and(|image| image.starts_with(b"\x89PNG")));
     assert_eq!(
-        request.messages[0].content,
+        request.conversation.messages[0].content,
         format!("{}\ndescribe it", libmir::IMAGE_PLACEHOLDER)
     );
 }

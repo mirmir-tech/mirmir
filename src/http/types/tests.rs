@@ -27,11 +27,11 @@ fn accepts_openai_image_url_content_parts() {
     }))
     .expect("OpenAI-compatible request");
 
-    let (request, image) = request.into_application().expect("valid vision request");
+    let (_, request, image) = request.into_application().expect("valid vision request");
 
     assert!(image.is_some_and(|image| image.starts_with(b"\x89PNG")));
     assert_eq!(
-        request.messages[0].content,
+        request.conversation.messages[0].content,
         format!("{}What is shown?", libmir::IMAGE_PLACEHOLDER)
     );
 }
@@ -47,8 +47,8 @@ fn maps_tools_and_tool_calls_through_openai_protocol() {
         }}]
     }))
     .expect("OpenAI-compatible tool request");
-    let (request, _image) = request.into_application().expect("valid tool request");
-    assert_eq!(request.tools[0].function.name, "weather");
+    let (_, request, _image) = request.into_application().expect("valid tool request");
+    assert_eq!(request.conversation.tools[0].function.name, "weather");
 
     let response = CompletionResponse::new(
         "id".into(),
@@ -77,10 +77,10 @@ fn forwards_exact_generation_controls() {
     }))
     .expect("OpenAI-compatible request");
 
-    let (request, _image) = request.into_application().expect("valid generation request");
-    assert_eq!(request.max_tokens, Some(128));
-    assert_eq!(request.min_tokens, Some(128));
-    assert_eq!(request.ignore_eos, Some(true));
+    let (_, request, _image) = request.into_application().expect("valid generation request");
+    assert_eq!(request.options.max_tokens, Some(128));
+    assert_eq!(request.options.min_tokens, Some(128));
+    assert_eq!(request.options.ignore_eos, Some(true));
 }
 
 fn result(

@@ -83,8 +83,7 @@ pub async fn chat(
     let streaming = request.stream;
     let include_usage =
         request.stream_options.as_ref().is_some_and(|options| options.include_usage);
-    let (request, image) = request.into_application()?;
-    let model = request.model.clone();
+    let (model, request, image) = request.into_application()?;
     let id = completion_id();
     let created = unix_seconds();
     let mut events = state.application().generation_stream(&model, request, image);

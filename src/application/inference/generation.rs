@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use libmir::{
-    CancellationToken, ChatCompletionRequest, GenerationOutput, GenerationToken, ProgressEvent,
+    CancellationToken, GenerationOutput, GenerationRequest, GenerationToken, ProgressEvent,
     ProgressStage,
 };
 use tokio::sync::mpsc;
@@ -45,7 +45,7 @@ impl Application {
     pub fn generation_stream(
         &self,
         selector: &str,
-        chat: ChatCompletionRequest,
+        request: GenerationRequest,
         image: Option<Vec<u8>>,
     ) -> ReceiverStream<Result<GenerationEvent>> {
         let application = self.clone();
@@ -65,7 +65,7 @@ impl Application {
             };
             let result = application.generate(
                 &mut session,
-                &chat,
+                &request,
                 image.as_deref(),
                 &mut progress,
                 &mut token,
@@ -83,7 +83,7 @@ impl Application {
     pub fn generate(
         &self,
         session: &mut GenerationSession,
-        chat: &ChatCompletionRequest,
+        request: &GenerationRequest,
         image: Option<&[u8]>,
         progress: &mut dyn FnMut(ProgressEvent),
         token: &mut dyn FnMut(GenerationToken),
@@ -122,14 +122,14 @@ impl Application {
         };
         let result = match image {
             Some(image) => model.generate_image_cancellable(
-                chat,
+                request,
                 image,
                 &mut tracked_progress,
                 &mut tracked_token,
                 &session.cancellation,
             ),
             None => model.generate_cancellable(
-                chat,
+                request,
                 &mut tracked_progress,
                 &mut tracked_token,
                 &session.cancellation,

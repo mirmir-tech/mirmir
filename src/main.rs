@@ -11,6 +11,7 @@ mod model;
 mod model_format;
 mod output;
 mod prompt;
+mod protocol;
 mod rpc;
 mod status;
 mod tui;

@@ -82,8 +82,8 @@ async fn handle_event(
             send_json(sender, chunk(id, created, model, &delta, None, None)).await
         },
         GenerationEvent::Completion(completion) => {
-            let calls = libmir::ChatToolCall::parse_mistral(&completion.output.tool_calls)
-                .unwrap_or_default();
+            let calls =
+                libmir::ToolCall::parse_mistral(&completion.output.tool_calls).unwrap_or_default();
             if !calls.is_empty() {
                 let calls = calls.iter().enumerate().map(tool_call_delta).collect::<Vec<_>>();
                 let delta = with_role(json!({"tool_calls": calls}), role_sent);
@@ -130,7 +130,7 @@ fn token_delta(token: &libmir::GenerationToken) -> Option<serde_json::Value> {
     }
 }
 
-fn tool_call_delta((index, call): (usize, &libmir::ChatToolCall)) -> serde_json::Value {
+fn tool_call_delta((index, call): (usize, &libmir::ToolCall)) -> serde_json::Value {
     json!({
         "index": index,
         "id": call.id,

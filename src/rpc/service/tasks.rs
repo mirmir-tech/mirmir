@@ -45,7 +45,7 @@ pub(super) fn embed(
                 prompt_name: request.prompt_name,
             },
         )
-        .map_err(task_error)?;
+        .map_err(|error| task_error(&error))?;
     Ok(proto::EmbedResponse {
         embeddings: output
             .embeddings
@@ -78,7 +78,7 @@ pub(super) fn rerank(
                 raw_scores: request.raw_scores,
             },
         )
-        .map_err(task_error)?;
+        .map_err(|error| task_error(&error))?;
     Ok(proto::RerankResponse {
         results: output
             .results
@@ -93,15 +93,6 @@ pub(super) fn rerank(
     })
 }
 
-fn task_error(error: crate::application::Error) -> Status {
-    let crate::application::Error::Inference(error) = error else {
-        return super::models::load_error(&error);
-    };
-    match error {
-        libmir::Error::EmptyPrompt
-        | libmir::Error::TaskMismatch { .. }
-        | libmir::Error::Model(_)
-        | libmir::Error::Context { .. } => Status::invalid_argument(error.to_string()),
-        _ => Status::internal(error.to_string()),
-    }
+fn task_error(error: &crate::application::Error) -> Status {
+    super::models::load_error(error)
 }

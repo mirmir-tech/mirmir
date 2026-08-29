@@ -52,30 +52,25 @@ impl ApiError {
     pub fn from_application(error: crate::application::Error) -> Self {
         use crate::application::Error;
         match error {
-            Error::InvalidModel(message) => Self::bad_request(message),
+            Error::InvalidModel(message) | Error::InvalidRequest(message) => {
+                Self::bad_request(message)
+            },
             Error::ModelAlreadyLoading(message)
             | Error::ModelInUse(message)
             | Error::ModelLoaded(message) => {
                 Self::new(StatusCode::CONFLICT, message, "invalid_request_error", "conflict")
             },
-            Error::MemoryPressure(message)
-            | Error::Inference(libmir::Error::MemoryAdmission { model: message, .. }) => Self::new(
+            Error::MemoryPressure(message) => Self::new(
                 StatusCode::TOO_MANY_REQUESTS,
                 message,
                 "rate_limit_error",
                 "rate_limit_exceeded",
             ),
-            Error::Inference(
-                error @ (libmir::Error::EmptyPrompt
-                | libmir::Error::TaskMismatch { .. }
-                | libmir::Error::Model(_)
-                | libmir::Error::Context { .. }),
-            ) => Self::bad_request(error.to_string()),
-            Error::Inference(error @ libmir::Error::VisionResourceLimit { .. }) => Self::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                error.to_string(),
-                "rate_limit_error",
-                "rate_limit_exceeded",
+            Error::Cancelled => Self::new(
+                StatusCode::REQUEST_TIMEOUT,
+                "generation cancelled",
+                "request_error",
+                "cancelled",
             ),
             error => Self::internal(error.to_string()),
         }

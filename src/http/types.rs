@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     error::ApiError,
     media::{MessageContent, messages},
+    tools::{RequestTool, RequestToolCall},
 };
 use crate::application::GenerationResult;
 
@@ -11,7 +12,7 @@ pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
-    pub tools: Vec<libmir::ChatTool>,
+    pub tools: Vec<RequestTool>,
     pub tool_choice: Option<serde_json::Value>,
     #[serde(default)]
     pub stream: bool,
@@ -35,7 +36,7 @@ pub struct ChatMessage {
     #[serde(default, alias = "reasoning")]
     pub reasoning_content: Option<String>,
     #[serde(default)]
-    pub tool_calls: Option<Vec<libmir::ChatToolCall>>,
+    pub tool_calls: Option<Vec<RequestToolCall>>,
     pub tool_call_id: Option<String>,
 }
 
@@ -120,7 +121,7 @@ pub struct Usage {
 impl ChatRequest {
     pub fn into_application(
         self,
-    ) -> Result<(libmir::ChatCompletionRequest, Option<Vec<u8>>), ApiError> {
+    ) -> Result<(String, libmir::GenerationRequest, Option<Vec<u8>>), ApiError> {
         if self.model.trim().is_empty() {
             return Err(ApiError::bad_request("model cannot be empty"));
         }
@@ -137,22 +138,26 @@ impl ChatRequest {
             (left, right) => left.or(right),
         };
         let (messages, image) = messages(self.messages)?;
-        let request = libmir::ChatCompletionRequest {
-            model: self.model,
-            messages,
-            tools: self.tools,
-            tool_choice: self.tool_choice,
-            stream: self.stream,
-            max_tokens: optional_usize(max_tokens)?,
-            min_tokens: optional_usize(self.min_tokens)?,
-            ignore_eos: self.ignore_eos,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            top_k: optional_usize(self.top_k)?,
-            repetition_penalty: self.repetition_penalty,
+        let selector = self.model;
+        let request = libmir::GenerationRequest {
+            conversation: libmir::Conversation {
+                messages,
+                tools: self.tools.into_iter().map(Into::into).collect(),
+                tool_choice: crate::protocol::openai::tool_choice(self.tool_choice)
+                    .map_err(ApiError::bad_request)?,
+            },
+            options: libmir::GenerationOverrides {
+                max_tokens: optional_usize(max_tokens)?,
+                min_tokens: optional_usize(self.min_tokens)?,
+                ignore_eos: self.ignore_eos,
+                temperature: self.temperature,
+                top_p: self.top_p,
+                top_k: optional_usize(self.top_k)?,
+                repetition_penalty: self.repetition_penalty,
+            },
             seed: self.seed,
         };
-        Ok((request, image))
+        Ok((selector, request, image))
     }
 }
 
@@ -183,7 +188,7 @@ impl CompletionResponse {
                     role: "assistant",
                     content: output.text,
                     reasoning_content: (!output.reasoning.is_empty()).then_some(output.reasoning),
-                    tool_calls: libmir::ChatToolCall::parse_mistral(&output.tool_calls)
+                    tool_calls: libmir::ToolCall::parse_mistral(&output.tool_calls)
                         .unwrap_or_default()
                         .into_iter()
                         .map(response_tool_call)
@@ -196,7 +201,7 @@ impl CompletionResponse {
     }
 }
 
-fn response_tool_call(call: libmir::ChatToolCall) -> ResponseToolCall {
+fn response_tool_call(call: libmir::ToolCall) -> ResponseToolCall {
     ResponseToolCall {
         id: call.id,
         kind: call.kind,
