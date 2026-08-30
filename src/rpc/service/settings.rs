@@ -12,10 +12,10 @@ impl RuntimeService {
         &self,
         selector: &str,
     ) -> Result<proto::InspectModelResponse, Status> {
-        self.coordinator()
+        self.application
             .inspect_model(selector)
             .map(inspection)
-            .map_err(|error| Status::failed_precondition(error.to_string()))
+            .map_err(super::status::application)
     }
 
     pub(super) fn prepare_load(&self, request: &proto::LoadModelRequest) -> Result<String, Status> {
@@ -25,9 +25,9 @@ impl RuntimeService {
             revision: request.revision.clone(),
             commit: request.commit.clone(),
         });
-        self.coordinator()
+        self.application
             .prepare_load(&request.selector, &request.config_id, hub, generation)
-            .map_err(|error| super::models::load_error(&error))
+            .map_err(super::status::application)
     }
 
     pub(super) fn save_generation_defaults(
@@ -35,9 +35,9 @@ impl RuntimeService {
         selector: &str,
         settings: &proto::GenerationSettings,
     ) -> Result<String, Status> {
-        self.coordinator()
+        self.application
             .save_generation_defaults(selector, config(settings)?)
-            .map_err(|error| super::models::load_error(&error))
+            .map_err(super::status::application)
     }
 }
 
@@ -79,7 +79,7 @@ fn memory_estimate(value: crate::application::MemoryReport) -> proto::ModelMemor
         available_bytes: value.available,
         budget_bytes: value.budget,
         memory_source: value.source,
-        fit: value.fit.to_owned(),
+        fit: value.fit.as_str().to_owned(),
         max_safe_context_tokens: value.max_safe_context,
         configured_cache_tokens: value.estimate.cache_capacity_tokens,
     }

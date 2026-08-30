@@ -39,7 +39,7 @@ impl ApiState {
 }
 
 pub async fn health() -> Result<Json<HealthResponse>, ApiError> {
-    let response = crate::application::RuntimeCoordinator::health();
+    let response = crate::application::Application::health();
     Ok(Json(HealthResponse {
         status: "ok",
         server_version: response.server_version.to_owned(),
@@ -83,8 +83,7 @@ pub async fn chat(
     let streaming = request.stream;
     let include_usage =
         request.stream_options.as_ref().is_some_and(|options| options.include_usage);
-    let (request, image) = request.into_application()?;
-    let model = request.model.clone();
+    let (model, request, image) = request.into_application()?;
     let id = completion_id();
     let created = unix_seconds();
     let mut events = state.application().generation_stream(&model, request, image);
@@ -92,7 +91,7 @@ pub async fn chat(
         return Ok(stream::response(events, id, created, model, include_usage, state.shutdown()));
     }
     while let Some(event) = events.next().await {
-        let event = event.map_err(ApiError::from_application)?;
+        let event = event.map_err(|error| ApiError::from_application(&error))?;
         if let GenerationEvent::Completion(completion) = event {
             return Ok(
                 Json(CompletionResponse::new(id, created, model, *completion)).into_response()

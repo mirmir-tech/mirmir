@@ -18,18 +18,11 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::proto;
-use crate::application::{Application, RuntimeCoordinator};
+use crate::application::Application;
 
 #[derive(Clone)]
 pub struct RuntimeService {
     application: Application,
-}
-
-impl RuntimeService {
-    #[must_use]
-    pub const fn coordinator(&self) -> &RuntimeCoordinator {
-        &self.application.runtime
-    }
 }
 
 #[tonic::async_trait]
@@ -43,7 +36,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         _request: Request<proto::HealthRequest>,
     ) -> Result<Response<proto::HealthResponse>, Status> {
-        let health = RuntimeCoordinator::health();
+        let health = Application::health();
         Ok(Response::new(proto::HealthResponse {
             protocol_version: health.protocol_version.to_owned(),
             server_version: health.server_version.to_owned(),
@@ -61,7 +54,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         _request: Request<proto::ListActiveModelsRequest>,
     ) -> Result<Response<proto::ListActiveModelsResponse>, Status> {
-        let selectors = status::internal(self.coordinator().active_models())?;
+        let selectors = self.application.active_models().map_err(status::application)?;
         self.report_state_recovery()?;
         Ok(Response::new(proto::ListActiveModelsResponse { selectors }))
     }
@@ -119,23 +112,9 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::UnloadModelRequest>,
     ) -> Result<Response<proto::UnloadModelResponse>, Status> {
         let selector = request.into_inner().selector;
-        let operation = self.application.activity.begin("unload", &selector, None);
         match self.unload(&selector) {
-            Ok(unloaded) => {
-                operation.finish(
-                    "completed",
-                    if unloaded {
-                        "model unloaded"
-                    } else {
-                        "not loaded"
-                    },
-                );
-                Ok(Response::new(proto::UnloadModelResponse { unloaded }))
-            },
-            Err(error) => {
-                operation.finish("failed", error.message());
-                Err(error)
-            },
+            Ok(unloaded) => Ok(Response::new(proto::UnloadModelResponse { unloaded })),
+            Err(error) => Err(error),
         }
     }
 
@@ -157,7 +136,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::RemoveModelRequest>,
     ) -> Result<Response<proto::RemoveModelResponse>, Status> {
-        Ok(Response::new(self.remove_with_activity(request.into_inner().repo_id).await?))
+        Ok(Response::new(self.remove_request(request.into_inner().repo_id).await?))
     }
 
     async fn generate(
@@ -214,7 +193,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::WatchActivityRequest>,
     ) -> Result<Response<Self::WatchActivityStream>, Status> {
         Ok(Response::new(activity::watch(
-            &self.application.activity,
+            &self.application,
             request.into_inner().include_history,
         )))
     }
@@ -224,7 +203,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::CancelOperationRequest>,
     ) -> Result<Response<proto::CancelOperationResponse>, Status> {
         let operation_id = request.into_inner().operation_id;
-        let response = activity::cancellation(self.application.activity.cancel(&operation_id));
+        let response = activity::cancellation(self.application.cancel_operation(&operation_id));
         tracing::info!(
             operation = %operation_id,
             found = response.found,

@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use libmir::{ModelDescriptor, foundation::model::BackendTarget};
+use libmir::{BackendTarget, ModelDescriptor};
 use serde_json::Value;
 
 #[derive(Clone, Debug)]

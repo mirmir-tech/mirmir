@@ -151,9 +151,9 @@ fn remote_metadata() -> RemoteModelMetadata {
     }
 }
 
-pub(super) fn tokenizer_assets() -> libmir::models::tokenizer::TokenizerAssets {
-    libmir::models::tokenizer::TokenizerAssets {
-        kind: libmir::models::tokenizer::TokenizerKind::TokenizerJson,
+pub(super) fn tokenizer_assets() -> libmir::TokenizerAssets {
+    libmir::TokenizerAssets {
+        kind: libmir::TokenizerKind::TokenizerJson,
         primary: "tokenizer.json".into(),
         merges: None,
         metadata: Vec::new(),

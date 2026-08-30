@@ -1,13 +1,37 @@
 mod lifecycle;
 mod local;
 mod preflight;
-mod presentation;
 mod residency;
 pub mod state;
 
 use libmir::{Model, ModelDescriptor};
-pub use preflight::MemoryReport;
+pub use preflight::{Check, MemoryFit, MemoryReport, eviction_can_help, rejection, safe_context};
 use residency::ModelResidency;
+pub use residency::eviction_candidate;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalModelState {
+    Ready,
+    Loading,
+    Error,
+    Available,
+    Missing,
+    Paused,
+}
+
+impl LocalModelState {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Loading => "loading",
+            Self::Error => "error",
+            Self::Available => "available",
+            Self::Missing => "missing",
+            Self::Paused => "paused",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
@@ -17,7 +41,7 @@ pub struct LocalModelInfo {
     pub revision: String,
     pub commit: String,
     pub path: String,
-    pub state: String,
+    pub state: LocalModelState,
     pub recent_rank: Option<u32>,
     pub selector: String,
     pub managed: bool,

@@ -1,13 +1,16 @@
 use std::time::Instant;
 
 use libmir::{
-    CancellationToken, ChatCompletionRequest, GenerationOutput, GenerationToken, ProgressEvent,
+    CancellationToken, GenerationOutput, GenerationRequest, GenerationToken, ProgressEvent,
     ProgressStage,
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::super::{Application, CompletionMetrics, GenerationTelemetry, Operation, Result};
+use super::super::{
+    ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, Application, CompletionMetrics,
+    GenerationTelemetry, Operation, Result,
+};
 
 pub struct GenerationSession {
     selector: String,
@@ -35,7 +38,11 @@ impl Application {
         let cancellation = CancellationToken::new();
         GenerationSession {
             selector: selector.to_owned(),
-            operation: self.activity.begin("generate", selector, Some(cancellation.clone())),
+            operation: self.activity.begin(
+                ActivityKind::Generate,
+                selector,
+                Some(cancellation.clone()),
+            ),
             cancellation,
             telemetry: self.telemetry.begin(),
             started: Instant::now(),
@@ -45,7 +52,7 @@ impl Application {
     pub fn generation_stream(
         &self,
         selector: &str,
-        chat: ChatCompletionRequest,
+        request: GenerationRequest,
         image: Option<Vec<u8>>,
     ) -> ReceiverStream<Result<GenerationEvent>> {
         let application = self.clone();
@@ -65,7 +72,7 @@ impl Application {
             };
             let result = application.generate(
                 &mut session,
-                &chat,
+                &request,
                 image.as_deref(),
                 &mut progress,
                 &mut token,
@@ -83,29 +90,32 @@ impl Application {
     pub fn generate(
         &self,
         session: &mut GenerationSession,
-        chat: &ChatCompletionRequest,
+        request: &GenerationRequest,
         image: Option<&[u8]>,
         progress: &mut dyn FnMut(ProgressEvent),
         token: &mut dyn FnMut(GenerationToken),
     ) -> Result<GenerationResult> {
-        session.telemetry.stage("resolving");
-        session.operation.progress("resolving", "resolving model", None, None);
+        session.telemetry.resolving();
+        session.operation.progress(ActivityStage::Resolving, "resolving model", None);
         let telemetry = &session.telemetry;
         let operation = session.operation.clone();
         let selector = session.selector.clone();
         let mut loading = |event: ProgressEvent| {
             telemetry.progress(&event);
-            let stage = match event.stage {
-                ProgressStage::LoadWeights => "loading",
-                ProgressStage::PrefillTokens => "warming",
-                ProgressStage::DecodeTokens => "decoding",
-            };
-            operation.progress(stage, &event.detail, Some(event.current), Some(event.total));
-            tracing::debug!(model = %selector, ?event.stage, current = event.current, total = event.total, "model progress");
+            operation.progress(
+                ActivityStage::Runtime(event.stage()),
+                event.detail(),
+                Some(activity_progress(&event)),
+            );
+            tracing::debug!(model = %selector, stage = ?event.stage(), current = event.count().current(), total = event.count().total(), "model progress");
         };
         let model = self.runtime.load_model(&session.selector, false, &mut loading)?.model;
-        session.telemetry.stage("prefill");
-        session.operation.progress("prefill", "prefilling prompt", None, None);
+        session.telemetry.stage(ProgressStage::PrefillTokens);
+        session.operation.progress(
+            ActivityStage::Runtime(ProgressStage::PrefillTokens),
+            "prefilling prompt",
+            None,
+        );
         let mut ttft_ms = None;
         let telemetry = &session.telemetry;
         let operation = session.operation.clone();
@@ -122,14 +132,14 @@ impl Application {
         };
         let result = match image {
             Some(image) => model.generate_image_cancellable(
-                chat,
+                request,
                 image,
                 &mut tracked_progress,
                 &mut tracked_token,
                 &session.cancellation,
             ),
             None => model.generate_cancellable(
-                chat,
+                request,
                 &mut tracked_progress,
                 &mut tracked_token,
                 &session.cancellation,
@@ -154,7 +164,7 @@ impl GenerationSession {
     pub fn reject(&mut self, detail: &str) {
         self.cancellation.cancel();
         self.telemetry.fail();
-        self.operation.finish("failed", detail);
+        self.operation.finish(ActivityOutcome::Failed, detail);
     }
 
     #[must_use]
@@ -179,7 +189,7 @@ impl GenerationSession {
             prefill_tokens_per_second: output.metrics.throughput.prefill.per_second,
             decode_tokens_per_second: output.metrics.throughput.decode.per_second,
         });
-        self.operation.finish("completed", "generation completed");
+        self.operation.finish(ActivityOutcome::Completed, "generation completed");
         GenerationResult {
             output,
             elapsed_ms: elapsed * 1_000.0,
@@ -191,25 +201,30 @@ impl GenerationSession {
     fn fail(&mut self, error: &libmir::Error) {
         self.telemetry.fail();
         let state = if matches!(error, libmir::Error::Cancelled) {
-            "cancelled"
+            ActivityOutcome::Cancelled
         } else {
-            "failed"
+            ActivityOutcome::Failed
         };
         self.operation.finish(state, &error.to_string());
     }
 }
 
 fn update_progress(operation: &Operation, event: &ProgressEvent) {
-    let stage = match event.stage {
-        ProgressStage::LoadWeights => "loading",
-        ProgressStage::PrefillTokens => "prefill",
-        ProgressStage::DecodeTokens => "decode",
-    };
-    if event.stage != ProgressStage::DecodeTokens
-        || event.current == 0
-        || event.current == event.total
-        || event.current.is_multiple_of(16)
+    let count = event.count();
+    if event.stage() != ProgressStage::DecodeTokens
+        || count.current() == 0
+        || count.current() == count.total()
+        || count.current().is_multiple_of(16)
     {
-        operation.progress(stage, &event.detail, Some(event.current), Some(event.total));
+        operation.progress(
+            ActivityStage::Runtime(event.stage()),
+            event.detail(),
+            Some(activity_progress(event)),
+        );
     }
+}
+
+const fn activity_progress(event: &ProgressEvent) -> ActivityProgress {
+    let count = event.count();
+    ActivityProgress::new(count.current(), Some(count.total()))
 }

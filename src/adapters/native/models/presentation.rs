@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use libmir::{GenerationOverrides, ModelDescriptor, models::chat::TemplateKind};
+use libmir::{GenerationOverrides, ModelDescriptor, TemplateKind};
 use serde_json::Value;
 
 use crate::{config::GenerationConfig, model_format::ModelFormat};

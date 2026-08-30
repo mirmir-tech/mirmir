@@ -1,4 +1,4 @@
-use libmir::{ProgressEvent, ProgressStage, ProgressUnit};
+use libmir::ProgressEvent;
 use tokio::sync::mpsc;
 use tonic::Status;
 
@@ -14,13 +14,12 @@ pub fn stream_load(
     sender: &mpsc::Sender<Result<proto::ModelLifecycleEvent, Status>>,
 ) {
     let requested = request.selector.clone();
-    let operation = service.application.activity.begin("load", &requested, None);
-    operation.progress("resolving", "resolving model", Some(0), None);
+    let session = service.application.start_model_load(&requested);
     tracing::info!(model = %requested, "model load requested");
     send(
         sender,
         event(
-            operation.id(),
+            session.operation_id(),
             &requested,
             "resolving",
             LifecycleState {
@@ -35,59 +34,42 @@ pub fn stream_load(
     let selector = match service.prepare_load(request) {
         Ok(selector) => selector,
         Err(error) => {
-            operation.finish("failed", error.message());
+            session.reject(error.message());
             drop(sender.blocking_send(Err(error)));
             return;
         },
     };
-    operation.progress(
-        "checking_memory",
-        "checking weights, KV cache, workspace, and device budget",
-        Some(0),
-        None,
-    );
-    send(sender, checking_memory(operation.id(), &selector));
+    session.checking_memory();
+    send(sender, checking_memory(session.operation_id(), &selector));
     let mut progress = |progress: ProgressEvent| {
         log_progress(&selector, &progress);
-        let phase = match progress.stage {
-            ProgressStage::LoadWeights
-                if progress.total > 0 && progress.current >= progress.total =>
-            {
-                "initializing"
-            },
-            ProgressStage::LoadWeights => "loading",
-            ProgressStage::PrefillTokens => "warming",
-            ProgressStage::DecodeTokens => "decoding",
-        };
-        let unit = match progress.unit {
-            ProgressUnit::Byte => "byte",
-            ProgressUnit::Token => "token",
-        };
-        operation.progress(phase, &progress.detail, Some(progress.current), Some(progress.total));
+        let count = progress.count();
         send(
             sender,
             event(
-                operation.id(),
+                session.operation_id(),
                 &selector,
-                phase,
+                progress.stage().as_str(),
                 LifecycleState {
-                    current: progress.current,
-                    total: Some(progress.total),
-                    unit,
-                    detail: &progress.detail,
+                    current: count.current(),
+                    total: Some(count.total()),
+                    unit: progress.unit().as_str(),
+                    detail: progress.detail(),
                     model: None,
                 },
             ),
         );
     };
-    match service.coordinator().load_model(&selector, request.force, &mut progress) {
+    match service
+        .application
+        .load_model_session(&session, &selector, request.force, &mut progress)
+    {
         Ok(entry) => {
-            operation.finish("completed", "model is ready");
             tracing::info!(model = %entry.info.id, path = %entry.info.path, "model is ready");
             send(
                 sender,
                 event(
-                    operation.id(),
+                    session.operation_id(),
                     &requested,
                     "ready",
                     LifecycleState {
@@ -101,8 +83,7 @@ pub fn stream_load(
             );
         },
         Err(error) => {
-            let status = super::load_error(&error);
-            operation.finish("failed", status.message());
+            let status = super::super::status::application_ref(&error);
             tracing::error!(model = %selector, %error, "model load failed");
             drop(sender.blocking_send(Err(status)));
         },

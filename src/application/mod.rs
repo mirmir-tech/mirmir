@@ -4,42 +4,41 @@ mod configuration;
 mod error;
 mod inference;
 mod models;
+pub mod ports;
 mod restore;
 mod settings;
 mod startup;
 mod telemetry;
 mod transfer;
 
-pub use activity::{Activity, ActivityEvent, CancelOutcome, Operation};
-pub use configuration::ConfigurationChange;
-pub use error::{Error, Result};
+use std::{path::PathBuf, sync::Arc};
+
+use activity::{Activity, Operation};
+pub use activity::{
+    ActivityEvent, ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, CancelOutcome,
+};
+pub use configuration::{ConfigurationChange, ConfigurationOutcome};
+pub use error::{Error, ErrorClass, Result};
 pub use inference::{GenerationEvent, GenerationResult, GenerationSession};
-use libmir::Library;
-use models::state::ModelLifecycle;
-pub use models::{LocalModelInfo, MemoryReport, ModelInfo};
+pub use models::{
+    Check, LocalModelInfo, LocalModelState, MemoryFit, MemoryReport, ModelEntry, ModelInfo,
+    eviction_can_help, eviction_candidate, rejection, safe_context, state::ModelLifecycle,
+};
+pub use ports::{
+    CatalogPort, ConfigurationPort, ModelRuntimePort, TransferPhase, TransferProgress,
+};
 pub use settings::{
     EmbeddingCapabilities, ModelInspection, ModelTaskCapabilities, RerankCapabilities,
 };
-pub use startup::{Snapshot as StartupSnapshot, Startup};
+use startup::Startup;
+pub use startup::StartupStatus;
+use telemetry::Telemetry;
 pub use telemetry::{
-    CompletionMetrics, GenerationTelemetry, HistorySample,
-    RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT, SAMPLING_INTERVAL_MS,
-    Snapshot as TelemetrySnapshot, Telemetry,
+    CompletionMetrics, GenerationTelemetry, HistorySample, KvTelemetry,
+    RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT, RuntimeTelemetry, SAMPLING_INTERVAL_MS,
+    Snapshot as TelemetrySnapshot,
 };
 pub use transfer::available_message;
-
-use crate::{
-    catalog::Catalog,
-    config::{AppConfig, Store},
-};
-
-#[derive(Clone)]
-pub struct RuntimeCoordinator {
-    pub(crate) library: Library,
-    pub(crate) store: Store,
-    pub(crate) catalog: Catalog,
-    pub(crate) lifecycle: ModelLifecycle,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Health {
@@ -51,23 +50,31 @@ pub const PROTOCOL_VERSION: &str = "1";
 
 #[derive(Clone)]
 pub struct Application {
-    pub(crate) runtime: RuntimeCoordinator,
-    pub(crate) activity: Activity,
-    pub(crate) startup: Startup,
-    pub(crate) telemetry: Telemetry,
+    runtime: Arc<dyn ModelRuntimePort>,
+    catalog: Arc<dyn CatalogPort>,
+    configuration: Arc<dyn ConfigurationPort>,
+    activity: Activity,
+    startup: Startup,
+    telemetry: Telemetry,
     telemetry_history: telemetry::History,
 }
 
 impl Application {
     #[must_use]
-    pub fn new(config: &AppConfig, store: Store) -> Self {
-        let telemetry_history = telemetry::History::load(store.paths().telemetry_file.clone());
+    pub fn from_ports(
+        runtime: Arc<dyn ModelRuntimePort>,
+        catalog: Arc<dyn CatalogPort>,
+        configuration: Arc<dyn ConfigurationPort>,
+        telemetry_file: PathBuf,
+    ) -> Self {
         Self {
-            runtime: RuntimeCoordinator::new(config, store),
+            runtime,
+            catalog,
+            configuration,
             activity: Activity::new(),
             startup: Startup::new(),
             telemetry: Telemetry::new(),
-            telemetry_history,
+            telemetry_history: telemetry::History::load(telemetry_file),
         }
     }
 
@@ -82,12 +89,29 @@ impl Application {
     }
 
     #[must_use]
-    pub fn startup_snapshot(&self) -> StartupSnapshot {
-        self.startup.snapshot()
+    pub fn cancel_operation(&self, operation_id: &str) -> CancelOutcome {
+        self.activity.cancel(operation_id)
+    }
+
+    pub fn fail_startup(&self, detail: impl Into<String>) {
+        self.startup.failed(detail);
     }
 
     #[must_use]
-    pub fn startup_updates(&self) -> tokio::sync::watch::Receiver<StartupSnapshot> {
+    pub const fn health() -> Health {
+        Health {
+            protocol_version: PROTOCOL_VERSION,
+            server_version: env!("CARGO_PKG_VERSION"),
+        }
+    }
+
+    #[must_use]
+    pub fn startup_status(&self) -> StartupStatus {
+        self.startup.status()
+    }
+
+    #[must_use]
+    pub fn startup_updates(&self) -> tokio::sync::watch::Receiver<StartupStatus> {
         self.startup.subscribe()
     }
 
@@ -112,59 +136,28 @@ impl Application {
     pub fn models(&self) -> Result<Vec<ModelInfo>> {
         self.runtime.models()
     }
-}
-
-impl RuntimeCoordinator {
-    #[must_use]
-    pub fn new(config: &AppConfig, store: Store) -> Self {
-        let runtime = config.runtime.to_libmir(&store.paths().state_dir);
-        Self {
-            library: Library::new(runtime),
-            catalog: Catalog::new(store.clone()),
-            store,
-            lifecycle: ModelLifecycle::default(),
-        }
-    }
-
-    #[must_use]
-    pub const fn health() -> Health {
-        Health {
-            protocol_version: PROTOCOL_VERSION,
-            server_version: env!("CARGO_PKG_VERSION"),
-        }
-    }
-
-    pub fn models(&self) -> Result<Vec<ModelInfo>> {
-        let state = self.lifecycle.state()?;
-        let mut listed =
-            state.resident.values().map(|entry| entry.info.clone()).collect::<Vec<_>>();
-        drop(state);
-        listed.sort_by(|left, right| left.id.cmp(&right.id));
-        Ok(listed)
-    }
 
     pub fn active_models(&self) -> Result<Vec<String>> {
-        Ok(self.store.active_models()?)
-    }
-
-    pub fn take_state_recovery(&self) -> Result<Option<crate::config::StateRecovery>> {
-        Ok(self.store.take_state_recovery()?)
+        self.runtime.active_models()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Paths;
+    use crate::{
+        adapters,
+        config::{AppConfig, Paths, Store},
+    };
 
     #[test]
     fn exposes_transport_neutral_health_and_empty_model_registry() {
         let root = std::env::temp_dir().join("mirmir-application-contract");
         let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
-        let coordinator = RuntimeCoordinator::new(&AppConfig::default(), Store::new(paths));
+        let application = adapters::native::application(&AppConfig::default(), Store::new(paths));
 
-        assert_eq!(RuntimeCoordinator::health().protocol_version, PROTOCOL_VERSION);
-        assert_eq!(RuntimeCoordinator::health().server_version, env!("CARGO_PKG_VERSION"));
-        assert_eq!(coordinator.models().expect("model registry should be readable").len(), 0);
+        assert_eq!(Application::health().protocol_version, PROTOCOL_VERSION);
+        assert_eq!(Application::health().server_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(application.models().expect("model registry should be readable").len(), 0);
     }
 }

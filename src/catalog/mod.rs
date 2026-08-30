@@ -17,9 +17,9 @@ pub use cache::{
     CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
     discover_partial_downloads_in,
 };
-pub use download::{DownloadedModel, Removal, TransferUpdate};
+pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate};
 pub use fit::{CatalogModel, MachineMemory};
-use libmir::{CancellationToken, foundation::model::BackendTarget};
+use libmir::{BackendTarget, CancellationToken};
 pub use preflight::RemoteHeaderPreflight;
 use queue::TransferQueue;
 
@@ -160,11 +160,18 @@ impl Catalog {
         updates: tokio::sync::mpsc::Sender<TransferUpdate>,
         cancellation: &CancellationToken,
     ) -> Result<DownloadedModel> {
-        download::send(&updates, "queued", 0, None, "waiting for download slot".to_owned()).await;
+        download::send(
+            &updates,
+            TransferPhase::Queued,
+            0,
+            None,
+            "waiting for download slot".to_owned(),
+        )
+        .await;
         let _permit = self.transfer_queue.acquire(cancellation).await?;
         download::send(
             &updates,
-            "checking",
+            TransferPhase::Checking,
             0,
             None,
             "validating remote SafeTensors headers".to_owned(),

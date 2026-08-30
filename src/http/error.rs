@@ -49,35 +49,31 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, message, "invalid_request_error", "not_found")
     }
 
-    pub fn from_application(error: crate::application::Error) -> Self {
-        use crate::application::Error;
-        match error {
-            Error::InvalidModel(message) => Self::bad_request(message),
-            Error::ModelAlreadyLoading(message)
-            | Error::ModelInUse(message)
-            | Error::ModelLoaded(message) => {
+    pub fn from_application(error: &crate::application::Error) -> Self {
+        use crate::application::ErrorClass;
+        let class = error.class();
+        let message = error.to_string();
+        match class {
+            ErrorClass::InvalidArgument => Self::bad_request(message),
+            ErrorClass::Conflict => {
                 Self::new(StatusCode::CONFLICT, message, "invalid_request_error", "conflict")
             },
-            Error::MemoryPressure(message)
-            | Error::Inference(libmir::Error::MemoryAdmission { model: message, .. }) => Self::new(
+            ErrorClass::ResourceExhausted => Self::new(
                 StatusCode::TOO_MANY_REQUESTS,
                 message,
                 "rate_limit_error",
                 "rate_limit_exceeded",
             ),
-            Error::Inference(
-                error @ (libmir::Error::EmptyPrompt
-                | libmir::Error::TaskMismatch { .. }
-                | libmir::Error::Model(_)
-                | libmir::Error::Context { .. }),
-            ) => Self::bad_request(error.to_string()),
-            Error::Inference(error @ libmir::Error::VisionResourceLimit { .. }) => Self::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                error.to_string(),
-                "rate_limit_error",
-                "rate_limit_exceeded",
+            ErrorClass::Cancelled => {
+                Self::new(StatusCode::REQUEST_TIMEOUT, message, "request_error", "cancelled")
+            },
+            ErrorClass::Unavailable => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                message,
+                "server_error",
+                "service_unavailable",
             ),
-            error => Self::internal(error.to_string()),
+            ErrorClass::Internal => Self::internal(message),
         }
     }
 
@@ -110,7 +106,7 @@ impl ApiError {
         }
     }
 
-    pub fn application_envelope(error: crate::application::Error) -> ErrorEnvelope {
+    pub fn application_envelope(error: &crate::application::Error) -> ErrorEnvelope {
         let error = Self::from_application(error);
         Self::envelope(error.message, error.kind, error.code)
     }

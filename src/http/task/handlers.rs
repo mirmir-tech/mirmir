@@ -21,8 +21,10 @@ pub async fn embeddings(
         Err(error) => return Err(ApiError::bad_request(error.body_text())),
     };
     let (model, request) = request.into_application()?;
-    let response =
-        state.application().embed(&model, request).map_err(ApiError::from_application)?;
+    let response = state
+        .application()
+        .embed(&model, request)
+        .map_err(|error| ApiError::from_application(&error))?;
     let prompt_tokens = u64::try_from(response.prompt_tokens).unwrap_or(u64::MAX);
     Ok(Json(EmbeddingsResponse {
         object: "list",
@@ -70,7 +72,7 @@ pub async fn rerank(
                 raw_scores: request.raw_scores,
             },
         )
-        .map_err(ApiError::from_application)?;
+        .map_err(|error| ApiError::from_application(&error))?;
     let prompt_tokens = u64::try_from(response.prompt_tokens).unwrap_or(u64::MAX);
     Ok(Json(RerankResponse {
         results: response

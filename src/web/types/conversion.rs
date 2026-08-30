@@ -54,7 +54,7 @@ impl From<application::LocalModelInfo> for Model {
             revision: model.revision,
             commit: model.commit,
             path: model.path,
-            state: model.state,
+            state: model.state.as_str().to_owned(),
             selector: model.selector,
             managed: model.managed,
             image_input: model.image_input,
@@ -122,17 +122,18 @@ impl From<catalog::CatalogModel> for CatalogModel {
 
 impl From<application::ActivityEvent> for Activity {
     fn from(event: application::ActivityEvent) -> Self {
+        let progress = event.status.progress();
         Self {
             operation_id: event.operation_id,
-            kind: event.kind,
+            kind: event.kind.as_str().to_owned(),
             target: event.target,
-            state: event.state,
-            stage: event.stage,
+            state: event.status.state_str().to_owned(),
+            stage: event.status.stage_str().to_owned(),
             detail: event.detail,
             updated_at_unix_ms: event.updated_at_unix_ms,
             cancellable: event.cancellable,
-            current: event.current,
-            total: event.total,
+            current: progress.map(application::ActivityProgress::current),
+            total: progress.and_then(application::ActivityProgress::total),
         }
     }
 }

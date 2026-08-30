@@ -157,9 +157,8 @@ fn json_event(name: &'static str, value: impl Serialize) -> Event {
 
 fn application_request(
     chat: ChatRequest,
-) -> Result<(String, libmir::ChatCompletionRequest, Option<Vec<u8>>), WebError> {
-    let mut messages: Vec<libmir::ChatMessage> =
-        chat.messages.into_iter().map(Into::into).collect();
+) -> Result<(String, libmir::GenerationRequest, Option<Vec<u8>>), WebError> {
+    let mut messages: Vec<libmir::Message> = chat.messages.into_iter().map(Into::into).collect();
     let image = match chat.image {
         Some(value) => match decode_data_url(&value) {
             Ok(image) => Some(image),
@@ -178,20 +177,22 @@ fn application_request(
         message.content = format!("{}\n{}", libmir::IMAGE_PLACEHOLDER, message.content);
     }
     let selector = chat.model.clone();
-    let request = libmir::ChatCompletionRequest {
-        model: chat.model,
-        max_tokens: optional_usize(chat.max_tokens, "max_tokens")?,
-        min_tokens: optional_usize(chat.min_tokens, "min_tokens")?,
-        ignore_eos: chat.ignore_eos,
-        temperature: chat.temperature,
-        top_p: chat.top_p,
-        top_k: optional_usize(chat.top_k, "top_k")?,
-        repetition_penalty: chat.repetition_penalty,
+    let request = libmir::GenerationRequest {
+        conversation: libmir::Conversation {
+            messages,
+            tools: Vec::new(),
+            tool_choice: libmir::ToolChoice::Auto,
+        },
+        options: libmir::GenerationOverrides {
+            max_tokens: optional_usize(chat.max_tokens, "max_tokens")?,
+            min_tokens: optional_usize(chat.min_tokens, "min_tokens")?,
+            ignore_eos: chat.ignore_eos,
+            temperature: chat.temperature,
+            top_p: chat.top_p,
+            top_k: optional_usize(chat.top_k, "top_k")?,
+            repetition_penalty: chat.repetition_penalty,
+        },
         seed: chat.seed,
-        messages,
-        tools: Vec::new(),
-        tool_choice: None,
-        stream: true,
     };
     Ok((selector, request, image))
 }
@@ -204,7 +205,7 @@ fn optional_usize(value: Option<u64>, field: &str) -> Result<Option<usize>, WebE
         .transpose()
 }
 
-impl From<Message> for libmir::ChatMessage {
+impl From<Message> for libmir::Message {
     fn from(message: Message) -> Self {
         Self {
             role: message.role,

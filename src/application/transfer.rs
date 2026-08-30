@@ -1,8 +1,11 @@
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
 
-use super::{Application, Operation, Result};
-use crate::catalog::{DownloadedModel, TransferUpdate};
+use super::{
+    ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, Application, Operation, Result,
+    TransferProgress,
+};
+use crate::catalog::DownloadedModel;
 
 pub struct TransferSession {
     repo_id: String,
@@ -17,7 +20,7 @@ impl Application {
         TransferSession {
             repo_id: repo_id.to_owned(),
             revision,
-            operation: self.activity.enqueue("pull", repo_id, cancellation.clone()),
+            operation: self.activity.enqueue(ActivityKind::Pull, repo_id, cancellation.clone()),
             cancellation,
         }
     }
@@ -25,18 +28,17 @@ impl Application {
     pub async fn pull(
         &self,
         session: TransferSession,
-        output: mpsc::Sender<TransferUpdate>,
+        output: mpsc::Sender<TransferProgress>,
     ) -> Result<DownloadedModel> {
-        let (updates, mut receiver) = mpsc::channel::<TransferUpdate>(64);
+        let (updates, mut receiver) = mpsc::channel::<TransferProgress>(64);
         let operation = session.operation.clone();
         let cancellation = session.cancellation.clone();
         let forward = tokio::spawn(async move {
             while let Some(update) = receiver.recv().await {
                 operation.progress(
-                    update.phase,
+                    ActivityStage::Transfer(update.phase),
                     &update.message,
-                    Some(update.downloaded_bytes),
-                    update.total_bytes,
+                    Some(ActivityProgress::new(update.downloaded_bytes, update.total_bytes)),
                 );
                 if output.send(update).await.is_err() {
                     cancellation.cancel();
@@ -45,19 +47,21 @@ impl Application {
             }
         });
         let result = self
-            .runtime
             .catalog
             .pull(&session.repo_id, session.revision.as_deref(), updates, &session.cancellation)
             .await;
-        forward.await.map_err(crate::error::Error::from)?;
+        forward.await.map_err(|error| super::Error::Infrastructure(error.to_string()))?;
         match &result {
-            Ok(model) => session.operation.finish("completed", &available_message(model)),
-            Err(crate::error::Error::Cancelled) => session
-                .operation
-                .finish("cancelled", "download stopped; partial files kept for resume"),
-            Err(error) => session.operation.finish("failed", &error.to_string()),
+            Ok(model) => {
+                session.operation.finish(ActivityOutcome::Completed, &available_message(model));
+            },
+            Err(super::Error::Cancelled) => session.operation.finish(
+                ActivityOutcome::Cancelled,
+                "download stopped; partial files kept for resume",
+            ),
+            Err(error) => session.operation.finish(ActivityOutcome::Failed, &error.to_string()),
         }
-        Ok(result?)
+        result
     }
 }
 

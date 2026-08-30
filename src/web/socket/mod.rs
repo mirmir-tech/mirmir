@@ -108,7 +108,7 @@ async fn send_startup(
     socket
         .send(Message::Text(
             serde_json::to_string(&ServerMessage::Startup {
-                startup: application.startup_snapshot().into(),
+                startup: application.startup_status().into(),
             })
             .expect("websocket startup message should serialize")
             .into(),
@@ -169,7 +169,7 @@ async fn send_activity(
     application: &Application,
     event: ActivityEvent,
 ) -> Result<(), axum::Error> {
-    let refresh_models = terminal(&event.state) && model_operation(&event.kind);
+    let refresh_models = event.status.is_terminal() && event.kind.changes_models();
     send(socket, ServerMessage::Activity { activity: event.into() }).await?;
     if refresh_models {
         send_models(socket, application).await?;
@@ -180,12 +180,4 @@ async fn send_activity(
 async fn send(socket: &mut WebSocket, message: ServerMessage) -> Result<(), axum::Error> {
     let json = serde_json::to_string(&message).expect("websocket server message should serialize");
     socket.send(Message::Text(json.into())).await
-}
-
-fn terminal(state: &str) -> bool {
-    matches!(state, "completed" | "failed" | "cancelled")
-}
-
-fn model_operation(kind: &str) -> bool {
-    matches!(kind, "load" | "restore" | "unload" | "pull" | "remove")
 }

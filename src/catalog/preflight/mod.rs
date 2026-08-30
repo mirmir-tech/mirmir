@@ -9,10 +9,7 @@ use std::{collections::BTreeSet, path::PathBuf};
 pub(super) use cache::Cache;
 use futures_util::TryStreamExt;
 use hf_hub::{repository::RepoTreeEntry, split_id};
-use libmir::{
-    RemoteModelContract,
-    models::weights::{TensorCatalog, safetensors_header_len},
-};
+use libmir::{RemoteModelContract, TensorCatalog, safetensors_header_len};
 pub use metadata::RemoteModelMetadata;
 pub(super) use presentation::{apply as apply_to_model, failure as apply_failure};
 

@@ -4,6 +4,7 @@ mod media;
 mod server;
 mod stream;
 mod task;
+mod tools;
 mod types;
 
 use tokio::sync::{broadcast, watch};

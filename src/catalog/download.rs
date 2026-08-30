@@ -8,9 +8,19 @@ use crate::{
     error::{Error, Result},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferPhase {
+    Queued,
+    Checking,
+    Resolving,
+    Downloading,
+    Validating,
+    Available,
+}
+
 #[derive(Debug, Clone)]
 pub struct TransferUpdate {
-    pub phase: &'static str,
+    pub phase: TransferPhase,
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
     pub message: String,
@@ -37,11 +47,18 @@ pub async fn pull(
 ) -> Result<DownloadedModel> {
     drop(model_key(repo_id)?);
     let revision = revision.unwrap_or("main");
-    send(&updates, "resolving", 0, None, format!("resolving {repo_id}@{revision}")).await;
+    send(
+        &updates,
+        TransferPhase::Resolving,
+        0,
+        None,
+        format!("resolving {repo_id}@{revision}"),
+    )
+    .await;
     let snapshot = resumable::snapshot(store, repo_id, revision, &updates, cancellation).await?;
     send(
         &updates,
-        "validating",
+        TransferPhase::Validating,
         directory_size(&snapshot),
         None,
         format!("validating snapshot for {repo_id}"),
@@ -55,7 +72,7 @@ pub async fn pull(
         || format!("saved model configuration for {repo_id}"),
         |reason| format!("downloaded {repo_id}; loading is unavailable: {reason}"),
     );
-    send(&updates, "available", directory_size(&snapshot), None, message).await;
+    send(&updates, TransferPhase::Available, directory_size(&snapshot), None, message).await;
     Ok(DownloadedModel { config: model, load_unavailable_reason })
 }
 
@@ -138,7 +155,7 @@ fn validated_cache_repo(
 
 pub(super) async fn send(
     sender: &mpsc::Sender<TransferUpdate>,
-    phase: &'static str,
+    phase: TransferPhase,
     downloaded_bytes: u64,
     total_bytes: Option<u64>,
     message: String,

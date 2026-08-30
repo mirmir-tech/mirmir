@@ -5,24 +5,14 @@ use crate::rpc::proto;
 
 impl RuntimeService {
     pub(crate) fn fail_startup(&self, detail: impl Into<String>) {
-        self.application.startup.failed(detail);
+        self.application.fail_startup(detail);
     }
 
-    pub(super) async fn remove_with_activity(
+    pub(super) async fn remove_request(
         &self,
         repo_id: String,
     ) -> Result<proto::RemoveModelResponse, Status> {
-        let operation = self.application.activity.begin("remove", &repo_id, None);
-        match catalog::remove(self, repo_id).await {
-            Ok(response) => {
-                operation.finish("completed", "model files removed");
-                Ok(response)
-            },
-            Err(error) => {
-                operation.finish("failed", error.message());
-                Err(error)
-            },
-        }
+        catalog::remove(self, repo_id).await
     }
 }
 
@@ -31,7 +21,10 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::*;
-    use crate::config::{AppConfig, Paths, Store};
+    use crate::{
+        application::ActivityStage,
+        config::{AppConfig, Paths, Store},
+    };
 
     #[tokio::test]
     async fn load_progress_reaches_activity_subscribers() {
@@ -52,19 +45,27 @@ mod tests {
         .await
         .expect("load task should finish");
 
-        let stages = tokio::time::timeout(std::time::Duration::from_secs(2), async move {
-            let mut stages = Vec::new();
+        let events = tokio::time::timeout(std::time::Duration::from_secs(2), async move {
+            let mut operation_ids = std::collections::HashSet::new();
+            let mut statuses = Vec::new();
             while let Ok(event) = activity.recv().await {
-                stages.push(event.stage.clone());
-                if event.state == "failed" {
+                operation_ids.insert(event.operation_id.clone());
+                statuses.push(event.status);
+                if event.status.is_terminal() {
                     break;
                 }
             }
-            stages
+            (operation_ids, statuses)
         })
         .await
         .expect("activity stream should reach a terminal event");
-        assert!(stages.iter().any(|stage| stage == "resolving"));
-        assert_eq!(stages.last().map(String::as_str), Some("failed"));
+        let (operation_ids, statuses) = events;
+        assert_eq!(operation_ids.len(), 1, "load must own exactly one application operation");
+        assert!(
+            statuses
+                .iter()
+                .any(|status| status.stage_str() == ActivityStage::Resolving.as_str())
+        );
+        assert_eq!(statuses.last().map(|status| status.state_str()), Some("failed"));
     }
 }

@@ -1,4 +1,4 @@
-use libmir::models::weights::TensorCatalog;
+use libmir::TensorCatalog;
 
 use super::*;
 use crate::catalog::preflight::RemoteModelMetadata;

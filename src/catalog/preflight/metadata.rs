@@ -1,9 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use libmir::{
-    RemoteTaskMetadata,
-    models::{execution::EmbeddingTask, tokenizer::TokenizerAssets},
-};
+use libmir::{EmbeddingTask, RemoteTaskMetadata, TokenizerAssets};
 use serde_json::Value;
 
 use crate::error::{Error, Result};

@@ -27,7 +27,7 @@ pub(super) struct ImageUrl {
 
 pub(super) fn messages(
     messages: Vec<ChatMessage>,
-) -> Result<(Vec<libmir::ChatMessage>, Option<Vec<u8>>), ApiError> {
+) -> Result<(Vec<libmir::Message>, Option<Vec<u8>>), ApiError> {
     let mut image = None;
     let messages = messages
         .into_iter()
@@ -38,11 +38,13 @@ pub(super) fn messages(
             {
                 return Err(ApiError::bad_request("only one image per request is supported"));
             }
-            Ok(libmir::ChatMessage {
+            Ok(libmir::Message {
                 role: message.role,
                 content,
                 reasoning_content: message.reasoning_content,
-                tool_calls: message.tool_calls,
+                tool_calls: message
+                    .tool_calls
+                    .map(|calls| calls.into_iter().map(Into::into).collect()),
                 tool_call_id: message.tool_call_id,
             })
         })

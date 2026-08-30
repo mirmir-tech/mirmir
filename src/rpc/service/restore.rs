@@ -4,16 +4,12 @@ use super::RuntimeService;
 
 impl RuntimeService {
     pub(super) fn report_state_recovery(&self) -> Result<(), Status> {
-        self.application
-            .report_state_recovery()
-            .map_err(|error| Status::internal(error.to_string()))
+        self.application.report_state_recovery().map_err(super::status::application)
     }
 
     pub fn restore_active_models(&self) -> Result<(), Status> {
-        let report = self
-            .application
-            .restore_active_models()
-            .map_err(|error| Status::internal(error.to_string()))?;
+        let report =
+            self.application.restore_active_models().map_err(super::status::application)?;
         tracing::info!(
             models = report.total,
             restored = report.restored,
@@ -50,7 +46,7 @@ mod tests {
         let service = RuntimeService::new(&AppConfig::default(), Store::new(paths));
 
         service.restore_active_models()?;
-        let event = super::super::activity::watch(&service.application.activity, true)
+        let event = super::super::activity::watch(&service.application, true)
             .next()
             .await
             .expect("recovery event should be present")?;

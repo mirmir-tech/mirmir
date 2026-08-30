@@ -96,7 +96,7 @@ fn send_completion(
     let output = result.output;
     let completion = proto::Completion {
         reasoning: output.reasoning,
-        tool_calls: libmir::ChatToolCall::parse_mistral(&output.tool_calls)
+        tool_calls: libmir::ToolCall::parse_mistral(&output.tool_calls)
             .unwrap_or_default()
             .into_iter()
             .map(proto_tool_call)
@@ -122,18 +122,10 @@ fn send_completion(
 }
 
 fn generation_error(error: crate::application::Error) -> Status {
-    match error {
-        crate::application::Error::Inference(libmir::Error::Cancelled) => {
-            Status::cancelled("generation cancelled")
-        },
-        crate::application::Error::Inference(error @ libmir::Error::VisionResourceLimit { .. }) => {
-            Status::resource_exhausted(error.to_string())
-        },
-        error => super::models::load_error(&error),
-    }
+    super::status::application(error)
 }
 
-fn proto_tool_call(call: libmir::ChatToolCall) -> proto::ChatToolCall {
+fn proto_tool_call(call: libmir::ToolCall) -> proto::ChatToolCall {
     proto::ChatToolCall {
         id: call.id,
         r#type: call.kind,
