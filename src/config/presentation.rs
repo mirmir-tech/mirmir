@@ -115,105 +115,30 @@ fn server_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document:
 }
 
 fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document: &toml::Value) {
-    push(
-        values,
-        document,
-        "runtime.kv_block_size",
-        &optional(config.runtime.kv_block_size),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.kv_blocks",
-        &optional(config.runtime.kv_blocks),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.kv_cache_dtype",
-        &config
-            .runtime
-            .kv_cache_dtype
-            .map_or_else(|| "auto".to_owned(), |value| value.to_string()),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.max_batch_requests",
-        &optional(config.runtime.max_batch_requests),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.max_batch_tokens",
-        &optional(config.runtime.max_batch_tokens),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.decode_batch_wait_us",
-        &optional(config.runtime.decode_batch_wait_us),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.decode_priority_burst",
-        &optional(config.runtime.decode_priority_burst),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.memory_reserve_percent",
-        &optional(config.runtime.memory_reserve_percent),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.memory_reserve_bytes",
-        &optional(config.runtime.memory_reserve_bytes),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.vision_max_pixels",
-        &optional(config.runtime.vision_max_pixels),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.vision_attention_budget_bytes",
-        &optional(config.runtime.vision_attention_budget_bytes),
-        true,
-        true,
-    );
-    push(
-        values,
-        document,
-        "runtime.vision_memory_percent",
-        &optional(config.runtime.vision_memory_percent),
-        true,
-        true,
-    );
+    let runtime = &config.runtime;
+    let dtype = runtime
+        .kv_cache_dtype
+        .map_or_else(|| "auto".to_owned(), |value| value.to_string());
+    for (key, value) in [
+        ("runtime.kv_block_size", optional(runtime.kv_block_size)),
+        ("runtime.kv_blocks", optional(runtime.kv_blocks)),
+        ("runtime.kv_cache_dtype", dtype),
+        ("runtime.max_batch_requests", optional(runtime.max_batch_requests)),
+        ("runtime.max_batch_tokens", optional(runtime.max_batch_tokens)),
+        ("runtime.prefill_batch_wait_us", optional(runtime.prefill_batch_wait_us)),
+        ("runtime.decode_batch_wait_us", optional(runtime.decode_batch_wait_us)),
+        ("runtime.decode_priority_burst", optional(runtime.decode_priority_burst)),
+        ("runtime.memory_reserve_percent", optional(runtime.memory_reserve_percent)),
+        ("runtime.memory_reserve_bytes", optional(runtime.memory_reserve_bytes)),
+        ("runtime.vision_max_pixels", optional(runtime.vision_max_pixels)),
+        (
+            "runtime.vision_attention_budget_bytes",
+            optional(runtime.vision_attention_budget_bytes),
+        ),
+        ("runtime.vision_memory_percent", optional(runtime.vision_memory_percent)),
+    ] {
+        push(values, document, key, &value, true, true);
+    }
 }
 
 fn push(

@@ -24,6 +24,9 @@ impl RuntimeSettings {
         if let Some(value) = self.max_batch_tokens {
             config.scheduler.max_batch_tokens = value;
         }
+        if let Some(value) = self.prefill_batch_wait_us {
+            config.scheduler.prefill_batch_wait_us = value;
+        }
         if let Some(value) = self.decode_batch_wait_us {
             config.scheduler.decode_batch_wait_us = value;
         }
@@ -75,6 +78,7 @@ mod tests {
     #[test]
     fn maps_vision_resource_policy_to_libmir() {
         let settings = RuntimeSettings {
+            prefill_batch_wait_us: Some(3_000),
             decode_batch_wait_us: Some(5_000),
             decode_priority_burst: Some(32),
             memory_reserve_percent: Some(1),
@@ -89,6 +93,7 @@ mod tests {
         assert_eq!(config.vision.max_pixels, Some(1_048_576));
         assert_eq!(config.vision.attention_budget_bytes, Some(1_073_741_824));
         assert_eq!(config.vision.memory_percent, 25);
+        assert_eq!(config.scheduler.prefill_batch_wait_us, 3_000);
         assert_eq!(config.scheduler.decode_batch_wait_us, 5_000);
         assert_eq!(config.scheduler.decode_priority_burst, 32);
         assert_eq!(config.memory.reserve_percent, Some(1));

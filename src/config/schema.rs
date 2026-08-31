@@ -36,6 +36,7 @@ pub struct RuntimeSettings {
     pub kv_cache_dtype: Option<KvCacheDType>,
     pub max_batch_requests: Option<usize>,
     pub max_batch_tokens: Option<usize>,
+    pub prefill_batch_wait_us: Option<u64>,
     pub decode_batch_wait_us: Option<u64>,
     pub decode_priority_burst: Option<usize>,
     pub memory_reserve_percent: Option<u8>,

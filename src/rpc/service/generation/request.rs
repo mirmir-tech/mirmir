@@ -34,6 +34,7 @@ pub(super) fn chat_request(request: &proto::GenerateRequest) -> Result<Generatio
             repetition_penalty: request.repetition_penalty,
         },
         seed: request.seed,
+        reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
     })
 }
 
