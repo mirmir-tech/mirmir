@@ -1,7 +1,6 @@
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::{ffi::OsString, path::PathBuf};
 
 use super::schema::RuntimeSettings;
 
