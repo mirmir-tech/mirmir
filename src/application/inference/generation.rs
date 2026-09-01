@@ -11,7 +11,6 @@ use super::super::{
     ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, Application, CompletionMetrics,
     GenerationTelemetry, Operation, Result,
 };
-
 pub struct GenerationSession {
     selector: String,
     operation: Operation,
@@ -19,20 +18,18 @@ pub struct GenerationSession {
     telemetry: GenerationTelemetry,
     started: Instant,
 }
-
 pub struct GenerationResult {
     pub output: GenerationOutput,
     pub elapsed_ms: f64,
     pub ttft_ms: Option<f64>,
     pub tokens_per_second: Option<f64>,
 }
-
 pub enum GenerationEvent {
     Started { operation_id: String },
+    OutputStarted,
     Token(GenerationToken),
     Completion(Box<GenerationResult>),
 }
-
 impl Application {
     pub fn start_generation(&self, selector: &str) -> GenerationSession {
         let cancellation = CancellationToken::new();
@@ -63,8 +60,18 @@ impl Application {
         })));
         drop(tokio::task::spawn_blocking(move || {
             let cancellation = session.cancellation();
+            let output_events = sender.clone();
+            let mut output_started = false;
+            let mut progress = move |event: ProgressEvent| {
+                if !output_started
+                    && event.stage() == ProgressStage::DecodeTokens
+                    && event.count().current() == 0
+                {
+                    output_started = true;
+                    drop(output_events.blocking_send(Ok(GenerationEvent::OutputStarted)));
+                }
+            };
             let tokens = sender.clone();
-            let mut progress = |_event| {};
             let mut token = move |token| {
                 if tokens.blocking_send(Ok(GenerationEvent::Token(token))).is_err() {
                     cancellation.cancel();
@@ -95,6 +102,7 @@ impl Application {
         progress: &mut dyn FnMut(ProgressEvent),
         token: &mut dyn FnMut(GenerationToken),
     ) -> Result<GenerationResult> {
+        let dispatch_wait = session.started.elapsed();
         session.telemetry.resolving();
         session.operation.progress(ActivityStage::Resolving, "resolving model", None);
         let telemetry = &session.telemetry;
@@ -109,7 +117,9 @@ impl Application {
             );
             tracing::debug!(model = %selector, stage = ?event.stage(), current = event.count().current(), total = event.count().total(), "model progress");
         };
+        let resolve_started = Instant::now();
         let model = self.runtime.load_model(&session.selector, false, &mut loading)?.model;
+        let model_resolve = resolve_started.elapsed();
         session.telemetry.stage(ProgressStage::PrefillTokens);
         session.operation.progress(
             ActivityStage::Runtime(ProgressStage::PrefillTokens),
@@ -146,7 +156,18 @@ impl Application {
             ),
         };
         match result {
-            Ok(output) => Ok(session.complete(output, ttft_ms)),
+            Ok(output) => {
+                let engine_ttft = output.metrics.durations_ms.first_token_total;
+                tracing::info!(
+                    dispatch_wait_ms = dispatch_wait.as_secs_f64() * 1_000.0,
+                    model_resolve_ms = model_resolve.as_secs_f64() * 1_000.0,
+                    engine_ttft_ms = engine_ttft,
+                    application_ttft_ms = ttft_ms,
+                    pre_engine_ttft_ms = ttft_ms.map(|value| value - engine_ttft),
+                    "application generation latency breakdown"
+                );
+                Ok(session.complete(output, ttft_ms))
+            },
             Err(error) => {
                 session.fail(&error);
                 Err(error.into())
@@ -154,7 +175,6 @@ impl Application {
         }
     }
 }
-
 impl GenerationSession {
     #[must_use]
     pub fn operation_id(&self) -> &str {

@@ -125,6 +125,7 @@ fn stream_event(event: GenerationEvent) -> Event {
         GenerationEvent::Started { operation_id } => {
             json_event("started", Started { operation_id })
         },
+        GenerationEvent::OutputStarted => Event::default().event("output_started").data("{}"),
         GenerationEvent::Token(token) => json_event(
             "token",
             Token {
@@ -193,6 +194,7 @@ fn application_request(
             repetition_penalty: chat.repetition_penalty,
         },
         seed: chat.seed,
+        reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
     };
     Ok((selector, request, image))
 }

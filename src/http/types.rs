@@ -26,6 +26,8 @@ pub struct ChatRequest {
     pub repetition_penalty: Option<f32>,
     pub seed: Option<u64>,
     pub n: Option<u32>,
+    #[serde(default)]
+    pub return_token_ids: bool,
     pub stream_options: Option<StreamOptions>,
 }
 
@@ -156,6 +158,7 @@ impl ChatRequest {
                 repetition_penalty: self.repetition_penalty,
             },
             seed: self.seed,
+            reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
         };
         Ok((selector, request, image))
     }

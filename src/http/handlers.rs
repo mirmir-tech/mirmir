@@ -83,12 +83,21 @@ pub async fn chat(
     let streaming = request.stream;
     let include_usage =
         request.stream_options.as_ref().is_some_and(|options| options.include_usage);
+    let return_token_ids = request.return_token_ids;
     let (model, request, image) = request.into_application()?;
     let id = completion_id();
     let created = unix_seconds();
     let mut events = state.application().generation_stream(&model, request, image);
     if streaming {
-        return Ok(stream::response(events, id, created, model, include_usage, state.shutdown()));
+        return Ok(stream::response(
+            events,
+            id,
+            created,
+            model,
+            include_usage,
+            return_token_ids,
+            state.shutdown(),
+        ));
     }
     while let Some(event) = events.next().await {
         let event = event.map_err(|error| ApiError::from_application(&error))?;

@@ -57,6 +57,9 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
             optional_integer(document, "max_batch_requests", key, input)?;
         },
         "runtime.max_batch_tokens" => optional_integer(document, "max_batch_tokens", key, input)?,
+        "runtime.prefill_batch_wait_us" => {
+            optional_integer(document, "prefill_batch_wait_us", key, input)?;
+        },
         "runtime.decode_batch_wait_us" => {
             optional_integer(document, "decode_batch_wait_us", key, input)?;
         },
