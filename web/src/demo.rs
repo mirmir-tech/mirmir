@@ -6,9 +6,16 @@ use crate::{
 };
 
 pub fn populate(state: RuntimeState) {
+    state.server.set(crate::types::Bootstrap {
+        backend_support: "metal".to_owned(),
+        platform: "macos".to_owned(),
+        architecture: "aarch64".to_owned(),
+        server_version: "0.3.1".to_owned(),
+        protocol_version: "1".to_owned(),
+        ..Default::default()
+    });
+    state.chat_model.set("Qwen/Qwen3-4B".to_owned());
     state.connection.set("connected".to_owned());
-    state.server_version.set("0.3.0".to_owned());
-    state.protocol_version.set("1".to_owned());
     state.overview.set(Some(overview()));
     state.telemetry.set((0_u64..140).map(telemetry_point).collect());
     state.activities.set(activities());
@@ -47,8 +54,8 @@ fn overview() -> Overview {
         mean_prefill_tokens_per_second: Some(598.6),
         mean_decode_tokens_per_second: Some(41.4),
         mean_ttft_ms: Some(192.0),
-        host_total_memory_bytes: Some(52 * 1024 * 1024 * 1024),
-        host_available_memory_bytes: Some(33 * 1024 * 1024 * 1024),
+        host_total_memory_bytes: Some(64 * 1024 * 1024 * 1024),
+        host_available_memory_bytes: Some(45 * 1024 * 1024 * 1024),
         memory_source: "Apple unified memory".to_owned(),
         active_stage: "decode".to_owned(),
         gpu_utilization_percent: Some(72.0),
@@ -61,6 +68,8 @@ fn overview() -> Overview {
 
 const fn telemetry_point(index: u64) -> TelemetryPoint {
     TelemetryPoint {
+        prefill_tokens_per_second: Some(580.0 + noise(index, 19, 60) as f64),
+        decode_tokens_per_second: Some(40.0 + noise(index, 13, 6) as f64),
         sampled_at_unix_ms: 1_760_000_000_000 + index * 1_000,
         memory_percent: Some((34 + index / 18 % 4 + noise(index / 9, 59, 2)) as f64),
         gpu_percent: Some((54 + noise(index, 71, 34)) as f64),

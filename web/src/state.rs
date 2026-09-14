@@ -4,7 +4,7 @@ use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::types::{Activity, Configuration, Model, Overview, TelemetryPoint};
+use crate::types::{Activity, Bootstrap, Configuration, Model, Overview, TelemetryPoint};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -34,10 +34,10 @@ pub struct Toast {
 
 #[derive(Clone, Copy)]
 pub struct RuntimeState {
+    pub server: RwSignal<Bootstrap>,
+    pub chat_model: RwSignal<String>,
     pub page: RwSignal<Page>,
     pub connection: RwSignal<String>,
-    pub server_version: RwSignal<String>,
-    pub protocol_version: RwSignal<String>,
     pub csrf: RwSignal<String>,
     pub overview: RwSignal<Option<Overview>>,
     pub models: RwSignal<Vec<Model>>,
@@ -54,10 +54,10 @@ pub struct RuntimeState {
 impl RuntimeState {
     pub fn new() -> Self {
         Self {
+            server: RwSignal::new(Bootstrap::default()),
+            chat_model: RwSignal::new(String::new()),
             page: RwSignal::new(Page::Overview),
             connection: RwSignal::new("connecting".to_owned()),
-            server_version: RwSignal::new(String::new()),
-            protocol_version: RwSignal::new(String::new()),
             csrf: RwSignal::new(String::new()),
             overview: RwSignal::new(None),
             models: RwSignal::new(Vec::new()),

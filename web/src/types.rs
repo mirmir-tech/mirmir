@@ -4,6 +4,12 @@ pub mod catalog;
 
 #[derive(Clone, Default, Deserialize)]
 pub struct Bootstrap {
+    #[serde(default)]
+    pub backend_support: String,
+    #[serde(default)]
+    pub platform: String,
+    #[serde(default)]
+    pub architecture: String,
     pub schema_version: u32,
     pub server_version: String,
     pub protocol_version: String,
@@ -118,6 +124,8 @@ pub struct History {
 
 #[derive(Clone, Default, Deserialize)]
 pub struct HistorySample {
+    pub prefill_tokens_per_second: Option<f64>,
+    pub decode_tokens_per_second: Option<f64>,
     pub sampled_at_unix_ms: u64,
     pub memory_total_bytes: Option<u64>,
     pub memory_available_bytes: Option<u64>,
@@ -129,6 +137,8 @@ pub struct HistorySample {
 
 #[derive(Clone, Default)]
 pub struct TelemetryPoint {
+    pub prefill_tokens_per_second: Option<f64>,
+    pub decode_tokens_per_second: Option<f64>,
     pub sampled_at_unix_ms: u64,
     pub memory_percent: Option<f64>,
     pub gpu_percent: Option<f64>,

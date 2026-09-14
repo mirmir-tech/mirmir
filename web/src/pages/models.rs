@@ -39,7 +39,7 @@ pub fn ModelsPage() -> impl IntoView {
             <SearchPopup />
             <div class="table-wrap models-table">
                 <table>
-                    <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Features</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                    <thead><tr><th>Name</th><th>Format & compatibility</th><th>Features</th><th>Size</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
                     <tbody><For each=move || state.models.get() key=model_key children=move |model| view! { <LocalRow model=model /> } /></tbody>
                 </table>
                 <Show when=move || !state.models_loaded.get()>
@@ -49,6 +49,7 @@ pub fn ModelsPage() -> impl IntoView {
                     <p class="empty">"No local models."</p>
                 </Show>
             </div>
+
             <LoadDialog />
             <RemoveDialog />
         </section>

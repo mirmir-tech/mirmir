@@ -44,6 +44,26 @@ const MONO_LATIN: &[u8] = include_bytes!("assets/fonts/jetbrains-mono-latin.woff
 const MONO_EXT: &[u8] = include_bytes!("assets/fonts/jetbrains-mono-latin-ext.woff2");
 
 #[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+enum BackendSupport {
+    Metal,
+    Cuda,
+    None,
+}
+
+impl BackendSupport {
+    const fn for_build() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Metal
+        } else if cfg!(target_os = "linux") {
+            Self::Cuda
+        } else {
+            Self::None
+        }
+    }
+}
+
+#[derive(Serialize)]
 struct Bootstrap {
     schema_version: u32,
     application: &'static str,
@@ -53,6 +73,9 @@ struct Bootstrap {
     management_api_base: &'static str,
     openai_api_base: &'static str,
     authentication: &'static str,
+    platform: &'static str,
+    architecture: &'static str,
+    backend_support: BackendSupport,
     capabilities: Capabilities,
 }
 
@@ -101,6 +124,9 @@ pub async fn bootstrap() -> Response {
         management_api_base: "/api/mirmir/v1",
         openai_api_base: "/v1",
         authentication: "local-session",
+        platform: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        backend_support: BackendSupport::for_build(),
         capabilities: Capabilities {
             asset_delivery: "embedded",
             views: ["overview", "models", "chat", "configuration"],
@@ -119,7 +145,13 @@ fn asset_headers(content_type: &'static str) -> HeaderMap {
 }
 
 fn embedded_asset(path: &str) -> Option<(&'static str, &'static [u8])> {
-    let asset = match path {
+    let asset: (&str, &[u8]) = match path {
+        "icons.svg" => ("image/svg+xml", include_bytes!("assets/icons.svg")),
+        "theme.css" => ("text/css; charset=utf-8", include_bytes!("assets/theme.css")),
+        "theme.js" => ("text/javascript; charset=utf-8", include_bytes!("assets/theme.js")),
+        "brand/lockup-on-light.svg" => {
+            ("image/svg+xml", include_bytes!("assets/brand/lockup-on-light.svg"))
+        },
         "brand/lockup.svg" => ("image/svg+xml", LOCKUP),
         "brand/favicon.svg" => ("image/svg+xml", FAVICON),
         "brand/topography.svg" => ("image/svg+xml", TOPOGRAPHY),

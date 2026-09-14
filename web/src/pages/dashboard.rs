@@ -1,5 +1,6 @@
 mod chart;
 mod format;
+mod runtime;
 
 use leptos::prelude::*;
 
@@ -9,6 +10,7 @@ use self::{
         active, device_caption, mean, memory_label, percent_label, power_label, stage,
         temperature_label, uptime,
     },
+    runtime::{RuntimeActivity, RuntimeInspector},
 };
 use crate::{
     state::{RuntimeState, number},
@@ -61,6 +63,7 @@ pub fn DashboardPage() -> impl IntoView {
                     class="ttft"
                 />
             </div>
+            <RuntimeActivity />
             <div class="device-grid">
                 <TelemetryPanel title="Memory" value=move || memory_label(state) class="memory-panel">
                     <Chart metric=Metric::Memory label="Memory occupancy over time" />
@@ -85,6 +88,7 @@ pub fn DashboardPage() -> impl IntoView {
                 </article>
                 <RuntimeSummary />
             </div>
+            <RuntimeInspector />
         </section>
     }
 }

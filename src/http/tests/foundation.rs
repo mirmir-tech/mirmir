@@ -80,6 +80,22 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
     assert_eq!(bootstrap["management_api_base"], "/api/mirmir/v1");
     assert_eq!(bootstrap["capabilities"]["management"], "model-lifecycle");
     assert_eq!(bootstrap["capabilities"]["updates"], "websocket");
+    assert_eq!(bootstrap["platform"], std::env::consts::OS);
+    assert_eq!(bootstrap["architecture"], std::env::consts::ARCH);
+    for (asset, content_type) in [
+        ("theme.css", "text/css"),
+        ("theme.js", "text/javascript"),
+        ("brand/lockup-on-light.svg", "image/svg+xml"),
+        ("icons.svg", "image/svg+xml"),
+    ] {
+        let response = client.get(format!("{base}/ui/assets/{asset}")).send().await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            response.headers()["content-type"]
+                .to_str()
+                .is_ok_and(|value| value.starts_with(content_type))
+        );
+    }
     assert_eq!(
         bootstrap["capabilities"]["views"],
         json!(["overview", "models", "chat", "configuration"])
@@ -96,7 +112,7 @@ async fn serves_opt_in_embedded_web_foundation() -> Result<()> {
 }
 
 fn assert_stylesheet(stylesheet: &str) {
-    assert!(stylesheet.contains("#79d7ff"));
+    assert!(stylesheet.contains("var(--mir-color-signal)"));
     assert!(stylesheet.contains("Space Grotesk"));
     assert!(!stylesheet.contains(".badge.loading::before"));
     assert!(stylesheet.contains(".dialog-actions button[aria-busy=\"true\"]::before"));

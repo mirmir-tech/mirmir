@@ -6,7 +6,7 @@ use super::ModelUi;
 use crate::{
     api,
     components::{FeaturePills, Icon, StatePill, TypePill},
-    state::{RuntimeState, bytes},
+    state::{Page, RuntimeState, bytes},
     types::{Activity, Model},
 };
 
@@ -65,13 +65,14 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     view! {
         <tr class:removing=move || state.busy.get().get(&repo_id.get_value()).is_some_and(|value| value == "remove")>
             <td><span class="model-name"><strong>{model.id.clone()}</strong><small>{model.repo_id.clone()}</small></span></td>
-            <td class="model-type"><TypePill value=format /><small>{format_detail}</small></td>
+            <td class="model-format"><TypePill value=format /><span>{format_detail}</span></td>
+            <td class="model-features"><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision || model.image_input /></td>
             <td class="model-size">{bytes(model.size_bytes)}</td>
-            <td><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision || model.image_input /></td>
             <td><StatePill state=display_state detail=detail progress=progress /></td>
-            <td class="model-actions">
+            <td class="model-actions"><div class="model-action-group">
+                <Show when=move || can_unload><button class="open-chat" on:click=move |_| { state.chat_model.set(selector.get_value()); state.page.set(Page::Chat); }>"Open chat"</button></Show>
                 <Show when=move || can_unload fallback=move || {
-                    view! { <button class="icon-action" data-tooltip="Load model" aria-label="Load model" disabled=busy on:click=move |_| super::dialogs::inspect(stored_model.get_value())><Icon name="load" /></button> }
+                    view! { <button class="icon-action" data-tooltip="Load model" aria-label="Load model" disabled=busy on:click=move |_| super::dialogs::inspect(stored_model.get_value())><Icon name="load" /><span>"Load"</span></button> }
                 }>
                     <button class="icon-action" data-tooltip="Unload model" aria-label="Unload model" disabled=busy on:click=move |_| { let target = selector.get_value(); run_action(state, target.clone(), "/models/unload", json!({"selector": target})); }><Icon name="unload" /></button>
                 </Show>
@@ -83,7 +84,7 @@ pub fn LocalRow(model: Model) -> impl IntoView {
                         if let Some(item) = operation() { cancel(state, item.operation_id); }
                     }><Icon name="cancel" /></button>
                 </Show>
-            </td>
+            </div></td>
         </tr>
     }
 }

@@ -16,7 +16,12 @@ pub struct ChatRequest {
     pub tool_choice: Option<serde_json::Value>,
     #[serde(default)]
     pub stream: bool,
+    /// Total generated-token budget, including reasoning and final content.
     pub max_tokens: Option<u64>,
+    #[serde(default)]
+    pub reasoning: libmir::ReasoningMode,
+    pub reasoning_budget: Option<serde_json::Value>,
+    pub reasoning_effort: Option<serde_json::Value>,
     pub max_completion_tokens: Option<u64>,
     pub min_tokens: Option<u64>,
     pub ignore_eos: Option<bool>,
@@ -133,6 +138,11 @@ impl ChatRequest {
         if self.n.unwrap_or(1) != 1 {
             return Err(ApiError::bad_request("only n=1 is supported"));
         }
+        if self.reasoning_budget.is_some() || self.reasoning_effort.is_some() {
+            return Err(ApiError::bad_request(
+                "reasoning_budget and reasoning_effort are unsupported; use reasoning with a total max_completion_tokens budget",
+            ));
+        }
         let max_tokens = match (self.max_tokens, self.max_completion_tokens) {
             (Some(left), Some(right)) if left != right => {
                 return Err(ApiError::bad_request("max_tokens and max_completion_tokens disagree"));
@@ -159,6 +169,7 @@ impl ChatRequest {
             },
             seed: self.seed,
             reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
+            reasoning: self.reasoning,
         };
         Ok((selector, request, image))
     }

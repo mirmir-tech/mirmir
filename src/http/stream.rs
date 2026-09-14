@@ -50,6 +50,7 @@ pub fn response(
         loop {
             let event = tokio::select! {
                 _result = shutdown.changed() => return,
+                () = sender.closed() => return,
                 event = source.next() => event,
             };
             let Some(event) = event else {

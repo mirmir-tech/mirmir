@@ -81,9 +81,19 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
         "runtime.vision_memory_percent" => {
             optional_integer(document, "vision_memory_percent", key, input)?;
         },
+        "runtime.prefill_decode_policy" => {
+            optional_runtime_string(document, "prefill_decode_policy", input);
+        },
+        "runtime.cached_prefill_policy" => {
+            optional_runtime_string(document, "cached_prefill_policy", input);
+        },
+        #[cfg(target_os = "macos")]
+        "runtime.metal_decode_reservation" => {
+            optional_runtime_string(document, "metal_decode_reservation", input);
+        },
         "runtime.kv_cache_dtype" => {
             if automatic(input) {
-                if let Some(runtime) = document["runtime"].as_table_mut() {
+                if let Some(runtime) = document["runtime"].as_table_like_mut() {
                     runtime.remove("kv_cache_dtype");
                 }
             } else {
@@ -96,6 +106,17 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
     Ok(())
 }
 
+fn optional_runtime_string(document: &mut DocumentMut, field: &str, input: &str) {
+    if automatic(input) {
+        if let Some(runtime) = document["runtime"].as_table_like_mut() {
+            runtime.remove(field);
+        }
+    } else {
+        // AppConfig deserialization validates the typed value before any write.
+        document["runtime"][field] = value(input);
+    }
+}
+
 fn optional_string(document: &mut DocumentMut, key: &str, input: &str) {
     if automatic(input) {
         document.as_table_mut().remove(key);
@@ -106,7 +127,7 @@ fn optional_string(document: &mut DocumentMut, key: &str, input: &str) {
 
 fn optional_integer(document: &mut DocumentMut, field: &str, key: &str, input: &str) -> Result<()> {
     if automatic(input) {
-        if let Some(runtime) = document["runtime"].as_table_mut() {
+        if let Some(runtime) = document["runtime"].as_table_like_mut() {
             runtime.remove(field);
         }
     } else {
@@ -140,6 +161,9 @@ const fn automatic(input: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    mod metal;
+    mod refill;
+    mod reset;
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},

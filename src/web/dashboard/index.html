@@ -1,1 +1,26 @@
-<!doctype html><html lang=en><meta charset=utf-8><meta content="width=device-width,initial-scale=1" name=viewport><meta content=#0b1117 name=theme-color><title>MiRMiR · Runtime dashboard</title><link href=/ui/assets/brand/favicon.svg rel=icon type=image/svg+xml><link href=/ui/app.css rel=stylesheet><script type=module>import a,*as b from"/ui/mirmir-dashboard.js";a(`/ui/mirmir-dashboard_bg.wasm`);window.wasmBindings=b</script><link as=fetch crossorigin href=/ui/mirmir-dashboard_bg.wasm integrity=sha384-Nz6YQlvgcjNHmWvvBlSen+xEYtrrh2tH8FBbfIQSusuEXcEbuLu2HF3974fJbMhI rel=preload type=application/wasm><link crossorigin href=/ui/mirmir-dashboard.js integrity=sha384-RpuJACoU0IaPEE3FV1t8ZhILa4UuyvrRfvKYVzz5tcuhjSX3vpmUx0MfZineOlDl rel=modulepreload></head><body></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1117" />
+    <title>MiRMiR · Runtime dashboard</title>
+    <link rel="icon" href="/ui/assets/brand/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/ui/app.css" />
+
+<script type="module">
+import init, * as bindings from '/ui/mirmir-dashboard.js';
+const wasm = await init({ module_or_path: '/ui/mirmir-dashboard_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    <link rel="stylesheet" href="/ui/assets/theme.css?v=2" />
+    <script src="/ui/assets/theme.js?v=2"></script>
+  <link rel="modulepreload" href="/ui/mirmir-dashboard.js" crossorigin="anonymous" integrity="sha384-fX6rexaPKGXjvIkyCKaLJnleubIffwti2CD85wOSdQjIYwRBjbTqN+jMeK6UGEqz"><link rel="preload" href="/ui/mirmir-dashboard_bg.wasm" crossorigin="anonymous" integrity="sha384-DzOp0yM45TJvN/EQroxO7qnc9B6Bcw3EQEybewx1wQfC6uYYtD+CfxnSlQVX3zFK" as="fetch" type="application/wasm"></head>
+  <body></body>
+</html>

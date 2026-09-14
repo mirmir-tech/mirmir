@@ -39,6 +39,10 @@ pub struct RuntimeSettings {
     pub prefill_batch_wait_us: Option<u64>,
     pub decode_batch_wait_us: Option<u64>,
     pub decode_priority_burst: Option<usize>,
+    pub cached_prefill_policy: Option<libmir::CachedPrefillPolicy>,
+    pub prefill_decode_policy: Option<libmir::PrefillDecodePolicy>,
+    #[cfg(target_os = "macos")]
+    pub metal_decode_reservation: Option<libmir::MetalDecodeReservation>,
     pub memory_reserve_percent: Option<u8>,
     pub memory_reserve_bytes: Option<u64>,
     pub vision_max_pixels: Option<usize>,

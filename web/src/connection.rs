@@ -51,8 +51,7 @@ async fn establish(state: RuntimeState) -> Result<WebSocket, String> {
             bootstrap.schema_version
         ));
     }
-    state.server_version.set(bootstrap.server_version);
-    state.protocol_version.set(bootstrap.protocol_version);
+    state.server.set(bootstrap);
     let session: serde_json::Value = api::post_empty("/session").await?;
     let csrf = session["csrf_token"]
         .as_str()
@@ -153,6 +152,8 @@ impl From<&HistorySample> for TelemetryPoint {
         let memory_percent =
             usage_percent(sample.memory_total_bytes, sample.memory_available_bytes);
         Self {
+            prefill_tokens_per_second: sample.prefill_tokens_per_second,
+            decode_tokens_per_second: sample.decode_tokens_per_second,
             sampled_at_unix_ms: sample.sampled_at_unix_ms,
             memory_percent,
             gpu_percent: sample.gpu_utilization_percent,
@@ -166,6 +167,8 @@ impl From<&HistorySample> for TelemetryPoint {
 impl From<&Overview> for TelemetryPoint {
     fn from(overview: &Overview) -> Self {
         Self {
+            prefill_tokens_per_second: overview.current_prefill_tokens_per_second,
+            decode_tokens_per_second: overview.current_decode_tokens_per_second,
             sampled_at_unix_ms: overview.sampled_at_unix_ms,
             memory_percent: usage_percent(
                 overview.host_total_memory_bytes,

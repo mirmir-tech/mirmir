@@ -61,3 +61,21 @@ fn includes_requested_token_ids_on_the_choice() {
     let value = chunk("id", 0, "model", &json!({"content": "x"}), None, None, Some(&[42]));
     assert_eq!(value["choices"][0]["token_ids"], json!([42]));
 }
+
+#[tokio::test]
+async fn dropping_http_body_releases_idle_generation_source()
+-> Result<(), tokio::time::error::Elapsed> {
+    let (sender, receiver) = mpsc::channel(1);
+    let (_shutdown, shutdown) = watch::channel(false);
+    let response = response(
+        ReceiverStream::new(receiver),
+        "id".into(),
+        0,
+        "model".into(),
+        false,
+        false,
+        shutdown,
+    );
+    drop(response);
+    tokio::time::timeout(Duration::from_secs(1), sender.closed()).await
+}

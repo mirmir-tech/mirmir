@@ -33,6 +33,16 @@ impl RuntimeSettings {
         if let Some(value) = self.decode_priority_burst {
             config.scheduler.decode_priority_burst = value;
         }
+        if let Some(value) = self.prefill_decode_policy {
+            config.scheduler.prefill_decode_policy = value;
+        }
+        if let Some(value) = self.cached_prefill_policy {
+            config.scheduler.cached_prefill_policy = value;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(value) = self.metal_decode_reservation {
+            config.metal.cache.decode_reservation = value;
+        }
         config.memory.reserve_percent = self.memory_reserve_percent;
         config.memory.reserve_bytes = self.memory_reserve_bytes;
         if let Some(value) = self.vision_max_pixels {

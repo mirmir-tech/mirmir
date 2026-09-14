@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:none">
+  <style>symbol *{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}</style>
+  <symbol id="models" viewBox="0 0 24 24"><path d="m12 2 8 4.5v9L12 20l-8-4.5v-9L12 2Zm0 0v9m8-4.5-8 4.5-8-4.5m8 4.5v9"/></symbol>
+  <symbol id="runtime" viewBox="0 0 24 24"><path d="M4 5.5 12 2l8 3.5v10L12 20l-8-4.5v-10ZM4 5.5l8 4 8-4M12 9.5V20"/></symbol>
+  <symbol id="memory" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v5c0 1.7 3.1 3 7 3s7-1.3 7-3V5m0 5v5c0 1.7-3.1 3-7 3s-7-1.3-7-3v-5"/></symbol>
+  <symbol id="retrieval" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+  <symbol id="reasoning" viewBox="0 0 24 24"><path d="M7 18.5c-2-1.6-3-4-3-6.5a8 8 0 1 1 13 6.2V22l-4-2H9c-1 0-1.7-.6-2-1.5Z"/><path d="M8 11c1.2 1.5 2.5 2.2 4 2.2s2.8-.7 4-2.2M9 8.5h.01M15 8.5h.01"/></symbol>
+  <symbol id="agents" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v5M5 17v-3h14v3"/></symbol>
+  <symbol id="tools" viewBox="0 0 24 24"><path d="M14.7 6.3a4.5 4.5 0 0 0-5.8 5.8L3 18l3 3 5.9-5.9a4.5 4.5 0 0 0 5.8-5.8l-2.8 2.8-3-3 2.8-2.8Z"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2.1-.7-.6-1.5 1-2-2.1-2.1-2 1-1.5-.6L11 2.5H8l-.7 2.1-1.5.6-2-1-2.1 2.1 1 2-.6 1.5-2.1.7v3l2.1.7.6 1.5-1 2 2.1 2.1 2-1 1.5.6.7 2.1h3l.7-2.1 1.5-.6 2 1 2.1-2.1-1-2 .6-1.5 2.1-.7Z"/></symbol>
+  <symbol id="multimodal" viewBox="0 0 24 24"><path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14m14-14a10 10 0 0 1 0 14"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="monitoring" viewBox="0 0 24 24"><path d="M3 20V4m0 16h18M6 16l4-5 3 3 6-8"/></symbol>
+  <symbol id="logs" viewBox="0 0 24 24"><path d="M5 2h10l4 4v16H5V2Zm10 0v5h4M8 12h8M8 16h8"/></symbol>
+  <symbol id="terminal" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m6 9 3 3-3 3m6 0h5"/></symbol>
+</svg>

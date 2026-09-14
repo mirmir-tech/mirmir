@@ -195,6 +195,7 @@ fn application_request(
         },
         seed: chat.seed,
         reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
+        reasoning: libmir::ReasoningMode::ModelDefault,
     };
     Ok((selector, request, image))
 }

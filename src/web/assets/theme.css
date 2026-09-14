@@ -1,0 +1,59 @@
+/* Shared semantic palette. Source: identification/theme.css. */
+:root {
+  color-scheme: light;
+  --mir-color-canvas: #F7F8FA;
+  --mir-color-surface: #FFFFFF;
+  --mir-color-raised: #EEF2F7;
+  --mir-color-border: #DDE3EB;
+  --mir-color-ink: #20242B;
+  --mir-color-muted: #596473;
+  --mir-color-thought: #667386;
+  --mir-color-signal: #2563EB;
+  --mir-color-glacier: #2563EB;
+  --mir-color-brass: #8A5C19;
+  --mir-color-success: #167344;
+  --mir-color-warning: #885C10;
+  --mir-color-danger: #B42337;
+}
+:root[data-theme="dark"], :root.navy, :root.coal, :root.ayu {
+  color-scheme: dark;
+  --mir-color-canvas: #11151C;
+  --mir-color-surface: #181E27;
+  --mir-color-raised: #232C38;
+  --mir-color-border: #344151;
+  --mir-color-ink: #EDF1F7;
+  --mir-color-muted: #ACB8C8;
+  --mir-color-thought: #A0AEC0;
+  --mir-color-signal: #85ADFF;
+  --mir-color-glacier: #85ADFF;
+  --mir-color-brass: #D7AF6F;
+  --mir-color-success: #80D6A5;
+  --mir-color-warning: #E3BF78;
+  --mir-color-danger: #FF96A5;
+}
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme]):not(.light):not(.rust), :root[data-theme="system"] {
+  color-scheme: dark;
+  --mir-color-canvas: #11151C;
+  --mir-color-surface: #181E27;
+  --mir-color-raised: #232C38;
+  --mir-color-border: #344151;
+  --mir-color-ink: #EDF1F7;
+  --mir-color-muted: #ACB8C8;
+  --mir-color-thought: #A0AEC0;
+  --mir-color-signal: #85ADFF;
+  --mir-color-glacier: #85ADFF;
+  --mir-color-brass: #D7AF6F;
+  --mir-color-success: #80D6A5;
+  --mir-color-warning: #E3BF78;
+  --mir-color-danger: #FF96A5;
+}
+}
+
+.appearance-toggle { box-sizing: border-box; display: inline-flex; width: 38px; height: 38px; flex: none; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--mir-color-border); border-radius: 8px; background: var(--mir-color-surface); color: var(--mir-color-ink); cursor: pointer; }
+.appearance-toggle:hover { background: var(--mir-color-raised); }
+.appearance-toggle:focus-visible { outline: 2px solid var(--mir-color-signal); outline-offset: 3px; }
+.appearance-toggle svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.appearance-toggle .theme-moon { display: none; }
+:root[data-theme="dark"] .appearance-toggle .theme-sun { display: none; }
+:root[data-theme="dark"] .appearance-toggle .theme-moon { display: block; }

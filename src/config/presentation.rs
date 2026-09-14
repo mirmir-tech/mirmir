@@ -128,6 +128,10 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
         ("runtime.prefill_batch_wait_us", optional(runtime.prefill_batch_wait_us)),
         ("runtime.decode_batch_wait_us", optional(runtime.decode_batch_wait_us)),
         ("runtime.decode_priority_burst", optional(runtime.decode_priority_burst)),
+        ("runtime.cached_prefill_policy", optional(runtime.cached_prefill_policy)),
+        ("runtime.prefill_decode_policy", optional(runtime.prefill_decode_policy)),
+        #[cfg(target_os = "macos")]
+        ("runtime.metal_decode_reservation", optional(runtime.metal_decode_reservation)),
         ("runtime.memory_reserve_percent", optional(runtime.memory_reserve_percent)),
         ("runtime.memory_reserve_bytes", optional(runtime.memory_reserve_bytes)),
         ("runtime.vision_max_pixels", optional(runtime.vision_max_pixels)),

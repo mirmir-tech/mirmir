@@ -57,6 +57,72 @@ mirmir serve
 - live latency, throughput, memory, cache, and request telemetry;
 - native Metal and CUDA execution through `libmir`.
 
+## HTTP reasoning control
+
+`POST /v1/chat/completions` accepts the Mirmir extension `reasoning`:
+`"model_default"` (also the omitted default), `"enabled"`, or `"disabled"`.
+It selects the thinking switch for that text request without changing other
+requests. For example, a Qwen request can include:
+
+```json
+{"model":"/path/to/qwen", "messages":[{"role":"user","content":"Return 2+2."}], "reasoning":"disabled", "max_completion_tokens":256, "stream":true}
+```
+
+Explicit modes require a model Jinja template using `enable_thinking` or a
+supported built-in Qwen/Gemma template. Other templates, including GPT-OSS
+Harmony without this switch, and image requests reject explicit modes.
+`model_default` preserves existing rendering, including Qwen thinking.
+
+`max_completion_tokens` and `max_tokens` are aliases for one total budget
+covering both reasoning and final content; when both are present they must
+agree. Reaching that budget does not guarantee a final answer.
+Non-null `reasoning_budget` and `reasoning_effort` are rejected as unsupported.
+This HTTP extension is not exposed through the CLI or private gRPC protocol.
+
+## Cached refill latency policy
+
+The default scheduling policy is unchanged. To opt into earlier admission of
+one short cached continuation during resident decode, set:
+
+```sh
+mirmir config set runtime.cached_prefill_policy interleave_one_block
+```
+
+The setting applies when the runtime starts. Restore the backend default with
+`mirmir config set runtime.cached_prefill_policy auto`. The explicit default
+value is `backend_default`.
+
+This mode trades resident decode latency for earlier refill output. In the
+bounded Qwen diagnostic, refill first-token latency fell from about 1 s to
+47 ms, while survivor decode took about 22% longer. It did not pass the gate
+for default promotion. Admission requires a free slot, a cached queue head,
+and at most one KV block of estimated work; actual replay is bounded per step.
+
+## Metal decode page reservation
+
+On macOS, optionally reserve available K/V pages against each request's generation
+budget:
+
+```sh
+mirmir config set runtime.metal_decode_reservation generation_budget
+```
+
+The setting takes effect when the runtime starts; restart a running server after
+changing it. CLI, TUI and server configuration use the same setting. Unwritten
+reserved pages can be reclaimed under pressure. This does not set the output-token
+limit; the request still supplies that limit.
+
+The default remains `one_page`. Restore the backend default with:
+
+```sh
+mirmir config set runtime.metal_decode_reservation auto
+```
+
+Use `one_page` to select that policy explicitly. `auto` removes the override from
+`config.toml`. This option remains opt-in: isolated decode gains have not yet
+qualified whole-request prefill protection. Other platforms reject this Metal-only
+setting instead of silently ignoring it.
+
 ## Performance
 
 We are actively improving performance with the goal of catching up to and then
