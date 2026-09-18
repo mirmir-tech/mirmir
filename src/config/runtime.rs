@@ -36,6 +36,9 @@ impl RuntimeSettings {
         if let Some(value) = self.prefill_decode_policy {
             config.scheduler.prefill_decode_policy = value;
         }
+        if let Some(value) = self.prefill_refill_policy {
+            config.scheduler.prefill_refill_policy = value;
+        }
         if let Some(value) = self.cached_prefill_policy {
             config.scheduler.cached_prefill_policy = value;
         }
@@ -80,6 +83,19 @@ fn cuda_include_paths(value: Option<OsString>) -> Option<Vec<PathBuf>> {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn configure_tuning_cache(_config: &mut libmir::RuntimeConfig, _state_dir: &Path) {}
+
+impl super::schema::RuntimeSettings {
+    pub(super) fn validate_prefill_policies(&self) -> crate::error::Result<()> {
+        if self.prefill_refill_policy == Some(libmir::PrefillRefillPolicy::ShortPrompt)
+            && self.prefill_decode_policy == Some(libmir::PrefillDecodePolicy::CompleteCohort)
+        {
+            return Err(crate::error::Error::Config(
+                "short_prompt refill requires backend_default prefill_decode_policy".into(),
+            ));
+        }
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {

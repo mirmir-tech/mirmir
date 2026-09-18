@@ -84,6 +84,9 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
         "runtime.prefill_decode_policy" => {
             optional_runtime_string(document, "prefill_decode_policy", input);
         },
+        "runtime.prefill_refill_policy" => {
+            optional_runtime_string(document, "prefill_refill_policy", input);
+        },
         "runtime.cached_prefill_policy" => {
             optional_runtime_string(document, "cached_prefill_policy", input);
         },

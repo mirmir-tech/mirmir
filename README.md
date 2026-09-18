@@ -98,6 +98,25 @@ bounded Qwen diagnostic, refill first-token latency fell from about 1 s to
 for default promotion. Admission requires a free slot, a cached queue head,
 and at most one KV block of estimated work; actual replay is bounded per step.
 
+## Short prompts joining CUDA prefill
+
+Dense mixed-attention CUDA models process admitted prompts in completion order.
+An idle queue containing only prompts of at most 128 tokens uses a quiet window
+capped at 3 ms, while long or mixed queues retain the configured wait.
+
+To let new short queue-head requests join a running long prefill:
+
+```sh
+mirmir config set runtime.prefill_refill_policy short_prompt
+```
+
+The default is `closed`; `auto` removes the override. Restart the runtime after
+changing it. `short_prompt` requires a compatible CUDA model and cannot be
+combined with `runtime.prefill_decode_policy = "complete_cohort"`. Admission
+respects available request slots, resident KV pages and half the step's token
+budget, without overtaking an older long queued prompt. It reduces short-request
+waiting but can increase the long request's time to first token.
+
 ## Metal decode page reservation
 
 On macOS, optionally reserve available K/V pages against each request's generation

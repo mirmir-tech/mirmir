@@ -41,6 +41,7 @@ pub struct RuntimeSettings {
     pub decode_priority_burst: Option<usize>,
     pub cached_prefill_policy: Option<libmir::CachedPrefillPolicy>,
     pub prefill_decode_policy: Option<libmir::PrefillDecodePolicy>,
+    pub prefill_refill_policy: Option<libmir::PrefillRefillPolicy>,
     #[cfg(target_os = "macos")]
     pub metal_decode_reservation: Option<libmir::MetalDecodeReservation>,
     pub memory_reserve_percent: Option<u8>,
@@ -166,6 +167,7 @@ impl AppConfig {
                 "runtime.vision_memory_percent must be between 1 and 100".to_owned(),
             ));
         }
+        self.runtime.validate_prefill_policies()?;
         self.server.validate()?;
         Ok(())
     }

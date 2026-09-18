@@ -130,6 +130,7 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
         ("runtime.decode_priority_burst", optional(runtime.decode_priority_burst)),
         ("runtime.cached_prefill_policy", optional(runtime.cached_prefill_policy)),
         ("runtime.prefill_decode_policy", optional(runtime.prefill_decode_policy)),
+        ("runtime.prefill_refill_policy", optional(runtime.prefill_refill_policy)),
         #[cfg(target_os = "macos")]
         ("runtime.metal_decode_reservation", optional(runtime.metal_decode_reservation)),
         ("runtime.memory_reserve_percent", optional(runtime.memory_reserve_percent)),
