@@ -119,6 +119,7 @@ impl NativeRuntime {
             tracing::warn!(%error, model = model_id, "failed to persist automatic model eviction");
         }
         tracing::info!(model = model_id, "evicted idle least-recently-used model");
+        self.share_released_kv_memory();
         Ok(true)
     }
 
@@ -148,7 +149,18 @@ impl NativeRuntime {
             .deactivate_model(&key)
             .map_err(|error| Error::Persistence(error.to_string()))?;
         tracing::info!(model = %key, unloaded = true, "model unload requested");
+        self.share_released_kv_memory();
         Ok(true)
+    }
+
+    /// Lets the remaining idle models grow their K/V caches into the memory
+    /// an unloaded model released.
+    fn share_released_kv_memory(&self) {
+        match self.library.rebalance_kv_caches() {
+            Ok(grown) if grown > 0 => tracing::info!(grown, "resident models grew K/V caches"),
+            Ok(_) => {},
+            Err(error) => tracing::warn!(%error, "K/V cache rebalance after unload failed"),
+        }
     }
 }
 
