@@ -25,6 +25,7 @@ impl NativeRuntime {
             kv_cache_bytes = estimate.kv_cache_bytes,
             workspace_bytes = estimate.workspace_bytes,
             available_bytes = report.available,
+            reclaimable_kv_bytes = report.reclaimable,
             budget_bytes = report.budget,
             memory_source = report.source,
             fit = report.fit.as_str(),
@@ -59,7 +60,10 @@ impl NativeRuntime {
         let available =
             memory.available_bytes.map(|bytes| bytes.saturating_add(memory.cached_bytes));
         let reserve = self.library.config().memory.hard_reserve_bytes(&memory);
-        let budget = available.map(|free| free.saturating_sub(reserve));
+        // Measured K/V caches of resident models hold memory they give back
+        // to a new load, down to their minimum share; it is not gone.
+        let reclaimable = self.library.reclaimable_kv_bytes()?;
+        let budget = available.map(|free| free.saturating_add(reclaimable).saturating_sub(reserve));
         let capacity = memory.total_bytes.map(|total| total.saturating_sub(reserve));
         let fit = match budget {
             Some(budget) if estimate.required_bytes <= budget => MemoryFit::Fits,
@@ -70,6 +74,7 @@ impl NativeRuntime {
         Ok(MemoryReport {
             estimate,
             available,
+            reclaimable,
             budget,
             source: memory.source,
             fit,

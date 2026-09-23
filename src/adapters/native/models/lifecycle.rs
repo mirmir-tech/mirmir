@@ -81,6 +81,9 @@ impl NativeRuntime {
         if let Err(error) = self.store.remember_model(&entry.info.id) {
             tracing::warn!(%error, model = entry.info.id, "failed to persist recent model");
         }
+        // The other resident models sized their caches before this one took
+        // its memory; let them give some back.
+        self.rebalance_kv_memory();
         Ok(entry)
     }
 
@@ -119,7 +122,7 @@ impl NativeRuntime {
             tracing::warn!(%error, model = model_id, "failed to persist automatic model eviction");
         }
         tracing::info!(model = model_id, "evicted idle least-recently-used model");
-        self.share_released_kv_memory();
+        self.rebalance_kv_memory();
         Ok(true)
     }
 
@@ -149,17 +152,19 @@ impl NativeRuntime {
             .deactivate_model(&key)
             .map_err(|error| Error::Persistence(error.to_string()))?;
         tracing::info!(model = %key, unloaded = true, "model unload requested");
-        self.share_released_kv_memory();
+        self.rebalance_kv_memory();
         Ok(true)
     }
 
-    /// Lets the remaining idle models grow their K/V caches into the memory
-    /// an unloaded model released.
-    fn share_released_kv_memory(&self) {
+    /// Resizes the idle resident models' measured K/V caches to the memory
+    /// the others leave: they grow after an unload and shrink after a load.
+    fn rebalance_kv_memory(&self) {
         match self.library.rebalance_kv_caches() {
-            Ok(grown) if grown > 0 => tracing::info!(grown, "resident models grew K/V caches"),
+            Ok(resized) if resized > 0 => {
+                tracing::info!(resized, "resident models resized K/V caches");
+            },
             Ok(_) => {},
-            Err(error) => tracing::warn!(%error, "K/V cache rebalance after unload failed"),
+            Err(error) => tracing::warn!(%error, "K/V cache rebalance failed"),
         }
     }
 }

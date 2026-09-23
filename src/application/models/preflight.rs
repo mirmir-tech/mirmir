@@ -23,6 +23,8 @@ impl MemoryFit {
 pub struct MemoryReport {
     pub estimate: ModelMemoryEstimate,
     pub available: Option<u64>,
+    /// Bytes resident models' measured K/V caches would give back to this load.
+    pub reclaimable: u64,
     pub budget: Option<u64>,
     pub source: String,
     pub fit: MemoryFit,
@@ -81,6 +83,7 @@ mod tests {
             kv_bytes_per_token: 1024 * 1024,
             cache_capacity_tokens: 3072,
             model_context_tokens: 8192,
+            session_state_bytes: 0,
         };
         let message = rejection(estimate, 8 * GIB);
         assert!(message.contains("10.00 GiB"));
