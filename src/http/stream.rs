@@ -71,6 +71,7 @@ pub fn response(
                     }
                 },
                 Err(error) => {
+                    tracing::warn!(%id, %error, "generation stream ended with an error");
                     if !role_sent
                         && !send_json(
                             &sender,
