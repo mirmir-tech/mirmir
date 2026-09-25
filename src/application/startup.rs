@@ -88,6 +88,14 @@ impl Startup {
         self.state.borrow().clone()
     }
 
+    pub fn ensure_ready(&self) -> super::Result<()> {
+        if self.status().is_ready() {
+            Ok(())
+        } else {
+            Err(super::Error::RuntimeNotReady)
+        }
+    }
+
     pub fn subscribe(&self) -> watch::Receiver<StartupStatus> {
         self.state.subscribe()
     }
@@ -127,11 +135,16 @@ mod tests {
     #[test]
     fn publishes_loading_and_ready_states() {
         let startup = Startup::new();
+        assert!(matches!(startup.ensure_ready(), Err(super::super::Error::RuntimeNotReady)));
         let mut receiver = startup.subscribe();
         startup.loading("model", "weights", Some(ProgressCount::new(2, 4)));
+        assert!(startup.ensure_ready().is_err());
         assert!(receiver.has_changed().expect("startup sender should remain alive"));
         assert!(matches!(&*receiver.borrow_and_update(), StartupStatus::Loading { .. }));
         startup.ready("runtime ready");
         assert!(startup.status().is_ready());
+        assert!(startup.ensure_ready().is_ok());
+        startup.failed("restoration failed");
+        assert!(startup.ensure_ready().is_err());
     }
 }

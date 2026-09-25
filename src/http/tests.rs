@@ -24,13 +24,19 @@ async fn serves_openai_routes_with_bearer_auth_and_sse_errors() -> Result<()> {
     let mut config = AppConfig::default();
     config.server.http_bind = "127.0.0.1:0".to_owned();
     let application = crate::adapters::native::application(&config, Store::new(paths));
-    let owner = start(application, &config.server, Some("test-key".to_owned())).await?;
+    let owner = start(application.clone(), &config.server, Some("test-key".to_owned())).await?;
     let base = format!("http://{}", owner.address());
     let client = reqwest::Client::new();
 
     let health = client.get(format!("{base}/health")).send().await?;
     assert_eq!(health.status(), StatusCode::OK);
     assert_eq!(health.json::<Value>().await?["status"], "ok");
+
+    rejects_inference_during_startup(&client, &base).await?;
+    application
+        .restore_active_models()
+        .map_err(|error| crate::error::Error::Config(error.to_string()))?;
+    assert_eq!(client.get(format!("{base}/ready")).send().await?.status(), StatusCode::OK);
 
     let disabled_web = client.get(format!("{base}/ui/")).send().await?;
     assert_eq!(disabled_web.status(), StatusCode::NOT_FOUND);
@@ -98,4 +104,29 @@ async fn serves_openai_routes_with_bearer_auth_and_sse_errors() -> Result<()> {
     assert!(body.contains("[DONE]"));
 
     owner.shutdown().await
+}
+
+async fn rejects_inference_during_startup(client: &reqwest::Client, base: &str) -> Result<()> {
+    assert_eq!(
+        client.get(format!("{base}/ready")).send().await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    for (path, body) in [
+        (
+            "chat/completions",
+            json!({"model":"missing", "messages":[{"role":"user","content":"hello"}], "stream":true}),
+        ),
+        ("embeddings", json!({"model":"missing", "input":"hello"})),
+        ("rerank", json!({"model":"missing", "query":"q", "documents":["d"]})),
+    ] {
+        let response = client
+            .post(format!("{base}/v1/{path}"))
+            .bearer_auth("test-key")
+            .json(&body)
+            .send()
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.json::<Value>().await?["error"]["code"], "service_unavailable");
+    }
+    Ok(())
 }

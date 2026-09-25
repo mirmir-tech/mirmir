@@ -56,7 +56,10 @@ fn router(
     api_key: Option<String>,
     shutdown: watch::Receiver<bool>,
 ) -> Result<Router> {
-    let router = Router::new().route("/health", get(handlers::health)).nest("/v1", v1_routes());
+    let router = Router::new()
+        .route("/health", get(handlers::health))
+        .route("/ready", get(handlers::ready))
+        .nest("/v1", v1_routes());
     let router = if settings.web_enabled {
         router
             .route("/", get(crate::web::redirect))

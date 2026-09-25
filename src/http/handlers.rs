@@ -22,6 +22,14 @@ use crate::application::GenerationEvent;
 static NEXT_COMPLETION: AtomicU64 = AtomicU64::new(0);
 
 impl ApiState {
+    pub(super) fn require_ready(&self) -> Result<(), ApiError> {
+        if self.application().startup_status().is_ready() {
+            Ok(())
+        } else {
+            Err(ApiError::from_application(&crate::application::Error::RuntimeNotReady))
+        }
+    }
+
     pub(super) fn authorize(&self, headers: &HeaderMap) -> Result<(), ApiError> {
         let Some(expected) = &self.api_key else {
             return Ok(());
@@ -45,6 +53,11 @@ pub async fn health() -> Result<Json<HealthResponse>, ApiError> {
         server_version: response.server_version.to_owned(),
         protocol_version: response.protocol_version.to_owned(),
     }))
+}
+
+pub async fn ready(State(state): State<ApiState>) -> Result<Json<HealthResponse>, ApiError> {
+    state.require_ready()?;
+    health().await
 }
 
 pub async fn models(
@@ -76,6 +89,7 @@ pub async fn chat(
     payload: Result<Json<ChatRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     state.authorize(&headers)?;
+    state.require_ready()?;
     let request = match payload {
         Ok(request) => request.0,
         Err(error) => return Err(ApiError::bad_request(error.body_text())),

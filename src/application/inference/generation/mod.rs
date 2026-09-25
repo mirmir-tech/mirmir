@@ -54,6 +54,11 @@ impl Application {
         progress: &mut dyn FnMut(ProgressEvent),
         token: &mut dyn FnMut(GenerationToken),
     ) -> Result<GenerationResult> {
+        if let Err(error) = self.startup.ensure_ready() {
+            session.telemetry.fail();
+            session.operation.finish(ActivityOutcome::Failed, &error.to_string());
+            return Err(error);
+        }
         let dispatch_wait = session.started.elapsed();
         session.telemetry.resolving();
         session.operation.progress(ActivityStage::Resolving, "resolving model", None);

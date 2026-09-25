@@ -16,6 +16,7 @@ pub async fn embeddings(
     payload: Result<Json<EmbeddingsRequest>, JsonRejection>,
 ) -> Result<Json<EmbeddingsResponse>, ApiError> {
     state.authorize(&headers)?;
+    state.require_ready()?;
     let request = match payload {
         Ok(request) => request.0,
         Err(error) => return Err(ApiError::bad_request(error.body_text())),
@@ -48,6 +49,7 @@ pub async fn rerank(
     payload: Result<Json<RerankRequest>, JsonRejection>,
 ) -> Result<Json<RerankResponse>, ApiError> {
     state.authorize(&headers)?;
+    state.require_ready()?;
     let request = match payload {
         Ok(request) => request.0,
         Err(error) => return Err(ApiError::bad_request(error.body_text())),

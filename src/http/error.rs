@@ -125,3 +125,40 @@ impl IntoResponse for ApiError {
         response
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_is_retryable_unavailable() {
+        let error = crate::application::Error::RuntimeNotReady;
+        assert_eq!(
+            ApiError::from_application(&error).into_response().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    #[test]
+    fn impossible_cache_request_is_http_400_not_retryable_server_failure() {
+        let error = libmir::Error::Runtime(libmir::RuntimeError::KvCapacity {
+            requested: 4679,
+            capacity: 4096,
+        });
+        let response = ApiError::from_application(&error.into()).into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn temporary_memory_admission_remains_http_429() {
+        let error = libmir::Error::MemoryAdmission {
+            model: "test".into(),
+            required_bytes: 20,
+            available_bytes: 10,
+        };
+        assert_eq!(
+            ApiError::from_application(&error.into()).into_response().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+}

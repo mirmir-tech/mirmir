@@ -10,6 +10,7 @@ impl Application {
         selector: &str,
         request: libmir::EmbeddingRequest,
     ) -> Result<libmir::EmbeddingOutput> {
+        self.startup.ensure_ready()?;
         self.runtime.embed(selector, request)
     }
 
@@ -18,6 +19,7 @@ impl Application {
         selector: &str,
         request: libmir::RerankRequest,
     ) -> Result<libmir::RerankOutput> {
+        self.startup.ensure_ready()?;
         self.runtime.rerank(selector, request)
     }
 }

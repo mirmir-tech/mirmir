@@ -1,5 +1,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("runtime is not ready for inference; wait for active model restoration")]
+    RuntimeNotReady,
     #[error("{0} is poisoned")]
     StatePoisoned(&'static str),
     #[error("model `{0}` is currently serving a request")]
@@ -50,7 +52,7 @@ impl Error {
             },
             Self::MemoryPressure(_) => ErrorClass::ResourceExhausted,
             Self::Cancelled => ErrorClass::Cancelled,
-            Self::External(_) => ErrorClass::Unavailable,
+            Self::External(_) | Self::RuntimeNotReady => ErrorClass::Unavailable,
             Self::StatePoisoned(_)
             | Self::Persistence(_)
             | Self::Infrastructure(_)
@@ -91,6 +93,7 @@ impl From<libmir::Error> for Error {
             error @ (libmir::Error::MemoryAdmission { .. }
             | libmir::Error::VisionResourceLimit { .. }) => Self::MemoryPressure(error.to_string()),
             error @ (libmir::Error::EmptyPrompt
+            | libmir::Error::Runtime(libmir::RuntimeError::KvCapacity { .. })
             | libmir::Error::TaskMismatch { .. }
             | libmir::Error::Model(_)
             | libmir::Error::Context { .. }) => Self::InvalidRequest(error.to_string()),
