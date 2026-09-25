@@ -18,6 +18,8 @@ pub struct ChatRequest {
     /// Total generated-token budget, including reasoning and final content.
     pub max_tokens: Option<u64>,
     pub reasoning: Option<libmir::ReasoningMode>,
+    #[serde(default)]
+    pub tool_constraints: libmir::ToolConstraints,
     pub chat_template_kwargs: Option<super::reasoning::TemplateOptions>,
     pub thinking_token_budget: Option<serde_json::Value>,
     pub reasoning_budget: Option<serde_json::Value>,

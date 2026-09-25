@@ -11,6 +11,7 @@ pub(super) fn chat_request(request: &proto::GenerateRequest) -> Result<Generatio
         request.tool_choice_json.as_deref().map(serde_json::from_str).transpose(),
     )?;
     Ok(GenerationRequest {
+        tool_constraints: libmir::ToolConstraints::None,
         conversation: Conversation {
             messages: messages(request)?,
             tools: request.tools.iter().map(tool).collect::<Result<_, _>>()?,

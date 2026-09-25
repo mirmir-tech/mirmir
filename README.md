@@ -79,6 +79,28 @@ agree. Reaching that budget does not guarantee a final answer.
 Non-null `reasoning_budget` and `reasoning_effort` are rejected as unsupported.
 This HTTP extension is not exposed through the CLI or private gRPC protocol.
 
+## HTTP tool schema constraints
+
+`POST /v1/chat/completions` accepts `"tool_constraints":"schema"` to constrain
+native CUDA decoding to the named tool's parameter schema. Omission or `"none"`
+preserves ordinary decoding. Use a named `tool_choice`, disabled reasoning,
+`repetition_penalty: 1`, `min_tokens: 0`, and `ignore_eos: false` (the latter
+three can be omitted when the model defaults match). Other combinations return
+HTTP 400 instead of silently ignoring the constraint.
+
+The supported envelope is Qwen-style XML tool arguments. Values are JSON,
+including quoted strings; nested JSON schemas control types, required fields,
+enums and array cardinality. Parameter order is canonical. Root schemas must
+be objects with declared properties; unsupported root keywords or compiler
+warnings return HTTP 400. Schemas are limited to 64 top-level properties and
+512 KB. This does not verify that extracted facts are supported by a source.
+The original full schema is validated before returning completed calls.
+`uniqueItems` is enforced at this final check, rather than by the token mask;
+a duplicate produces HTTP 422. Schema reference retrieval over HTTP and files
+is disabled. A token budget that truncates a tool call still returns the existing HTTP 422
+invalid-output error. Schema mode is currently qualified on CUDA, not Metal,
+and is not exposed through the CLI or private gRPC protocol.
+
 ## Cached refill latency policy
 
 The default scheduling policy is unchanged. To opt into earlier admission of

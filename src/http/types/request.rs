@@ -60,6 +60,7 @@ impl ChatRequest {
                 repetition_penalty: self.repetition_penalty,
             },
             seed: self.seed,
+            tool_constraints: self.tool_constraints,
             reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
             reasoning: crate::http::reasoning::resolve(self.reasoning, self.chat_template_kwargs)?,
         };
