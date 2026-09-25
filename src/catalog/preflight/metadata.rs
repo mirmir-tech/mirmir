@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use libmir::{EmbeddingTask, RemoteTaskMetadata, TokenizerAssets};
+use libmir::{CausalScoringTask, EmbeddingTask, RemoteTaskMetadata, TokenizerAssets};
 use serde_json::Value;
 
 use crate::error::{Error, Result};
@@ -28,6 +28,7 @@ pub struct RemoteModelMetadata {
     pub tokenizer_config: Option<Value>,
     pub modules: Option<Value>,
     pub pooling: Option<Value>,
+    pub logit_score: Option<Value>,
     pub sentence_transformers: Option<Value>,
     pub processor_config: Option<Value>,
     pub tokenizer_assets: TokenizerAssets,
@@ -114,6 +115,7 @@ pub(super) fn parse(config: &[u8], tokenizer: Option<&[u8]>) -> Result<RemoteMod
         tokenizer_config: tokenizer.map(serde_json::from_slice).transpose()?,
         modules: None,
         pooling: None,
+        logit_score: None,
         sentence_transformers: None,
         processor_config: None,
         tokenizer_assets: inference(TokenizerAssets::discover(&BTreeMap::from([(
@@ -128,6 +130,7 @@ impl RemoteModelMetadata {
         RemoteTaskMetadata {
             modules: self.modules.as_ref(),
             pooling: self.pooling.as_ref(),
+            logit_score: self.logit_score.as_ref(),
             sentence_transformers: self.sentence_transformers.as_ref(),
             processor: self.processor_config.as_ref(),
         }
@@ -183,12 +186,25 @@ pub(super) async fn fetch(
         },
         Some(None) | None => None,
     };
+    let logit_score =
+        match inference(modules_value.as_ref().map(CausalScoringTask::config_path).transpose())? {
+            Some(Some(path)) => {
+                let file = files.nested_configs.get(&path).ok_or_else(|| {
+                    Error::Config(format!(
+                        "Sentence Transformers LogitScore config `{path}` is missing"
+                    ))
+                })?;
+                Some(super::range::fetch_file(client, token, base, repo_id, revision, file).await?)
+            },
+            Some(None) | None => None,
+        };
     let fetched = std::iter::once(&config)
         .chain(tokenizer.iter())
         .chain(modules.iter())
         .chain(sentence.iter())
         .chain(processor.iter())
         .chain(pooling.iter())
+        .chain(logit_score.iter())
         .try_fold(0_usize, |total, bytes| total.checked_add(bytes.len()))
         .ok_or_else(|| Error::Config("metadata byte count overflow".into()))?;
     Ok((
@@ -197,6 +213,7 @@ pub(super) async fn fetch(
             tokenizer_config: tokenizer.as_deref().map(serde_json::from_slice).transpose()?,
             modules: modules_value,
             pooling: pooling.as_deref().map(serde_json::from_slice).transpose()?,
+            logit_score: logit_score.as_deref().map(serde_json::from_slice).transpose()?,
             sentence_transformers: sentence.as_deref().map(serde_json::from_slice).transpose()?,
             processor_config: processor.as_deref().map(serde_json::from_slice).transpose()?,
             tokenizer_assets,

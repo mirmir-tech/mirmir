@@ -75,6 +75,14 @@ fn capabilities(descriptor: &ModelDescriptor) -> ModelTaskCapabilities {
                 raw_scores: true,
             }),
         ),
+        TaskExecutionPlan::CausalScoring { .. } => (
+            None,
+            Some(RerankCapabilities {
+                labels: 1,
+                pooling: "last_token",
+                raw_scores: true,
+            }),
+        ),
         TaskExecutionPlan::Generation { .. } => (None, None),
     };
     ModelTaskCapabilities {
@@ -95,8 +103,8 @@ const fn pooling(mode: PoolingMode) -> &'static str {
 const fn task_name(task: &ModelTask) -> &'static str {
     match task {
         ModelTask::Generation => "generation",
+        ModelTask::CausalScoring(_) | ModelTask::SequenceScoring(_) => "rerank",
         ModelTask::Embedding(_) => "embedding",
-        ModelTask::SequenceScoring(_) => "rerank",
     }
 }
 

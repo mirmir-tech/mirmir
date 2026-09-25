@@ -1,6 +1,7 @@
 mod error;
 mod handlers;
 mod media;
+mod reasoning;
 mod server;
 mod stream;
 mod task;

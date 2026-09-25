@@ -18,8 +18,9 @@ pub struct ChatRequest {
     pub stream: bool,
     /// Total generated-token budget, including reasoning and final content.
     pub max_tokens: Option<u64>,
-    #[serde(default)]
-    pub reasoning: libmir::ReasoningMode,
+    pub reasoning: Option<libmir::ReasoningMode>,
+    pub chat_template_kwargs: Option<super::reasoning::TemplateOptions>,
+    pub thinking_token_budget: Option<serde_json::Value>,
     pub reasoning_budget: Option<serde_json::Value>,
     pub reasoning_effort: Option<serde_json::Value>,
     pub max_completion_tokens: Option<u64>,
@@ -138,9 +139,12 @@ impl ChatRequest {
         if self.n.unwrap_or(1) != 1 {
             return Err(ApiError::bad_request("only n=1 is supported"));
         }
-        if self.reasoning_budget.is_some() || self.reasoning_effort.is_some() {
+        if self.reasoning_budget.is_some()
+            || self.reasoning_effort.is_some()
+            || self.thinking_token_budget.is_some()
+        {
             return Err(ApiError::bad_request(
-                "reasoning_budget and reasoning_effort are unsupported; use reasoning with a total max_completion_tokens budget",
+                "reasoning_budget, thinking_token_budget and reasoning_effort are unsupported; use reasoning with a total max_completion_tokens budget",
             ));
         }
         let max_tokens = match (self.max_tokens, self.max_completion_tokens) {
@@ -169,7 +173,7 @@ impl ChatRequest {
             },
             seed: self.seed,
             reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
-            reasoning: self.reasoning,
+            reasoning: super::reasoning::resolve(self.reasoning, self.chat_template_kwargs)?,
         };
         Ok((selector, request, image))
     }

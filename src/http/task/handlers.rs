@@ -56,6 +56,7 @@ pub async fn rerank(
         return Err(ApiError::bad_request("model, query, and at least one document are required"));
     }
     let return_documents = request.return_documents;
+    let top_n = request.top_n.unwrap_or(request.documents.len());
     let max_length = request
         .max_length
         .map(usize::try_from)
@@ -78,6 +79,7 @@ pub async fn rerank(
         results: response
             .results
             .into_iter()
+            .take(top_n)
             .map(|result| RerankData {
                 index: u64::try_from(result.index).unwrap_or(u64::MAX),
                 relevance_score: result.score,

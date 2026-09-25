@@ -26,7 +26,7 @@ fn omission_keeps_the_existing_model_default() {
 
 #[test]
 fn rejects_unsupported_reasoning_budgets_effort_and_invalid_modes() {
-    for field in ["reasoning_budget", "reasoning_effort"] {
+    for field in ["reasoning_budget", "reasoning_effort", "thinking_token_budget"] {
         let mut body =
             serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}]});
         body[field] = serde_json::json!(32);
@@ -37,6 +37,24 @@ fn rejects_unsupported_reasoning_budgets_effort_and_invalid_modes() {
         serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}], "reasoning":"low"}),
     );
     assert!(request.is_err());
+}
+
+#[test]
+fn accepts_vllm_thinking_alias_and_rejects_conflicts_or_unknown_options() {
+    for (enabled, expected) in
+        [(true, libmir::ReasoningMode::Enabled), (false, libmir::ReasoningMode::Disabled)]
+    {
+        let body = serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}], "chat_template_kwargs":{"enable_thinking":enabled}});
+        let request: ChatRequest = serde_json::from_value(body).expect("wire alias");
+        assert_eq!(request.into_application().expect("compatible alias").1.reasoning, expected);
+    }
+    for explicit in ["enabled", "model_default"] {
+        let body = serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}], "reasoning":explicit, "chat_template_kwargs":{"enable_thinking":false}});
+        let request: ChatRequest = serde_json::from_value(body).expect("wire conflict");
+        assert!(request.into_application().is_err());
+    }
+    let body = serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}], "chat_template_kwargs":{"thinking_budget":32}});
+    assert!(serde_json::from_value::<ChatRequest>(body).is_err());
 }
 
 #[test]

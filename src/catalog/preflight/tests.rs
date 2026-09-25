@@ -145,6 +145,7 @@ fn remote_metadata() -> RemoteModelMetadata {
         tokenizer_config: None,
         modules: None,
         pooling: None,
+        logit_score: None,
         sentence_transformers: None,
         processor_config: None,
         tokenizer_assets: tokenizer_assets(),

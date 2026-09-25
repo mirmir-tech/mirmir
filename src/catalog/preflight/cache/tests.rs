@@ -30,6 +30,7 @@ fn preflight() -> RemoteHeaderPreflight {
             tokenizer_config: None,
             modules: None,
             pooling: None,
+            logit_score: None,
             sentence_transformers: None,
             processor_config: None,
             tokenizer_assets: super::super::tests::tokenizer_assets(),

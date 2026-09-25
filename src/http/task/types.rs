@@ -39,6 +39,7 @@ pub(in crate::http) struct RerankRequest {
     pub query: String,
     pub documents: Vec<String>,
     pub max_length: Option<u64>,
+    pub top_n: Option<usize>,
     #[serde(default)]
     pub raw_scores: bool,
     #[serde(default)]
