@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    error::ApiError,
-    media::{MessageContent, messages},
+    media::MessageContent,
     tools::{RequestTool, RequestToolCall},
 };
 use crate::application::GenerationResult;
@@ -30,6 +29,8 @@ pub struct ChatRequest {
     pub top_p: Option<f32>,
     pub top_k: Option<u64>,
     pub repetition_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    pub frequency_penalty: Option<f32>,
     pub seed: Option<u64>,
     pub n: Option<u32>,
     #[serde(default)]
@@ -126,59 +127,6 @@ pub struct Usage {
     pub total: u64,
 }
 
-impl ChatRequest {
-    pub fn into_application(
-        self,
-    ) -> Result<(String, libmir::GenerationRequest, Option<Vec<u8>>), ApiError> {
-        if self.model.trim().is_empty() {
-            return Err(ApiError::bad_request("model cannot be empty"));
-        }
-        if self.messages.is_empty() {
-            return Err(ApiError::bad_request("messages cannot be empty"));
-        }
-        if self.n.unwrap_or(1) != 1 {
-            return Err(ApiError::bad_request("only n=1 is supported"));
-        }
-        if self.reasoning_budget.is_some()
-            || self.reasoning_effort.is_some()
-            || self.thinking_token_budget.is_some()
-        {
-            return Err(ApiError::bad_request(
-                "reasoning_budget, thinking_token_budget and reasoning_effort are unsupported; use reasoning with a total max_completion_tokens budget",
-            ));
-        }
-        let max_tokens = match (self.max_tokens, self.max_completion_tokens) {
-            (Some(left), Some(right)) if left != right => {
-                return Err(ApiError::bad_request("max_tokens and max_completion_tokens disagree"));
-            },
-            (left, right) => left.or(right),
-        };
-        let (messages, image) = messages(self.messages)?;
-        let selector = self.model;
-        let request = libmir::GenerationRequest {
-            conversation: libmir::Conversation {
-                messages,
-                tools: self.tools.into_iter().map(Into::into).collect(),
-                tool_choice: crate::protocol::openai::tool_choice(self.tool_choice)
-                    .map_err(ApiError::bad_request)?,
-            },
-            options: libmir::GenerationOverrides {
-                max_tokens: optional_usize(max_tokens)?,
-                min_tokens: optional_usize(self.min_tokens)?,
-                ignore_eos: self.ignore_eos,
-                temperature: self.temperature,
-                top_p: self.top_p,
-                top_k: optional_usize(self.top_k)?,
-                repetition_penalty: self.repetition_penalty,
-            },
-            seed: self.seed,
-            reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
-            reasoning: super::reasoning::resolve(self.reasoning, self.chat_template_kwargs)?,
-        };
-        Ok((selector, request, image))
-    }
-}
-
 impl Usage {
     pub fn from_result(result: &GenerationResult) -> Self {
         let output = &result.output;
@@ -230,12 +178,6 @@ fn response_tool_call(call: libmir::ToolCall) -> ResponseToolCall {
     }
 }
 
-fn optional_usize(value: Option<u64>) -> Result<Option<usize>, ApiError> {
-    value
-        .map(usize::try_from)
-        .transpose()
-        .map_err(|error| ApiError::bad_request(error.to_string()))
-}
-
+mod request;
 #[cfg(test)]
 mod tests;
