@@ -14,7 +14,9 @@ pub(super) fn application_ref(error: &Error) -> Status {
     let message = error.to_string();
     match error.class() {
         ErrorClass::InvalidArgument => Status::invalid_argument(message),
-        ErrorClass::Conflict => Status::failed_precondition(message),
+        ErrorClass::InvalidModelOutput | ErrorClass::Conflict => {
+            Status::failed_precondition(message)
+        },
         ErrorClass::ResourceExhausted => Status::resource_exhausted(message),
         ErrorClass::Cancelled => Status::cancelled(message),
         ErrorClass::Unavailable => Status::unavailable(message),

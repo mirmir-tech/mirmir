@@ -28,11 +28,14 @@ pub enum Error {
     Infrastructure(String),
     #[error("inference failed: {0}")]
     Inference(String),
+    #[error("invalid model output: {0}")]
+    InvalidModelOutput(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
     InvalidArgument,
+    InvalidModelOutput,
     Conflict,
     ResourceExhausted,
     Cancelled,
@@ -51,6 +54,7 @@ impl Error {
                 ErrorClass::Conflict
             },
             Self::MemoryPressure(_) => ErrorClass::ResourceExhausted,
+            Self::InvalidModelOutput(_) => ErrorClass::InvalidModelOutput,
             Self::Cancelled => ErrorClass::Cancelled,
             Self::External(_) | Self::RuntimeNotReady => ErrorClass::Unavailable,
             Self::StatePoisoned(_)
@@ -90,6 +94,7 @@ impl From<libmir::Error> for Error {
     fn from(error: libmir::Error) -> Self {
         match error {
             libmir::Error::Cancelled => Self::Cancelled,
+            libmir::Error::InvalidToolCall(message) => Self::InvalidModelOutput(message),
             error @ (libmir::Error::MemoryAdmission { .. }
             | libmir::Error::VisionResourceLimit { .. }) => Self::MemoryPressure(error.to_string()),
             error @ (libmir::Error::EmptyPrompt

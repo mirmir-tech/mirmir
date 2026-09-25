@@ -55,6 +55,12 @@ impl ApiError {
         let message = error.to_string();
         match class {
             ErrorClass::InvalidArgument => Self::bad_request(message),
+            ErrorClass::InvalidModelOutput => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                message,
+                "model_output_error",
+                "invalid_model_output",
+            ),
             ErrorClass::Conflict => {
                 Self::new(StatusCode::CONFLICT, message, "invalid_request_error", "conflict")
             },
@@ -160,5 +166,27 @@ mod tests {
             ApiError::from_application(&error.into()).into_response().status(),
             StatusCode::TOO_MANY_REQUESTS
         );
+    }
+
+    #[tokio::test]
+    async fn malformed_model_tool_output_has_a_distinct_non_server_error_code()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let error = libmir::Error::InvalidToolCall("non-string parameter must contain JSON".into());
+        let application: crate::application::Error = error.into();
+        assert_eq!(application.class(), crate::application::ErrorClass::InvalidModelOutput);
+        let response = ApiError::from_application(&application).into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = axum::body::to_bytes(response.into_body(), 4096).await?;
+        let value: serde_json::Value = serde_json::from_slice(&body)?;
+        assert_eq!(value["error"]["code"], "invalid_model_output");
+        assert_eq!(
+            ApiError::from_application(&crate::application::Error::Inference(
+                "CUDA failure".into()
+            ))
+            .into_response()
+            .status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        Ok(())
     }
 }
