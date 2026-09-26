@@ -91,8 +91,9 @@ HTTP 400 instead of silently ignoring the constraint.
 Reasoning can be disabled or enabled for Qwen-style prompts with an atomic
 `</think>` marker. Enabled reasoning stays unconstrained until that marker;
 then the named tool envelope and arguments are schema-constrained. The existing
-request-scoped reasoning-cycle exit policy closes a detected reasoning loop in
-this mode; it cannot modify tokens once the tool grammar is active. The completion
+request-scoped reasoning-cycle exit policy requires three consecutive repeated
+token cycles. Repeating a source quotation elsewhere in reasoning does not force
+an exit. The policy cannot modify tokens once the tool grammar is active. The completion
 limit still counts reasoning and tool tokens together, and exhaustion before a
 complete tool remains HTTP 422. This does not add a separate reasoning budget or
 change ordinary requests without schema constraints.
