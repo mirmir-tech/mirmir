@@ -83,10 +83,19 @@ This HTTP extension is not exposed through the CLI or private gRPC protocol.
 
 `POST /v1/chat/completions` accepts `"tool_constraints":"schema"` to constrain
 native CUDA decoding to the named tool's parameter schema. Omission or `"none"`
-preserves ordinary decoding. Use a named `tool_choice`, disabled reasoning,
+preserves ordinary decoding. Use a named `tool_choice`,
 `repetition_penalty: 1`, `min_tokens: 0`, and `ignore_eos: false` (the latter
 three can be omitted when the model defaults match). Other combinations return
 HTTP 400 instead of silently ignoring the constraint.
+
+Reasoning can be disabled or enabled for Qwen-style prompts with an atomic
+`</think>` marker. Enabled reasoning stays unconstrained until that marker;
+then the named tool envelope and arguments are schema-constrained. The existing
+request-scoped reasoning-cycle exit policy closes a detected reasoning loop in
+this mode; it cannot modify tokens once the tool grammar is active. The completion
+limit still counts reasoning and tool tokens together, and exhaustion before a
+complete tool remains HTTP 422. This does not add a separate reasoning budget or
+change ordinary requests without schema constraints.
 
 The supported envelope is Qwen-style XML tool arguments. Values are JSON,
 including quoted strings; nested JSON schemas control types, required fields,
