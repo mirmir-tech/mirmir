@@ -95,8 +95,15 @@ request-scoped reasoning-cycle exit policy requires three consecutive repeated
 token cycles. Repeating a source quotation elsewhere in reasoning does not force
 an exit. The policy cannot modify tokens once the tool grammar is active. The completion
 limit still counts reasoning and tool tokens together, and exhaustion before a
-complete tool remains HTTP 422. This does not add a separate reasoning budget or
-change ordinary requests without schema constraints.
+complete tool remains HTTP 422. Optional `thinking_token_budget` reserves part of
+an explicit `max_tokens` / `max_completion_tokens` limit for the final tool call.
+It requires enabled reasoning, text input, CUDA schema mode and a native atomic
+reasoning delimiter. The positive integer cap must leave at least two tokens
+within the total; callers should reserve enough space for their actual schema.
+At the cap, only the reasoning delimiter is allowed, then the tool grammar takes
+over. Plain chat, image input, disabled/default reasoning and unsupported
+`reasoning_budget` / `reasoning_effort` options are rejected. Omission preserves
+existing behavior; this option does not increase the total completion limit.
 
 The supported envelope is Qwen-style XML tool arguments. Values are JSON,
 including quoted strings; nested JSON schemas control types, required fields,

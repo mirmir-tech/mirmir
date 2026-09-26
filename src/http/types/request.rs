@@ -14,12 +14,9 @@ impl ChatRequest {
         if self.n.unwrap_or(1) != 1 {
             return Err(ApiError::bad_request("only n=1 is supported"));
         }
-        if self.reasoning_budget.is_some()
-            || self.reasoning_effort.is_some()
-            || self.thinking_token_budget.is_some()
-        {
+        if self.reasoning_budget.is_some() || self.reasoning_effort.is_some() {
             return Err(ApiError::bad_request(
-                "reasoning_budget, thinking_token_budget and reasoning_effort are unsupported; use reasoning with a total max_completion_tokens budget",
+                "reasoning_budget and reasoning_effort are unsupported; use thinking_token_budget for enabled schema-constrained tools",
             ));
         }
         // These OpenAI controls are additive penalties, not repetition_penalty.
@@ -42,6 +39,14 @@ impl ChatRequest {
             (left, right) => left.or(right),
         };
         let (messages, image) = messages(self.messages)?;
+        let reasoning = crate::http::reasoning::resolve(self.reasoning, self.chat_template_kwargs)?;
+        let reasoning_token_budget = crate::http::reasoning::budget(
+            self.thinking_token_budget,
+            reasoning,
+            self.tool_constraints,
+            max_tokens,
+            image.is_some(),
+        )?;
         let selector = self.model;
         let request = libmir::GenerationRequest {
             conversation: libmir::Conversation {
@@ -62,7 +67,8 @@ impl ChatRequest {
             seed: self.seed,
             tool_constraints: self.tool_constraints,
             reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
-            reasoning: crate::http::reasoning::resolve(self.reasoning, self.chat_template_kwargs)?,
+            reasoning,
+            reasoning_token_budget,
         };
         Ok((selector, request, image))
     }

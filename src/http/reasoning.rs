@@ -29,3 +29,30 @@ pub(super) fn resolve(
         (left, right) => Ok(left.or(right).unwrap_or_default()),
     }
 }
+
+/// Opt-in allowance within, never in addition to, the total completion limit.
+pub(super) fn budget(
+    value: Option<u64>,
+    mode: ReasoningMode,
+    constraints: libmir::ToolConstraints,
+    total: Option<u64>,
+    image: bool,
+) -> Result<Option<std::num::NonZeroUsize>, ApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if image || mode != ReasoningMode::Enabled || constraints != libmir::ToolConstraints::Schema {
+        return Err(ApiError::bad_request(
+            "thinking_token_budget requires enabled reasoning and schema-constrained text tools",
+        ));
+    }
+    if value.checked_add(2).zip(total).is_none_or(|(minimum, total)| minimum > total) {
+        return Err(ApiError::bad_request(
+            "thinking_token_budget requires explicit max_tokens with room for the delimiter and tool output",
+        ));
+    }
+    let value = usize::try_from(value).map_err(|error| ApiError::bad_request(error.to_string()))?;
+    std::num::NonZeroUsize::new(value)
+        .map(Some)
+        .ok_or_else(|| ApiError::bad_request("thinking_token_budget must be positive"))
+}

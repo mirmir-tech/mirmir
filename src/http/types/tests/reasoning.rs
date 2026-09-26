@@ -62,3 +62,45 @@ fn reasoning_does_not_change_conflicting_budget_validation() {
     let request: ChatRequest = serde_json::from_value(serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}], "reasoning":"disabled", "max_tokens":64, "max_completion_tokens":128})).expect("wire input");
     assert!(request.into_application().is_err());
 }
+
+#[test]
+fn schema_reasoning_budget_is_typed_bounded_and_explicit() {
+    let body = serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}],
+        "chat_template_kwargs":{"enable_thinking":true}, "tool_constraints":"schema",
+        "max_tokens":4096,"thinking_token_budget":3072});
+    let request: ChatRequest = serde_json::from_value(body.clone()).expect("request");
+    let (_, request, _) = request.into_application().expect("valid budget");
+    assert_eq!(request.reasoning_token_budget.map(std::num::NonZeroUsize::get), Some(3072));
+    assert_eq!(request.options.max_tokens, Some(4096));
+    for value in [
+        serde_json::json!(0),
+        serde_json::json!(4095),
+        serde_json::json!(4096),
+        serde_json::json!(u64::MAX),
+    ] {
+        let mut invalid = body.clone();
+        invalid["thinking_token_budget"] = value;
+        let request: ChatRequest = serde_json::from_value(invalid).expect("wire request");
+        assert!(request.into_application().is_err());
+    }
+    for (field, value) in [
+        ("max_tokens", serde_json::Value::Null),
+        ("tool_constraints", serde_json::json!("none")),
+        ("chat_template_kwargs", serde_json::json!({"enable_thinking":false})),
+    ] {
+        let mut invalid = body.clone();
+        invalid[field] = value;
+        let request: ChatRequest = serde_json::from_value(invalid).expect("wire request");
+        assert!(request.into_application().is_err());
+    }
+    for value in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!("32"),
+        serde_json::json!(true),
+    ] {
+        let mut invalid = body.clone();
+        invalid["thinking_token_budget"] = value;
+        assert!(serde_json::from_value::<ChatRequest>(invalid).is_err());
+    }
+}

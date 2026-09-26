@@ -21,7 +21,7 @@ pub struct ChatRequest {
     #[serde(default)]
     pub tool_constraints: libmir::ToolConstraints,
     pub chat_template_kwargs: Option<super::reasoning::TemplateOptions>,
-    pub thinking_token_budget: Option<serde_json::Value>,
+    pub thinking_token_budget: Option<u64>,
     pub reasoning_budget: Option<serde_json::Value>,
     pub reasoning_effort: Option<serde_json::Value>,
     pub max_completion_tokens: Option<u64>,
