@@ -104,3 +104,39 @@ fn schema_reasoning_budget_is_typed_bounded_and_explicit() {
         assert!(serde_json::from_value::<ChatRequest>(invalid).is_err());
     }
 }
+
+#[test]
+fn schema_reasoning_reserves_output_when_client_omits_allowance() {
+    for (total, expected) in [(4096_usize, 3072), (512, 384), (3, 1)] {
+        let body = serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}],
+            "chat_template_kwargs":{"enable_thinking":true}, "tool_constraints":"schema",
+            "max_completion_tokens":total});
+        let (_, request, _) = serde_json::from_value::<ChatRequest>(body)
+            .expect("wire input")
+            .into_application()
+            .expect("bounded schema reasoning");
+        assert_eq!(request.reasoning_token_budget.map(std::num::NonZeroUsize::get), Some(expected));
+        assert_eq!(request.options.max_tokens, Some(total));
+    }
+}
+
+#[test]
+fn implicit_output_reservation_does_not_change_other_modes_or_override_explicit_budget() {
+    let base = serde_json::json!({"model":"qwen", "messages":[{"role":"user","content":"Hi"}],
+        "reasoning":"enabled", "tool_constraints":"schema", "max_tokens":4096});
+    for (field, value, expected) in [
+        ("reasoning", serde_json::json!("disabled"), None),
+        ("reasoning", serde_json::json!("model_default"), None),
+        ("tool_constraints", serde_json::json!("none"), None),
+        ("max_tokens", serde_json::Value::Null, None),
+        ("thinking_token_budget", serde_json::json!(1024), Some(1024)),
+    ] {
+        let mut body = base.clone();
+        body[field] = value;
+        let (_, request, _) = serde_json::from_value::<ChatRequest>(body)
+            .expect("wire input")
+            .into_application()
+            .expect("valid request");
+        assert_eq!(request.reasoning_token_budget.map(std::num::NonZeroUsize::get), expected);
+    }
+}

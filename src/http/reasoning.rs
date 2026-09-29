@@ -30,7 +30,10 @@ pub(super) fn resolve(
     }
 }
 
-/// Opt-in allowance within, never in addition to, the total completion limit.
+/// Allowance within, never in addition to, the total completion limit.
+/// Explicit schema-tool reasoning reserves a quarter for the tool by default;
+/// an explicit allowance still wins. Other decoding modes retain their
+/// defaults.
 pub(super) fn budget(
     value: Option<u64>,
     mode: ReasoningMode,
@@ -38,6 +41,13 @@ pub(super) fn budget(
     total: Option<u64>,
     image: bool,
 ) -> Result<Option<std::num::NonZeroUsize>, ApiError> {
+    let value = value.or_else(|| {
+        (!image && mode == ReasoningMode::Enabled && constraints == libmir::ToolConstraints::Schema)
+            .then_some(total)
+            .flatten()
+            .filter(|total| *total >= 3)
+            .map(|total| total - (total / 4).max(2))
+    });
     let Some(value) = value else {
         return Ok(None);
     };

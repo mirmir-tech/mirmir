@@ -102,8 +102,14 @@ reasoning delimiter. The positive integer cap must leave at least two tokens
 within the total; callers should reserve enough space for their actual schema.
 At the cap, only the reasoning delimiter is allowed, then the tool grammar takes
 over. Plain chat, image input, disabled/default reasoning and unsupported
-`reasoning_budget` / `reasoning_effort` options are rejected. Omission preserves
-existing behavior; this option does not increase the total completion limit.
+`reasoning_budget` / `reasoning_effort` options are rejected. When enabled reasoning,
+schema-constrained text tools and an explicit completion limit of at least three
+tokens are selected, omitting `thinking_token_budget` reserves one quarter of that
+limit (at least two tokens) for the delimiter and tool output. Explicit allowances
+override this default; other decoding modes retain their existing behavior.
+Neither an explicit nor a derived allowance increases the total completion limit.
+This reservation helps avoid reasoning exhausting the entire response, but a large
+tool result can still exceed its remaining budget and return HTTP 422.
 
 The supported envelope is Qwen-style XML tool arguments. Values are JSON,
 including quoted strings; nested JSON schemas control types, required fields,
