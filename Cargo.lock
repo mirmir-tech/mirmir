@@ -502,6 +502,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "color_quant"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1352,6 +1358,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gif"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
+dependencies = [
+ "color_quant",
+ "weezl",
+]
+
+[[package]]
 name = "git-version"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1787,6 +1803,8 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "color_quant",
+ "gif",
  "image-webp",
  "moxcms",
  "num-traits",
@@ -2026,7 +2044,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libmir"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "jsonschema",
@@ -2050,14 +2068,14 @@ dependencies = [
 
 [[package]]
 name = "libmir-admission"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libmir-models",
 ]
 
 [[package]]
 name = "libmir-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2067,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-cuda"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "libmir-admission",
@@ -2085,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-metal"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2103,7 +2121,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-models"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "image",
  "libmir-core",
@@ -2119,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-runtime"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2364,7 +2382,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "half",
@@ -2376,7 +2394,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda-macros"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2385,7 +2403,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda-sys"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "cc",
  "cudarc",
@@ -2394,7 +2412,7 @@ dependencies = [
 
 [[package]]
 name = "mirmir"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2431,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "mirtal"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "cxx",
  "mirtal-macros",
@@ -2441,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "mirtal-macros"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2450,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "mirtal-sys"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "cxx",
  "cxx-build",
@@ -3456,7 +3474,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3513,7 +3531,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3992,10 +4010,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4892,6 +4910,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "weezl"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
+
+[[package]]
 name = "whoami"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4926,7 +4950,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

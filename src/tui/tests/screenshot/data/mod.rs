@@ -11,7 +11,7 @@ use crate::rpc::proto::{
 pub(super) fn demo_app(view: &str) -> App {
     let mut app = App::new(false);
     app.initial_refresh = InitialRefresh::Complete;
-    app.server_version = "0.3.0".to_owned();
+    app.server_version = "0.4.0".to_owned();
     app.protocol_version = "1".to_owned();
     app.memory_source = "Apple unified memory".to_owned();
     app.models.push(ModelInfo {

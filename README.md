@@ -16,14 +16,14 @@ own hardware.
 
 ### Terminal dashboard
 
-![MiRMiR terminal dashboard](https://mirmir.tech/assets/screenshots/tui-dashboard-0.3.0-dc39cd5e.png)
+![MiRMiR terminal dashboard](https://mirmir.tech/assets/screenshots/tui-dashboard-0.4.0-a576d174.png)
 
 The TUI brings model management, chat, configuration, request activity, memory,
 latency, throughput, and K/V cache telemetry into the terminal.
 
 ### Web dashboard
 
-![MiRMiR web dashboard](https://mirmir.tech/assets/screenshots/web-dashboard-0.3.0.png)
+![MiRMiR web dashboard](https://mirmir.tech/assets/screenshots/web-dashboard-0.4.0.png)
 
 The optional web dashboard exposes the same local runtime, models, settings,
 and telemetry in a browser.
@@ -82,7 +82,7 @@ This HTTP extension is not exposed through the CLI or private gRPC protocol.
 ## HTTP tool schema constraints
 
 `POST /v1/chat/completions` accepts `"tool_constraints":"schema"` to constrain
-native CUDA decoding to the named tool's parameter schema. Omission or `"none"`
+native Metal or CUDA decoding to the named tool's parameter schema. Omission or `"none"`
 preserves ordinary decoding. Use a named `tool_choice`,
 `repetition_penalty: 1`, `min_tokens: 0`, and `ignore_eos: false` (the latter
 three can be omitted when the model defaults match). Other combinations return
@@ -97,7 +97,7 @@ an exit. The policy cannot modify tokens once the tool grammar is active. The co
 limit still counts reasoning and tool tokens together, and exhaustion before a
 complete tool remains HTTP 422. Optional `thinking_token_budget` reserves part of
 an explicit `max_tokens` / `max_completion_tokens` limit for the final tool call.
-It requires enabled reasoning, text input, CUDA schema mode and a native atomic
+It requires enabled reasoning, text input, schema mode and a native atomic
 reasoning delimiter. The positive integer cap must leave at least two tokens
 within the total; callers should reserve enough space for their actual schema.
 At the cap, only the reasoning delimiter is allowed, then the tool grammar takes
@@ -121,8 +121,8 @@ The original full schema is validated before returning completed calls.
 `uniqueItems` is enforced at this final check, rather than by the token mask;
 a duplicate produces HTTP 422. Schema reference retrieval over HTTP and files
 is disabled. A token budget that truncates a tool call still returns the existing HTTP 422
-invalid-output error. Schema mode is currently qualified on CUDA, not Metal,
-and is not exposed through the CLI or private gRPC protocol.
+invalid-output error. Schema mode runs on Metal and CUDA and is not exposed
+through the CLI or private gRPC protocol.
 
 ## Cached refill latency policy
 
