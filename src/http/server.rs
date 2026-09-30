@@ -113,6 +113,7 @@ fn v1_routes() -> Router<ApiState> {
         .route("/models", get(handlers::models))
         .route("/embeddings", post(crate::http::task::handlers::embeddings))
         .route("/rerank", post(crate::http::task::handlers::rerank))
+        .route("/decide", post(crate::http::decision::decide))
         .route("/chat/completions", post(handlers::chat))
 }
 
