@@ -10,6 +10,8 @@ pub fn Icon(name: &'static str) -> impl IntoView {
         "add" => "M12 5v14M5 12h14",
         "remove" => "M4 7h16M9 7V4h6v3m-8 0 1 14h8l1-14",
         "cancel" => "M6 6l12 12M18 6 6 18",
+        "edit" => "M4 20h4L19 9l-4-4L4 16v4zm9-13 4 4",
+        "restart" => "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
         "tools" => "M14 6l4-4 4 4-4 4m-2-2L7 17m-3 4 3-4 3 3-4 3z",
         "thinking" => "M9 18h6m-5 3h4M8 14a6 6 0 1 1 8 0c-1 1-1 2-1 2H9s0-1-1-2z",
         "vision" => {

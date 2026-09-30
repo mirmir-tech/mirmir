@@ -5,29 +5,12 @@ use crate::{
     types::Overview,
 };
 
-pub(super) fn active(state: RuntimeState) -> bool {
-    state.overview.get().is_some_and(|item| item.active_requests > 0)
-}
-
 pub(super) fn mean(state: RuntimeState, value: fn(&Overview) -> Option<f64>, unit: &str) -> String {
     state
         .overview
         .get()
         .and_then(|overview| value(&overview))
         .map_or_else(|| "mean —".to_owned(), |value| format!("mean {value:.1} {unit}"))
-}
-
-pub(super) fn device_caption(state: RuntimeState) -> String {
-    state.overview.get().map_or_else(
-        || "Waiting for telemetry".to_owned(),
-        |overview| {
-            if overview.device_name.is_empty() {
-                overview.memory_source
-            } else {
-                overview.device_name
-            }
-        },
-    )
 }
 
 pub(super) fn memory_label(state: RuntimeState) -> String {

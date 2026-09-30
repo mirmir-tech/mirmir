@@ -15,10 +15,10 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     let state = expect_context::<RuntimeState>();
     let ui = expect_context::<ModelUi>();
     let format = format_label(&model);
-    let format_detail = format!(
-        "{} · {} · Metal {} · CUDA {}",
-        model.ecosystem, model.container, model.metal_compatibility, model.cuda_compatibility
-    );
+    let format_detail = format!("{} · {}", model.ecosystem, model.container);
+    let backends =
+        [("Metal", model.metal_compatibility.clone()), ("CUDA", model.cuda_compatibility.clone())];
+    let is_active = model.state == "active";
     let id = StoredValue::new(model.id.clone());
     let selector = StoredValue::new(model.selector.clone());
     let repo_id = StoredValue::new(model.repo_id.clone());
@@ -65,12 +65,12 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     view! {
         <tr class:removing=move || state.busy.get().get(&repo_id.get_value()).is_some_and(|value| value == "remove")>
             <td><span class="model-name"><strong>{model.id.clone()}</strong><small>{model.repo_id.clone()}</small></span></td>
-            <td class="model-format"><TypePill value=format /><span>{format_detail}</span></td>
+            <td class="model-format"><TypePill value=format /><span class="model-backends">{backends.into_iter().map(|(backend, status)| view! { <span class=format!("backend-chip {}", status.replace([' ', '_'], "-")) data-tooltip=format!("{backend}: {status}")>{backend}</span> }).collect_view()}<small>{format_detail}</small></span></td>
             <td class="model-features"><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision || model.image_input /></td>
             <td class="model-size">{bytes(model.size_bytes)}</td>
             <td><StatePill state=display_state detail=detail progress=progress /></td>
             <td class="model-actions"><div class="model-action-group">
-                <Show when=move || can_unload><button class="open-chat" on:click=move |_| { state.chat_model.set(selector.get_value()); state.page.set(Page::Chat); }>"Open chat"</button></Show>
+                <Show when=move || can_unload><button class="open-chat" class:secondary=!is_active on:click=move |_| { state.chat_model.set(selector.get_value()); state.page.set(Page::Chat); }>"Open chat"</button></Show>
                 <Show when=move || can_unload fallback=move || {
                     view! { <button class="icon-action" data-tooltip="Load model" aria-label="Load model" disabled=busy on:click=move |_| super::dialogs::inspect(stored_model.get_value())><Icon name="load" /><span>"Load"</span></button> }
                 }>

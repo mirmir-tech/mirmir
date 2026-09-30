@@ -31,9 +31,9 @@ pub fn StatePill(
 pub fn FeaturePills(tool_use: bool, thinking: bool, vision: bool) -> impl IntoView {
     view! {
         <span class="feature-list">
-            {tool_use.then(|| view! { <span class="feature-pill tools" data-tooltip="Tool use"><Icon name="tools" /></span> })}
-            {thinking.then(|| view! { <span class="feature-pill thinking" data-tooltip="Thinking"><Icon name="thinking" /></span> })}
-            {vision.then(|| view! { <span class="feature-pill vision" data-tooltip="Vision"><Icon name="vision" /></span> })}
+            {tool_use.then(|| view! { <span class="feature-pill tools"><Icon name="tools" /><span>"Tools"</span></span> })}
+            {thinking.then(|| view! { <span class="feature-pill thinking"><Icon name="thinking" /><span>"Thinking"</span></span> })}
+            {vision.then(|| view! { <span class="feature-pill vision"><Icon name="vision" /><span>"Vision"</span></span> })}
             {(!tool_use && !thinking && !vision).then(|| view! { <span class="feature-empty">"—"</span> })}
         </span>
     }

@@ -6,10 +6,7 @@ use leptos::prelude::*;
 
 use self::{
     chart::{Chart, Metric},
-    format::{
-        active, device_caption, mean, memory_label, percent_label, power_label, stage,
-        temperature_label, uptime,
-    },
+    format::{mean, memory_label, percent_label, power_label, stage, temperature_label, uptime},
     runtime::{RuntimeActivity, RuntimeInspector},
 };
 use crate::{
@@ -31,15 +28,6 @@ pub fn DashboardPage() -> impl IntoView {
     };
     view! {
         <section class="view active" id="overview">
-            <div class="dashboard-toolbar">
-                <div>
-                    <p class="eyebrow">"Runtime overview"</p>
-                    <span class="device-caption">{move || device_caption(state)}</span>
-                </div>
-                <span class="overview-live" data-active=move || active(state).to_string()>
-                    {move || if active(state) { "Generating" } else { "Live" }}
-                </span>
-            </div>
             <div class="metric-cards overview-metrics">
                 <MetricCard
                     label="Prefill"

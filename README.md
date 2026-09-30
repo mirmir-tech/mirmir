@@ -23,7 +23,10 @@ latency, throughput, and K/V cache telemetry into the terminal.
 
 ### Web dashboard
 
-![MiRMiR web dashboard](https://mirmir.tech/assets/screenshots/web-dashboard-0.4.0.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://mirmir.tech/assets/screenshots/web-dashboard-0.4.0.png">
+  <img alt="MiRMiR web dashboard" src="https://mirmir.tech/assets/screenshots/web-dashboard-light.png">
+</picture>
 
 The optional web dashboard exposes the same local runtime, models, settings,
 and telemetry in a browser.

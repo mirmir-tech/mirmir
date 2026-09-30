@@ -10,7 +10,7 @@ pub fn populate(state: RuntimeState) {
         backend_support: "metal".to_owned(),
         platform: "macos".to_owned(),
         architecture: "aarch64".to_owned(),
-        server_version: "0.4.0".to_owned(),
+        server_version: env!("CARGO_PKG_VERSION").to_owned(),
         protocol_version: "1".to_owned(),
         ..Default::default()
     });

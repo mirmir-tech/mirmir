@@ -7,7 +7,7 @@
     <title>MiRMiR · Runtime dashboard</title>
     <link rel="icon" href="/ui/assets/brand/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/ui/app.css" />
-
+    
 <script type="module">
 import init, * as bindings from '/ui/mirmir-dashboard.js';
 const wasm = await init({ module_or_path: '/ui/mirmir-dashboard_bg.wasm' });
@@ -19,8 +19,8 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-    <link rel="stylesheet" href="/ui/assets/theme.css?v=2" />
+    <link rel="stylesheet" href="/ui/assets/theme.css?v=3" />
     <script src="/ui/assets/theme.js?v=2"></script>
-  <link rel="modulepreload" href="/ui/mirmir-dashboard.js" crossorigin="anonymous" integrity="sha384-fX6rexaPKGXjvIkyCKaLJnleubIffwti2CD85wOSdQjIYwRBjbTqN+jMeK6UGEqz"><link rel="preload" href="/ui/mirmir-dashboard_bg.wasm" crossorigin="anonymous" integrity="sha384-DzOp0yM45TJvN/EQroxO7qnc9B6Bcw3EQEybewx1wQfC6uYYtD+CfxnSlQVX3zFK" as="fetch" type="application/wasm"></head>
+  <link rel="modulepreload" href="/ui/mirmir-dashboard.js" crossorigin="anonymous" integrity="sha384-haqfbnfwX2toB5mcJYvM8On5llKG83cAjWaUFrQda2lhWfVjdxn2A0jusqWIf+sk"><link rel="preload" href="/ui/mirmir-dashboard_bg.wasm" crossorigin="anonymous" integrity="sha384-0CTJOzNcK6wI9Chiqdm5GZPxCB6oX3FY9+oYqlhcN/CaVcX25uDw3dQxZBTyksY+" as="fetch" type="application/wasm"></head>
   <body></body>
 </html>
