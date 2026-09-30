@@ -1,27 +1,28 @@
 mod attachment;
+#[cfg(feature = "capture")]
+mod capture;
+mod history;
 mod markdown;
+mod message;
 mod stream;
 
 use leptos::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::DragEvent;
 
 use self::{
     attachment::{Attachment, AttachmentChip, attach},
-    markdown::Markdown,
+    history::{HistoryPanel, SavedConversation},
+    message::MessageView,
     stream::run_generation,
 };
-use crate::{
-    api,
-    components::Icon,
-    state::{RuntimeState, number},
-    types::ChatMessage,
-};
+use crate::{api, components::Icon, state::RuntimeState, types::ChatMessage};
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct UiMessage {
     role: String,
+    model: String,
     content: String,
     reasoning: String,
     thinking: bool,
@@ -30,6 +31,8 @@ pub(super) struct UiMessage {
 #[derive(Clone, Copy)]
 pub(super) struct ChatState {
     messages: RwSignal<Vec<UiMessage>>,
+    history: RwSignal<Vec<SavedConversation>>,
+    conversation: RwSignal<u64>,
     running: RwSignal<bool>,
     operation_id: RwSignal<Option<String>>,
     attachment: RwSignal<Option<Attachment>>,
@@ -56,8 +59,12 @@ pub(super) struct ChatRequest {
 #[component]
 pub fn ChatPage() -> impl IntoView {
     #[cfg(not(feature = "capture"))]
+    let (history, conversation, messages) = history::restore();
+    #[cfg(not(feature = "capture"))]
     let chat = ChatState {
-        messages: RwSignal::new(Vec::new()),
+        messages: RwSignal::new(messages),
+        history: RwSignal::new(history),
+        conversation: RwSignal::new(conversation),
         running: RwSignal::new(false),
         operation_id: RwSignal::new(None),
         attachment: RwSignal::new(None),
@@ -68,40 +75,17 @@ pub fn ChatPage() -> impl IntoView {
         throughput: RwSignal::new(None),
     };
     #[cfg(feature = "capture")]
-    let chat = capture_state();
+    let chat = capture::state();
     provide_context(chat);
+    history::persist(chat);
     let selected_model = expect_context::<RuntimeState>().chat_model;
     view! { <section class="view active" id="chat">
-        <Conversation />
-        <Composer selected_model />
+        <HistoryPanel />
+        <div class="chat-main">
+            <Conversation />
+            <Composer selected_model />
+        </div>
     </section> }
-}
-
-#[cfg(feature = "capture")]
-fn capture_state() -> ChatState {
-    ChatState {
-        messages: RwSignal::new(vec![
-            UiMessage {
-                role: "user".to_owned(),
-                content: "Summarize why accelerator-resident K/V cache matters for a local inference server.".to_owned(),
-                ..Default::default()
-            },
-            UiMessage {
-                role: "assistant".to_owned(),
-                reasoning: "We need to connect latency, memory bandwidth, and concurrent reuse without assuming a particular model family.".to_owned(),
-                content: "Keeping the K/V cache on the accelerator avoids repeated host transfers during decode. That reduces per-token latency, preserves memory bandwidth for model execution, and lets concurrent requests reuse cached prefixes without synchronizing through the CPU.".to_owned(),
-                ..Default::default()
-            },
-        ]),
-        running: RwSignal::new(false),
-        operation_id: RwSignal::new(None),
-        attachment: RwSignal::new(None),
-        status: RwSignal::new("complete".to_owned()),
-        ttft: RwSignal::new(Some(184.0)),
-        prefill: RwSignal::new(Some(611.7)),
-        decode: RwSignal::new(Some(42.6)),
-        throughput: RwSignal::new(Some(39.8)),
-    }
 }
 
 #[component]
@@ -123,15 +107,6 @@ fn Conversation() -> impl IntoView {
             <For each=indices key=|index| *index children=move |index| view! { <MessageView index /> } />
         </Show>
     </div> }
-}
-
-#[component]
-fn MessageView(index: usize) -> impl IntoView {
-    let chat = expect_context::<ChatState>();
-    let message = move || chat.messages.get().get(index).cloned().unwrap_or_default();
-    let reasoning = Signal::derive(move || message().reasoning);
-    let content = Signal::derive(move || message().content);
-    view! { <article class=move || { let value = message(); format!("chat-message {}{}", value.role, if value.thinking { " is-thinking" } else { "" }) }><span class="role">{move || message().role}</span><div class="chat-bubble"><Show when=move || { let value = message(); !value.reasoning.is_empty() || value.thinking }><details class="reasoning" open=false><summary><span class="thinking-label">{move || if message().thinking { "Thinking…" } else { "Thinking" }}</span></summary><div class="reasoning-content"><Markdown source=reasoning /></div></details></Show><div class="message-content"><Markdown source=content /></div></div></article> }
 }
 
 #[component]
@@ -176,9 +151,8 @@ fn Composer(selected_model: RwSignal<String>) -> impl IntoView {
     };
     view! { <div class="composer-dock"><form class="chat-composer" on:submit=move |event| { event.prevent_default(); submit(); } on:dragover=move |event: DragEvent| event.prevent_default() on:drop=move |event: DragEvent| { event.prevent_default(); if let Some(file) = event.data_transfer().and_then(|data| data.files()).and_then(|files| files.get(0)) { attach(runtime, chat, file); } }>
         <AttachmentChip />
-        <div class="prompt-row"><label class="composer-button attach-button" data-tooltip="Add attachment" aria-label="Add attachment"><Icon name="add" /><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden on:change=move |event| { if let Some(file) = event_target::<web_sys::HtmlInputElement>(&event).files().and_then(|files| files.get(0)) { attach(runtime, chat, file); } } /></label><textarea rows="2" placeholder="Message MiRMiR…" prop:value=move || prompt.get() on:input=move |event| prompt.set(event_target_value(&event)) on:keydown=move |event| { if event.key() == "Enter" && !event.shift_key() { event.prevent_default(); submit(); } } disabled=move || chat.running.get()></textarea><Show when=move || chat.running.get()><button class="composer-button cancel-button" type="button" data-tooltip="Stop generation" aria-label="Stop generation" on:click=move |_| cancel_generation(runtime, chat)>"■"</button></Show><button class="composer-button send-button" type="submit" data-tooltip="Send message" aria-label="Send message" disabled=move || chat.running.get()>"↑"</button></div>
-        <div class="composer-footer"><label class="model-picker"><span>"Model"</span><select prop:value=move || selected_model.get() on:change=move |event| selected_model.set(event_target_value(&event))><option value="">"Select model"</option><For each=loaded_models key=|model| model.selector.clone() children=move |model| { let selector = model.selector.clone(); view! { <option value=selector>{model.id}</option> } } /></select></label><details class="chat-settings"><summary>"Parameters"</summary><div class="chat-parameters"><Parameter label="Max tokens" value=max_tokens /><Parameter label="Temperature" value=temperature /><Parameter label="Top P" value=top_p /><Parameter label="Top K" value=top_k /><Parameter label="Repetition" value=repetition /><Parameter label="Seed" value=seed /></div></details><details class="generation-details"><summary>"Generation details"</summary><div class="composer-metrics"><Metric label="TTFT" value=chat.ttft unit="ms" /><Metric label="PREFILL" value=chat.prefill unit="tok/s" /><Metric label="DECODE" value=chat.decode unit="tok/s" /><Metric label="E2E" value=chat.throughput unit="tok/s" /></div></details><span class="stage">{move || chat.status.get()}</span></div>
-        <p class="chat-hint">"Enter sends · Shift+Enter adds a line"</p>
+        <div class="prompt-row"><label class="composer-button attach-button" data-tooltip="Add attachment" aria-label="Add attachment"><Icon name="add" /><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden on:change=move |event| { if let Some(file) = event_target::<web_sys::HtmlInputElement>(&event).files().and_then(|files| files.get(0)) { attach(runtime, chat, file); } } /></label><textarea rows="2" placeholder="Message MiRMiR — Enter to send, Shift+Enter for a new line" prop:value=move || prompt.get() on:input=move |event| prompt.set(event_target_value(&event)) on:keydown=move |event| { if event.key() == "Enter" && !event.shift_key() { event.prevent_default(); submit(); } } disabled=move || chat.running.get()></textarea><Show when=move || chat.running.get()><button class="composer-button cancel-button" type="button" data-tooltip="Stop generation" aria-label="Stop generation" on:click=move |_| cancel_generation(runtime, chat)>"■"</button></Show><button class="composer-button send-button" type="submit" data-tooltip="Send message" aria-label="Send message" disabled=move || chat.running.get()>"↑"</button></div>
+        <div class="composer-footer"><label class="model-picker"><span>"Model"</span><select prop:value=move || selected_model.get() on:change=move |event| selected_model.set(event_target_value(&event))><option value="">"Select model"</option><For each=loaded_models key=|model| model.selector.clone() children=move |model| { let selector = model.selector.clone(); view! { <option value=selector>{model.id}</option> } } /></select></label><details class="chat-settings"><summary>"Parameters"</summary><div class="chat-parameters"><Parameter label="Max tokens" value=max_tokens /><Parameter label="Temperature" value=temperature /><Parameter label="Top P" value=top_p /><Parameter label="Top K" value=top_k /><Parameter label="Repetition" value=repetition /><Parameter label="Seed" value=seed /></div></details><span class="stage">{move || chat.status.get()}</span></div>
     </form></div> }
 }
 
@@ -218,10 +192,6 @@ fn parse<T: std::str::FromStr>(signal: RwSignal<String>) -> Option<T> {
 #[component]
 fn Parameter(label: &'static str, value: RwSignal<String>) -> impl IntoView {
     view! { <label>{label}<input type="number" prop:value=move || value.get() on:input=move |event| value.set(event_target_value(&event)) /></label> }
-}
-#[component]
-fn Metric(label: &'static str, value: RwSignal<Option<f64>>, unit: &'static str) -> impl IntoView {
-    view! { <span>{label}<b>{move || number(value.get())}</b><i>{unit}</i></span> }
 }
 fn cancel_generation(runtime: RuntimeState, chat: ChatState) {
     let Some(operation_id) = chat.operation_id.get_untracked() else {

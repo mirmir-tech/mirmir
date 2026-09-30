@@ -121,6 +121,6 @@ fn assert_stylesheet(stylesheet: &str) {
     assert!(stylesheet.contains("overscroll-behavior: contain"));
     assert!(stylesheet.contains(".device-grid"));
     assert!(stylesheet.contains(".telemetry-chart"));
-    assert!(stylesheet.contains("radial-gradient"));
+    assert!(stylesheet.contains(".chart-frame"));
     assert!(stylesheet.contains(".activity-timeline"));
 }

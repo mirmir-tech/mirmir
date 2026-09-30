@@ -43,6 +43,9 @@ pub struct RuntimeState {
     pub models: RwSignal<Vec<Model>>,
     pub models_loaded: RwSignal<bool>,
     pub configuration: RwSignal<Option<Configuration>>,
+    /// Setting keys changed in this session that take effect after a server
+    /// restart.
+    pub pending_restart: RwSignal<Vec<String>>,
     pub activities: RwSignal<Vec<Activity>>,
     pub telemetry: RwSignal<Vec<TelemetryPoint>>,
     pub busy: RwSignal<HashMap<String, String>>,
@@ -63,6 +66,7 @@ impl RuntimeState {
             models: RwSignal::new(Vec::new()),
             models_loaded: RwSignal::new(false),
             configuration: RwSignal::new(None),
+            pending_restart: RwSignal::new(Vec::new()),
             activities: RwSignal::new(Vec::new()),
             telemetry: RwSignal::new(Vec::new()),
             busy: RwSignal::new(HashMap::new()),
@@ -131,6 +135,27 @@ impl RuntimeState {
 
 fn duplicate_notification(last: Option<&(String, bool)>, message: &str, error: bool) -> bool {
     last.is_some_and(|(previous, previous_error)| previous == message && *previous_error == error)
+}
+
+impl RuntimeState {
+    /// Whether any generation request is running now.
+    pub fn generating(self) -> bool {
+        self.overview.get().is_some_and(|item| item.active_requests > 0)
+    }
+
+    /// The accelerator name, or the memory source before a device is reported.
+    pub fn device_caption(self) -> String {
+        self.overview.get().map_or_else(
+            || "Waiting for telemetry".to_owned(),
+            |overview| {
+                if overview.device_name.is_empty() {
+                    overview.memory_source
+                } else {
+                    overview.device_name
+                }
+            },
+        )
+    }
 }
 
 pub fn bytes(value: u64) -> String {

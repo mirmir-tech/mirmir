@@ -53,6 +53,7 @@ pub fn run_generation(
         });
         messages.push(UiMessage {
             role: "assistant".to_owned(),
+            model: model.clone(),
             thinking: true,
             ..UiMessage::default()
         });
