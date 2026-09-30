@@ -56,13 +56,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libmir = { version = "0.4.0", default-features = false, features = ["cpu", "metal"] }
+libmir = { git = "https://github.com/mirmir-tech/libmir", branch = "develop", default-features = false, features = ["cpu", "metal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libmir = { version = "0.4.0", default-features = false, features = ["cpu", "cuda"] }
+libmir = { git = "https://github.com/mirmir-tech/libmir", branch = "develop", default-features = false, features = ["cpu", "cuda"] }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "linux")))'.dependencies]
-libmir = { version = "0.4.0", default-features = false }
+libmir = { git = "https://github.com/mirmir-tech/libmir", branch = "develop", default-features = false }
 
 [build-dependencies]
 prost-build = "0.14"
