@@ -74,3 +74,13 @@ fn renders_activity_and_cancellation_capability() -> Result<(), std::convert::In
     assert!(text.contains("decode"));
     Ok(())
 }
+
+#[test]
+fn identifies_the_connected_system_instance() -> Result<(), std::convert::Infallible> {
+    let mut app = App::new(true);
+    app.endpoint = Some(crate::instance::Endpoint::System);
+    let text = rendered(&mut app, 100, 28)?;
+    assert!(text.contains("SYSTEM"));
+    assert!(text.contains(crate::instance::SYSTEM_SOCKET));
+    Ok(())
+}

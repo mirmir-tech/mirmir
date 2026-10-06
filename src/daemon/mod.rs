@@ -3,7 +3,7 @@ mod guard;
 mod server;
 mod telemetry;
 
-pub use connection::connect_or_start;
+pub use connection::{Connection, connect_or_start};
 
 use crate::{
     adapters,

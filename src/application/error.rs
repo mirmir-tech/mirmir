@@ -77,10 +77,12 @@ impl From<crate::error::Error> for Error {
             crate::error::Error::Io(error) => Self::Persistence(error.to_string()),
             error @ (crate::error::Error::Http(_)
             | crate::error::Error::Hub(_)
+            | crate::error::Error::Attach { .. }
             | crate::error::Error::Transport(_)
             | crate::error::Error::Status(_)) => Self::External(error.to_string()),
             crate::error::Error::Inference(error) => error.into(),
             error @ (crate::error::Error::AlreadyRunning(_)
+            | crate::error::Error::NotSocket(_)
             | crate::error::Error::Json(_)
             | crate::error::Error::Join(_)
             | crate::error::Error::Integer(_)) => Self::Infrastructure(error.to_string()),

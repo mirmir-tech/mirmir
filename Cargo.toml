@@ -1,6 +1,6 @@
 [package]
 name = "mirmir"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Native local model runtime, TUI, CLI, and OpenAI-compatible server"
@@ -14,6 +14,7 @@ include = [
     "Cargo.lock",
     "Cargo.toml",
     "README.md",
+    "docs/**",
     "proto/**",
     "src/**",
 ]
@@ -25,6 +26,10 @@ exclude = ["web"]
 [[bin]]
 name = "mirmir"
 path = "src/main.rs"
+
+[[test]]
+name = "instance-cli"
+path = "src/instance/tests/cli.rs"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }

@@ -6,7 +6,7 @@ use tonic::transport::Server;
 
 use super::{guard::InstanceGuard, telemetry::Sampler};
 use crate::{
-    config::{AppConfig, Paths, Store},
+    config::{AppConfig, Paths, SocketAccess, Store},
     error::Result,
     rpc::{RuntimeService, proto::runtime_server::RuntimeServer},
 };
@@ -32,7 +32,7 @@ pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Own
         fs::remove_file(&paths.socket_file)?;
     }
     let listener = UnixListener::bind(&paths.socket_file)?;
-    set_socket_permissions(&paths.socket_file)?;
+    set_socket_permissions(&paths.socket_file, paths.socket_access())?;
     let incoming = UnixListenerStream::new(listener);
     let (shutdown, receiver) = oneshot::channel();
     let sampler = Sampler::start(service.clone());
@@ -78,14 +78,18 @@ impl Owner {
 }
 
 #[cfg(unix)]
-fn set_socket_permissions(path: &std::path::Path) -> Result<()> {
+fn set_socket_permissions(path: &std::path::Path, access: SocketAccess) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    let mode = match access {
+        SocketAccess::Owner => 0o600,
+        SocketAccess::Group => 0o660,
+    };
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn set_socket_permissions(_path: &std::path::Path) -> Result<()> {
+fn set_socket_permissions(_path: &std::path::Path, _access: SocketAccess) -> Result<()> {
     Ok(())
 }
 

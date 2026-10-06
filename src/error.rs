@@ -12,6 +12,16 @@ pub enum Error {
     Config(String),
     #[error("another mirmir server owns {0}")]
     AlreadyRunning(PathBuf),
+    #[error("{0} is not a Unix socket")]
+    NotSocket(PathBuf),
+    #[error(
+        "cannot attach to mirmir at {socket}: {source}; check the service and socket permissions (no local runtime was started)"
+    )]
+    Attach {
+        socket: PathBuf,
+        #[source]
+        source: Box<Self>,
+    },
     #[error("model `{0}` is not configured and is not a local path")]
     ModelNotFound(String),
     #[error("I/O error: {0}")]
