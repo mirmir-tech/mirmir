@@ -127,6 +127,41 @@ is disabled. A token budget that truncates a tool call still returns the existin
 invalid-output error. Schema mode runs on Metal and CUDA and is not exposed
 through the CLI or private gRPC protocol.
 
+## Laya decisions (manual testing)
+
+`POST /v1/decide` asks a local Laya decision checkpoint one question per
+property of a flat JSON schema. It is a manual-testing endpoint, separate from
+the managed chat models: it uses the server's bearer token, and loads the
+checkpoint named in the request on its own worker thread.
+
+```sh
+curl -s http://127.0.0.1:8080/v1/decide -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{
+    "checkpoint": "/models/laya-multilingual",
+    "backend": "cpu",
+    "state": {"text": "We were billed twice for March."},
+    "schema": {"type": "object", "properties": {
+      "refund": {"type": "boolean"},
+      "urgency": {"type": "integer", "minimum": 1, "maximum": 3}
+    }}
+  }'
+```
+
+`state` is `{"text": ...}` or `{"conversation": [turns]}`; `backend` is `cpu`
+(default) or, on macOS, `metal`. The response holds `values` (the decided
+schema object) and `fields` with each field's `options`, `probabilities`,
+`confidence`, `concentration` and, for scales, `expected_level`. Schemas outside
+libmir's supported decision subset (for example `multipleOf`, free strings, or
+scales of more than ten levels), unknown backends, and unreadable checkpoints
+return HTTP 400.
+
+At most one checkpoint stays loaded; a request for another checkpoint or
+backend unloads it first. Four requests may wait behind the running one; more
+return HTTP 503. A queued request whose client disconnects or times out is
+skipped before it loads or runs anything; a running decision completes and its
+result is dropped. On shutdown the worker finishes the running decision and
+exits.
+
 ## Cached refill latency policy
 
 The default scheduling policy is unchanged. To opt into earlier admission of
