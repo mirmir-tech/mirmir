@@ -106,3 +106,25 @@ fn the_thread_exits_once_every_handle_is_dropped() {
     drop(clone);
     assert_eq!(exited.recv_timeout(WAIT), Err(RecvTimeoutError::Disconnected));
 }
+
+#[test]
+#[ignore = "needs a Laya checkpoint in MIRMIR_LAYA_MODEL"]
+fn an_unreadable_checkpoint_keeps_the_resident_model() -> Outcome<()> {
+    let checkpoint = std::path::PathBuf::from(std::env::var("MIRMIR_LAYA_MODEL")?);
+    let request = |checkpoint: std::path::PathBuf| super::DecideRequest {
+        checkpoint,
+        backend: super::BackendName::Cpu,
+        state: super::types::StateInput::Text("We were billed twice for March.".into()),
+        schema: serde_json::json!({"type": "object", "properties": {"refund": {"type": "boolean"}}}),
+    };
+    let mut loaded: super::Loaded = None;
+    let live = || false;
+    super::answer(&mut loaded, request(checkpoint.clone()), &live)
+        .map_err(|error| format!("{error:?}"))?;
+    let resident = loaded.as_ref().map(|(key, _)| key.clone());
+    assert_eq!(resident, Some((checkpoint, super::BackendName::Cpu)));
+    let missing = super::answer(&mut loaded, request("/nonexistent/laya".into()), &live);
+    assert!(missing.is_err());
+    assert_eq!(loaded.as_ref().map(|(key, _)| key.clone()), resident);
+    Ok(())
+}

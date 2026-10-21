@@ -10,7 +10,7 @@ use axum::{
     extract::{State, rejection::JsonRejection},
     http::HeaderMap,
 };
-use libmir::decision::{DecisionModel, DecisionSchema};
+use libmir::decision::{DecisionCheckpoint, DecisionModel, DecisionSchema};
 use types::{BackendName, DecideRequest, DecideResponse, FieldAnswer};
 use worker::Worker;
 
@@ -68,6 +68,11 @@ fn answer(
     let model = match loaded.take() {
         Some((current, model)) if current == key => &loaded.insert((current, model)).1,
         previous => {
+            // Refuse an unreadable checkpoint before giving up the resident one.
+            if let Err(error) = DecisionCheckpoint::inspect(&key.0) {
+                *loaded = previous;
+                return Err(ApiError::bad_request(error.to_string()));
+            }
             drop(previous);
             let model = DecisionModel::load(&key.0, key.1.backend())
                 .map_err(|error| ApiError::bad_request(error.to_string()))?;

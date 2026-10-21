@@ -156,11 +156,14 @@ scales of more than ten levels), unknown backends, and unreadable checkpoints
 return HTTP 400.
 
 At most one checkpoint stays loaded; a request for another checkpoint or
-backend unloads it first. Four requests may wait behind the running one; more
-return HTTP 503. A queued request whose client disconnects or times out is
-skipped before it loads or runs anything; a running decision completes and its
-result is dropped. On shutdown the worker finishes the running decision and
-exits.
+backend unloads it first, but only after the new checkpoint has been inspected
+successfully, so an unreadable path leaves the resident model in place. Four
+requests may wait behind the running one; more return HTTP 503. When a
+request's handler is dropped (the server request timeout fires, or the server
+notices that the client disconnected), its queued job is skipped before it
+loads or runs anything; a decision already running completes and its result is
+dropped. This is tested at the worker queue, not with a live HTTP disconnect.
+On shutdown the worker finishes the running decision and exits.
 
 ## Cached refill latency policy
 
