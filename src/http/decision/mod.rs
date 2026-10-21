@@ -1,13 +1,9 @@
 //! `POST /v1/decide`: Laya typed decisions for manual testing.
 
 mod types;
+mod worker;
 
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    path::PathBuf,
-    sync::mpsc::{Sender, channel},
-    thread,
-};
+use std::path::PathBuf;
 
 use axum::{
     Json,
@@ -15,30 +11,32 @@ use axum::{
     http::HeaderMap,
 };
 use libmir::decision::{DecisionModel, DecisionSchema};
-use tokio::sync::oneshot;
 use types::{BackendName, DecideRequest, DecideResponse, FieldAnswer};
+use worker::Worker;
 
 use crate::http::{ApiState, error::ApiError};
 
-type Reply = oneshot::Sender<Result<DecideResponse, ApiError>>;
+/// Requests admitted behind the running one; further requests get 503.
+const QUEUE_CAPACITY: usize = 4;
 
-/// One worker thread owns every loaded checkpoint: Metal models hold
+/// The one resident checkpoint; a request for another unloads it first, so
+/// the endpoint never holds more than one decision model.
+type Loaded = Option<((PathBuf, BackendName), DecisionModel)>;
+
+/// One worker thread owns the loaded checkpoint: Metal models hold
 /// thread-bound MLX state, so they never cross threads.
 #[derive(Clone)]
 pub struct Decisions {
-    jobs: Sender<(DecideRequest, Reply)>,
+    worker: Worker<DecideRequest, Result<DecideResponse, ApiError>>,
 }
 
 impl Default for Decisions {
     fn default() -> Self {
-        let (jobs, requests) = channel::<(DecideRequest, Reply)>();
-        let _worker = thread::spawn(move || {
-            let mut models = HashMap::new();
-            for (request, reply) in requests {
-                let _receiver_gone = reply.send(answer(&mut models, request));
-            }
+        let worker = Worker::spawn(QUEUE_CAPACITY, || {
+            let mut loaded: Loaded = None;
+            move |request, cancelled: &dyn Fn() -> bool| answer(&mut loaded, request, cancelled)
         });
-        Self { jobs }
+        Self { worker }
     }
 }
 
@@ -49,34 +47,36 @@ pub async fn decide(
 ) -> Result<Json<DecideResponse>, ApiError> {
     state.authorize(&headers)?;
     let request = payload.map_err(|error| ApiError::bad_request(error.body_text()))?.0;
-    let (reply, response) = oneshot::channel();
     state
         .decisions()
-        .jobs
-        .send((request, reply))
-        .map_err(|_| ApiError::internal("the decision worker stopped"))?;
-    response
+        .worker
+        .submit(request)?
         .await
         .map_err(|_| ApiError::internal("the decision worker stopped"))?
         .map(Json)
 }
 
 fn answer(
-    models: &mut HashMap<(PathBuf, BackendName), DecisionModel>,
+    loaded: &mut Loaded,
     request: DecideRequest,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<DecideResponse, ApiError> {
     let schema = DecisionSchema::from_json_schema(&request.schema)
         .map_err(|error| ApiError::bad_request(error.to_string()))?;
     let decision_state = request.state.into_state()?;
-    let model = match models.entry((request.checkpoint, request.backend)) {
-        Entry::Occupied(loaded) => loaded.into_mut(),
-        Entry::Vacant(slot) => {
-            let (checkpoint, backend) = slot.key();
-            let model = DecisionModel::load(checkpoint, backend.backend())
+    let key = (request.checkpoint, request.backend);
+    let model = match loaded.take() {
+        Some((current, model)) if current == key => &loaded.insert((current, model)).1,
+        previous => {
+            drop(previous);
+            let model = DecisionModel::load(&key.0, key.1.backend())
                 .map_err(|error| ApiError::bad_request(error.to_string()))?;
-            slot.insert(model)
+            &loaded.insert((key, model)).1
         },
     };
+    if cancelled() {
+        return Err(ApiError::internal("the decision request was cancelled"));
+    }
     let answers = model
         .decide(&decision_state, &schema.questions())
         .map_err(|error| ApiError::internal(error.to_string()))?;
@@ -91,3 +91,6 @@ fn answer(
         .collect();
     Ok(DecideResponse { values, fields })
 }
+
+#[cfg(test)]
+mod tests;
