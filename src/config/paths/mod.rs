@@ -2,6 +2,18 @@ use std::{env, path::PathBuf};
 
 use crate::error::{Error, Result};
 
+#[derive(Debug, Clone, Copy)]
+pub enum SocketAccess {
+    Owner,
+    Group,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SocketPlacement {
+    Personal,
+    External(SocketAccess),
+}
+
 #[derive(Debug, Clone)]
 pub struct Paths {
     pub config_dir: PathBuf,
@@ -14,6 +26,7 @@ pub struct Paths {
     pub hub_cache_dir: PathBuf,
     pub socket_file: PathBuf,
     pub lock_file: PathBuf,
+    socket_placement: SocketPlacement,
 }
 
 impl Paths {
@@ -56,6 +69,36 @@ impl Paths {
             lock_file: runtime_dir.join("mirmir.lock"),
             config_dir,
             state_dir,
+            socket_placement: SocketPlacement::Personal,
+        }
+    }
+
+    pub fn with_socket(mut self, socket: PathBuf, access: SocketAccess) -> Result<Self> {
+        let parent = socket.parent().filter(|parent| !parent.as_os_str().is_empty());
+        let parent =
+            parent.ok_or_else(|| Error::Config("socket needs a parent directory".to_owned()))?;
+        if socket.file_name().is_none() {
+            return Err(Error::Config("socket needs a file name".to_owned()));
+        }
+        if matches!(access, SocketAccess::Group)
+            && (parent == self.state_dir || parent == self.config_dir)
+        {
+            return Err(Error::Config(
+                "a shared socket needs a separate runtime directory".to_owned(),
+            ));
+        }
+        let name = socket.file_name().unwrap_or_default().to_string_lossy();
+        self.lock_file =
+            socket.with_file_name(format!("{}.lock", name.strip_suffix(".sock").unwrap_or(&name)));
+        self.socket_file = socket;
+        self.socket_placement = SocketPlacement::External(access);
+        Ok(self)
+    }
+
+    pub const fn socket_access(&self) -> SocketAccess {
+        match self.socket_placement {
+            SocketPlacement::Personal => SocketAccess::Owner,
+            SocketPlacement::External(access) => access,
         }
     }
 
@@ -67,13 +110,36 @@ impl Paths {
 
     pub fn ensure_runtime_dirs(&self) -> Result<()> {
         if let Some(runtime_dir) = self.socket_file.parent() {
+            let existed = runtime_dir.exists();
             std::fs::create_dir_all(runtime_dir)?;
-            set_private_dir(runtime_dir)?;
+            match self.socket_placement {
+                SocketPlacement::Personal => set_private_dir(runtime_dir)?,
+                SocketPlacement::External(access) if !existed => {
+                    set_dir_permissions(runtime_dir, access)?;
+                },
+                SocketPlacement::External(_) => {},
+            }
         }
         std::fs::create_dir_all(&self.state_dir)?;
         set_private_dir(&self.state_dir)?;
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn set_dir_permissions(path: &std::path::Path, access: SocketAccess) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = match access {
+        SocketAccess::Owner => 0o700,
+        SocketAccess::Group => 0o750,
+    };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_dir_permissions(_path: &std::path::Path, _access: SocketAccess) -> Result<()> {
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -87,3 +153,6 @@ fn set_private_dir(path: &std::path::Path) -> Result<()> {
 fn set_private_dir(_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

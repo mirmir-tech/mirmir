@@ -7,6 +7,7 @@ mod config;
 mod daemon;
 mod error;
 mod http;
+mod instance;
 mod media;
 mod model;
 mod model_format;
@@ -23,20 +24,36 @@ use cli::{Cli, Command};
 use error::Result;
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    config::load_dotenv(&std::env::current_dir()?)?;
-    let cli = Cli::parse();
+async fn main() {
+    if let Err(error) = run().await {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
+    let selected = Cli::parse();
+    let attached = selected.instance.system || selected.instance.socket.is_some();
+    let cli = if !attached || matches!(selected.command.as_ref(), Some(Command::Serve(_))) {
+        config::load_dotenv(&std::env::current_dir()?)?;
+        Cli::parse()
+    } else {
+        selected
+    };
+    let instance = instance::Instance::from(cli.instance);
     init_tracing(matches!(cli.command.as_ref(), Some(Command::Serve(_))))?;
-    let paths = config::Paths::discover()?;
-    let store = config::Store::new(paths.clone());
 
     match cli.command {
-        Some(Command::Serve(args)) => daemon::serve(paths, store.load()?, args).await,
-        Some(Command::Status) => status::run(&paths).await,
-        Some(Command::Prompt(args)) => prompt::run(paths, store.load()?, args).await,
-        Some(Command::Model { command }) => model::run(paths, store.load()?, command).await,
-        Some(Command::Config { command }) => config::command::run(&paths, &store, command).await,
-        None => tui::run(paths, store.load()?).await,
+        Some(Command::Serve(args)) => {
+            let paths = instance.server_paths(args.shared_socket)?;
+            let config = config::Store::new(paths.clone()).load()?;
+            daemon::serve(paths, config, args).await
+        },
+        Some(Command::Status) => status::run(&instance).await,
+        Some(Command::Prompt(args)) => prompt::run(&instance, args).await,
+        Some(Command::Model { command }) => model::run(&instance, command).await,
+        Some(Command::Config { command }) => config::command::run(&instance, command).await,
+        None => tui::run(&instance).await,
     }
 }
 

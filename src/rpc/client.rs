@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
@@ -14,17 +14,44 @@ use crate::error::{Error, Result};
 pub type Client = RuntimeClient<Channel>;
 
 pub async fn connect(socket: &Path) -> Result<Client> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        if !std::fs::metadata(socket)?.file_type().is_socket() {
+            return Err(Error::NotSocket(socket.to_owned()));
+        }
+    }
     let path = socket.to_owned();
+    let initial = Arc::new(tokio::sync::Mutex::new(Some(UnixStream::connect(socket).await?)));
     let channel = Endpoint::from_static("http://[::]:50051")
         .connect_with_connector(service_fn(move |_: Uri| {
             let path = path.clone();
-            async move { UnixStream::connect(path).await.map(TokioIo::new) }
+            let initial = initial.clone();
+            async move {
+                let first = initial.lock().await.take();
+                let stream = match first {
+                    Some(stream) => stream,
+                    None => UnixStream::connect(path).await?,
+                };
+                Ok::<_, std::io::Error>(TokioIo::new(stream))
+            }
         }))
         .await?;
     let mut client = RuntimeClient::new(channel);
     let health = client.health(HealthRequest {}).await?.into_inner();
     validate_protocol(&health.protocol_version)?;
     Ok(client)
+}
+
+pub fn unavailable(error: &Error) -> bool {
+    match error {
+        Error::NotSocket(_) => true,
+        Error::Io(error) => matches!(
+            error.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+        ),
+        _ => false,
+    }
 }
 
 fn validate_protocol(version: &str) -> Result<()> {

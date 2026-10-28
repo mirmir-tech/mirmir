@@ -2,15 +2,14 @@ use futures_util::StreamExt;
 
 use crate::{
     cli::ModelCommand,
-    config::{AppConfig, Paths},
-    daemon,
     error::{Error, Result},
+    instance::Instance,
     output,
     rpc::{self, proto},
 };
 
-pub async fn run(paths: Paths, config: AppConfig, command: ModelCommand) -> Result<()> {
-    let mut connection = daemon::connect_or_start(&paths, &config).await?;
+pub async fn run(instance: &Instance, command: ModelCommand) -> Result<()> {
+    let mut connection = instance.connect().await?;
     let result = execute(&mut connection.client, command).await;
     result.and(connection.shutdown().await)
 }

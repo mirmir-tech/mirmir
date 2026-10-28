@@ -49,6 +49,12 @@ Run the server without the dashboard:
 mirmir serve
 ```
 
+For a service running under a separate account, operators can attach with
+`mirmir --system` or `mirmir --socket /path/to/runtime.sock`. These clients never
+start a replacement runtime or fall back to personal configuration. See the
+[system instance guide](docs/system-instance.md) for group access, systemd setup,
+and staging acceptance tests.
+
 ## What it provides
 
 - local Hugging Face model discovery, download, inspection, and lifecycle;

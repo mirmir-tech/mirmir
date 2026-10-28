@@ -64,7 +64,13 @@ fn header(frame: &mut Frame<'_>, area: Rect, app: &App) {
     };
     let line = Line::from(vec![
         Span::styled("  MiRMiR", Style::new().fg(theme::INK).add_modifier(Modifier::BOLD)),
-        Span::styled("  /  LOCAL RUNTIME", Style::new().fg(theme::MUTED)),
+        Span::styled(
+            format!(
+                "  /  {}",
+                app.endpoint.as_ref().map_or("LOCAL RUNTIME", crate::instance::Endpoint::label)
+            ),
+            Style::new().fg(theme::MUTED),
+        ),
         Span::raw("    "),
         Span::styled(status, Style::new().fg(status_color).add_modifier(Modifier::BOLD)),
     ]);
@@ -72,6 +78,9 @@ fn header(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Paragraph::new(line)
             .block(
                 Block::new()
+                    .title_bottom(app.endpoint.as_ref().map_or_else(String::new, |endpoint| {
+                        format!(" {} ", endpoint.socket().display())
+                    }))
                     .borders(Borders::BOTTOM)
                     .border_style(Style::new().fg(theme::BORDER)),
             )

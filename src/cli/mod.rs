@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+mod instance;
+pub use instance::InstanceArgs;
+
 /// Run local models, manage their files and configuration, or open the terminal
 /// dashboard.
 #[derive(Debug, Parser)]
@@ -13,6 +16,8 @@ use clap::{Args, Parser, Subcommand};
     next_line_help = true
 )]
 pub struct Cli {
+    #[command(flatten)]
+    pub instance: InstanceArgs,
     /// Operation to perform; omit it to open the interactive TUI.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -46,6 +51,11 @@ pub enum Command {
 
 #[derive(Debug, Args, Clone)]
 pub struct ServeArgs {
+    /// Allow the server's OS group to administer an explicitly selected socket.
+    /// System mode enables this automatically. Existing parent directory
+    /// permissions are preserved.
+    #[arg(long)]
+    pub shared_socket: bool,
     /// Disable the HTTP, OpenAI-compatible, and embedded Web endpoints; keep
     /// only local gRPC.
     #[arg(long)]

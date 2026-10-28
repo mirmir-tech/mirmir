@@ -2,7 +2,8 @@ use serde::Serialize;
 
 use crate::{
     config::Paths,
-    error::{Error, Result},
+    error::Result,
+    instance::Instance,
     output,
     rpc::{self, proto},
 };
@@ -17,18 +18,26 @@ struct Status {
     telemetry: Option<proto::TelemetrySnapshot>,
 }
 
-pub async fn run(paths: &Paths) -> Result<()> {
-    let mut client = match rpc::connect(&paths.socket_file).await {
-        Ok(client) => client,
-        Err(Error::Transport(_)) => return output::json(&Status::stopped(paths)),
-        Err(error) => return Err(error),
+pub async fn run(instance: &Instance) -> Result<()> {
+    let (mut client, socket) = if let Some(socket) = instance.attached_socket() {
+        (instance.connect_existing().await?, socket.to_owned())
+    } else {
+        let paths = Paths::discover()?;
+        let client = match rpc::connect(&paths.socket_file).await {
+            Ok(client) => client,
+            Err(error) if rpc::unavailable(&error) => {
+                return output::json(&Status::stopped(&paths));
+            },
+            Err(error) => return Err(error),
+        };
+        (client, paths.socket_file)
     };
     let health = client.health(proto::HealthRequest {}).await?.into_inner();
     let active = client.list_active_models(proto::ListActiveModelsRequest {}).await?.into_inner();
     let telemetry = client.telemetry(proto::TelemetryRequest {}).await?.into_inner();
     output::json(&Status {
         running: true,
-        socket: paths.socket_file.display().to_string(),
+        socket: socket.display().to_string(),
         protocol_version: Some(health.protocol_version),
         server_version: Some(health.server_version),
         active_models: active.selectors,
