@@ -2203,6 +2203,8 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libmir"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e504e243d55a039e1c8cf9fcfb8c198aadcab88585c62dca58683a4e43f1b994"
 dependencies = [
  "async-trait",
  "jsonschema",
@@ -2228,6 +2230,8 @@ dependencies = [
 [[package]]
 name = "libmir-admission"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4a3439971f42a9b2fee136b64131503e45b5817514120bae9ac56177b84a928"
 dependencies = [
  "libmir-models",
 ]
@@ -2235,6 +2239,8 @@ dependencies = [
 [[package]]
 name = "libmir-core"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12dc40d91ba531af36c6e5359e0d3bfb750fea0df00785a3b82a307d03f1507f"
 dependencies = [
  "serde",
  "serde_json",
@@ -2245,6 +2251,8 @@ dependencies = [
 [[package]]
 name = "libmir-cpu"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd4e1964721f56f25638e77edd6ba85aa2072aac5c0d8e60b7933866dc7948b"
 dependencies = [
  "libmir-models",
  "mircup",
@@ -2254,6 +2262,8 @@ dependencies = [
 [[package]]
 name = "libmir-cuda"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e9cc4d823a51b6e9738c2807bf45c5b71683aac66fcb37d90fd99137b1ed7cc"
 dependencies = [
  "async-trait",
  "libmir-admission",
@@ -2272,6 +2282,8 @@ dependencies = [
 [[package]]
 name = "libmir-metal"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f173752bef74973c4c2847b1ed44fe700d946f7c92651e75595a7e63d5eab69c"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2290,6 +2302,8 @@ dependencies = [
 [[package]]
 name = "libmir-models"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "698515c89b0d4e0381762a47cd8e6ab84e8210862e83e60bf6749a4be13434dc"
 dependencies = [
  "image",
  "libmir-core",
@@ -2306,6 +2320,8 @@ dependencies = [
 [[package]]
 name = "libmir-runtime"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d235775ece839ae5abae789a8b341043f9fb9ebb71bb700de77b694b6ef8ee91"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2551,6 +2567,8 @@ dependencies = [
 [[package]]
 name = "mircuda"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a69cf05b58b42bbef89798a4692b78ddfa357578089d3ef2b06cd1f141eb545"
 dependencies = [
  "blake3",
  "half",
@@ -2563,6 +2581,8 @@ dependencies = [
 [[package]]
 name = "mircuda-macros"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b140bed7e31073037fb00d6992e3630118aea0e944391ef24df26e62a23a690"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2572,6 +2592,8 @@ dependencies = [
 [[package]]
 name = "mircuda-sys"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b818ef2fe261bb2bacd7b6e03d82009574db7d63da31b2384db3e8deb26fe50c"
 dependencies = [
  "cc",
  "cudarc",
@@ -2581,6 +2603,8 @@ dependencies = [
 [[package]]
 name = "mircup"
 version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb103eb3f6051ee913178aa64229d8086b14506aeac1105a6d7318b0ef891af3"
 dependencies = [
  "gemm",
  "half",
@@ -2629,6 +2653,8 @@ dependencies = [
 [[package]]
 name = "mirtal"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dccdbbfe4b309f8d49900e8e64ddee9f748d5d5df052fa92f4bfa74857014af8"
 dependencies = [
  "cxx",
  "mirtal-macros",
@@ -2639,6 +2665,8 @@ dependencies = [
 [[package]]
 name = "mirtal-macros"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b83aa0c273c6df02fe9847ba3987e814dd86aee96a0bfb812a9a89e8353995fe"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2648,6 +2676,8 @@ dependencies = [
 [[package]]
 name = "mirtal-sys"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c5c911b22a9cb9d07b5bf0a782db7b466f7a76fc79334b3c44c3bf8a9bcc7fc"
 dependencies = [
  "cxx",
  "cxx-build",
