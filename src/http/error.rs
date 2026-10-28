@@ -45,6 +45,10 @@ impl ApiError {
         )
     }
 
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, message, "server_error", "service_unavailable")
+    }
+
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(StatusCode::NOT_FOUND, message, "invalid_request_error", "not_found")
     }
@@ -73,12 +77,7 @@ impl ApiError {
             ErrorClass::Cancelled => {
                 Self::new(StatusCode::REQUEST_TIMEOUT, message, "request_error", "cancelled")
             },
-            ErrorClass::Unavailable => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                message,
-                "server_error",
-                "service_unavailable",
-            ),
+            ErrorClass::Unavailable => Self::unavailable(message),
             ErrorClass::Internal => Self::internal(message),
         }
     }
