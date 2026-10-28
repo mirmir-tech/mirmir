@@ -70,6 +70,7 @@ async fn rejects_invalid_requests_and_keeps_the_worker_answering() -> Result<()>
         json!({"type": "integer", "minimum": i64::MIN, "maximum": i64::MAX}),
         json!({"type": "integer", "minimum": 0, "maximum": 4, "multipleOf": 2}),
         json!({"type": "string"}),
+        json!({"oneOf": [{"enum": [null, true]}, {"type": "null"}]}),
         json!({"const": true, "enum": [true, false]}),
     ] {
         rejected(&client, &base, request("/nonexistent/laya", &property)).await?;
