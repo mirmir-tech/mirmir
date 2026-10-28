@@ -1,6 +1,6 @@
 [package]
 name = "mirmir"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Native local model runtime, TUI, CLI, and OpenAI-compatible server"
@@ -61,13 +61,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libmir = { version = "0.5.1", default-features = false, features = ["cpu", "metal"] }
+libmir = { version = "0.5.2", default-features = false, features = ["cpu", "metal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libmir = { version = "0.5.1", default-features = false, features = ["cpu", "cuda"] }
+libmir = { version = "0.5.2", default-features = false, features = ["cpu", "cuda"] }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "linux")))'.dependencies]
-libmir = { version = "0.5.1", default-features = false }
+libmir = { version = "0.5.2", default-features = false }
 
 [build-dependencies]
 prost-build = "0.14"
