@@ -127,6 +127,44 @@ is disabled. A token budget that truncates a tool call still returns the existin
 invalid-output error. Schema mode runs on Metal and CUDA and is not exposed
 through the CLI or private gRPC protocol.
 
+## Laya decisions (manual testing)
+
+`POST /v1/decide` asks a local Laya decision checkpoint one question per
+property of a flat JSON schema. It is a manual-testing endpoint, separate from
+the managed chat models: it uses the server's bearer token, and loads the
+checkpoint named in the request on its own worker thread.
+
+```sh
+curl -s http://127.0.0.1:8080/v1/decide -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{
+    "checkpoint": "/models/laya-multilingual",
+    "backend": "cpu",
+    "state": {"text": "We were billed twice for March."},
+    "schema": {"type": "object", "properties": {
+      "refund": {"type": "boolean"},
+      "urgency": {"type": "integer", "minimum": 1, "maximum": 3}
+    }}
+  }'
+```
+
+`state` is `{"text": ...}` or `{"conversation": [turns]}`; `backend` is `cpu`
+(default) or, on macOS, `metal`. The response holds `values` (the decided
+schema object) and `fields` with each field's `options`, `probabilities`,
+`confidence`, `concentration` and, for scales, `expected_level`. Schemas outside
+libmir's supported decision subset (for example `multipleOf`, free strings, or
+scales of more than ten levels), unknown backends, and unreadable checkpoints
+return HTTP 400.
+
+At most one checkpoint stays loaded; a request for another checkpoint or
+backend unloads it first, but only after the new checkpoint has been inspected
+successfully, so an unreadable path leaves the resident model in place. Four
+requests may wait behind the running one; more return HTTP 503. When a
+request's handler is dropped (the server request timeout fires, or the server
+notices that the client disconnected), its queued job is skipped before it
+loads or runs anything; a decision already running completes and its result is
+dropped. This is tested at the worker queue, not with a live HTTP disconnect.
+On shutdown the worker finishes the running decision and exits.
+
 ## Cached refill latency policy
 
 The default scheduling policy is unchanged. To opt into earlier admission of

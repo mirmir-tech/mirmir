@@ -1,3 +1,4 @@
+mod decision;
 mod error;
 mod handlers;
 mod media;
@@ -19,6 +20,7 @@ pub struct ApiState {
     sessions: Sessions,
     shutdown: watch::Receiver<bool>,
     updates: broadcast::Sender<DashboardUpdate>,
+    decisions: decision::Decisions,
 }
 
 #[derive(Clone, Copy)]
@@ -39,11 +41,16 @@ impl ApiState {
             sessions: Sessions::default(),
             shutdown,
             updates,
+            decisions: decision::Decisions::default(),
         }
     }
 
     pub const fn application(&self) -> &Application {
         &self.application
+    }
+
+    pub const fn decisions(&self) -> &decision::Decisions {
+        &self.decisions
     }
 
     pub const fn sessions(&self) -> &Sessions {
