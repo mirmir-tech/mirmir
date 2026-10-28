@@ -2202,7 +2202,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libmir"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-trait",
  "jsonschema",
@@ -2227,14 +2227,14 @@ dependencies = [
 
 [[package]]
 name = "libmir-admission"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "libmir-models",
 ]
 
 [[package]]
 name = "libmir-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2244,7 +2244,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-cpu"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "libmir-models",
  "mircup",
@@ -2253,7 +2253,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-cuda"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-trait",
  "libmir-admission",
@@ -2271,7 +2271,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-metal"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2289,7 +2289,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-models"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "image",
  "libmir-core",
@@ -2305,7 +2305,7 @@ dependencies = [
 
 [[package]]
 name = "libmir-runtime"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2550,7 +2550,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "blake3",
  "half",
@@ -2562,7 +2562,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda-macros"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2571,7 +2571,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda-sys"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "cc",
  "cudarc",
@@ -2580,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "mircup"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "gemm",
  "half",
@@ -2591,7 +2591,7 @@ dependencies = [
 
 [[package]]
 name = "mirmir"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
