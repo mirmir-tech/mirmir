@@ -168,7 +168,9 @@ requests may wait behind the running one; more return HTTP 503. When a
 request's handler is dropped (the server request timeout fires, or the server
 notices that the client disconnected), its queued job is skipped before it
 loads or runs anything; a decision already running completes and its result is
-dropped. This is tested at the worker queue, not with a live HTTP disconnect.
+dropped. Worker tests and a real HTTP timeout regression verify that queued abandoned
+work is skipped before a later live request. A live HTTP disconnect is not
+yet covered by that regression.
 On shutdown the worker finishes the running decision and exits.
 
 ## Cached refill latency policy
