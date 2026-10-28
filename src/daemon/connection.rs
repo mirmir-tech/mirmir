@@ -11,10 +11,15 @@ const CONNECT_RETRY_DELAY: Duration = Duration::from_millis(25);
 
 pub struct Connection {
     pub client: rpc::Client,
+    pub socket: std::path::PathBuf,
     owner: Option<super::server::Owner>,
 }
 
 impl Connection {
+    pub const fn attached(client: rpc::Client, socket: std::path::PathBuf) -> Self {
+        Self { client, socket, owner: None }
+    }
+
     #[must_use]
     pub const fn reused(&self) -> bool {
         self.owner.is_none()
@@ -31,7 +36,7 @@ impl Connection {
 
 pub async fn connect_or_start(paths: &Paths, config: &AppConfig) -> Result<Connection> {
     match rpc::connect(&paths.socket_file).await {
-        Ok(client) => return Ok(Connection { client, owner: None }),
+        Ok(client) => return Ok(Connection::attached(client, paths.socket_file.clone())),
         Err(error) if retryable(&error) => {},
         Err(error) => return Err(error),
     }
@@ -54,7 +59,13 @@ async fn retry_connect(
     let mut last_error = None;
     for attempt in 0..CONNECT_ATTEMPTS {
         match rpc::connect(&paths.socket_file).await {
-            Ok(client) => return Ok(Connection { client, owner }),
+            Ok(client) => {
+                return Ok(Connection {
+                    client,
+                    owner,
+                    socket: paths.socket_file.clone(),
+                });
+            },
             Err(error) if retryable(&error) => last_error = Some(error.to_string()),
             Err(error) => return cleanup(owner, error).await,
         }
@@ -74,6 +85,9 @@ async fn retry_connect(
 }
 
 fn retryable(error: &Error) -> bool {
+    if rpc::unavailable(error) {
+        return true;
+    }
     match error {
         Error::Transport(_) => true,
         Error::Status(status) => status.code() == tonic::Code::Unavailable,

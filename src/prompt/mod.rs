@@ -7,23 +7,48 @@ pub mod benchmark;
 
 use crate::{
     cli::PromptArgs,
-    config::{AppConfig, Paths},
-    daemon,
+    daemon::Connection,
     error::{Error, Result},
+    instance::Instance,
+    rpc::proto,
 };
 
-pub async fn run(paths: Paths, config: AppConfig, args: PromptArgs) -> Result<()> {
-    let model =
-        args.model.clone().or_else(|| config.default_model.clone()).ok_or_else(|| {
-            Error::Config("set --model or default_model in config.toml".to_owned())
-        })?;
+pub async fn run(instance: &Instance, args: PromptArgs) -> Result<()> {
     let prompt = read_prompt(&args)?;
     if args.samples == 0 {
         return Err(Error::Config("--samples must be positive".to_owned()));
     }
-    let mut connection = daemon::connect_or_start(&paths, &config).await?;
+    let connection = instance.connect().await?;
+    run_connection(connection, args, prompt).await
+}
+
+async fn run_connection(
+    mut connection: Connection,
+    args: PromptArgs,
+    prompt: String,
+) -> Result<()> {
     let reused = connection.reused();
-    let result = benchmark::execute(&mut connection.client, &args, model, prompt, reused).await;
+    let result = async {
+        let model = if let Some(model) = args.model.clone() {
+            model
+        } else {
+            #[derive(serde::Deserialize)]
+            struct Defaults {
+                default_model: Option<String>,
+            }
+            let snapshot = connection
+                .client
+                .get_configuration(proto::GetConfigurationRequest {})
+                .await?
+                .into_inner();
+            let defaults: Defaults = toml::from_str(&snapshot.raw_toml)?;
+            defaults.default_model.ok_or_else(|| {
+                Error::Config("set --model or default_model on the selected server".to_owned())
+            })?
+        };
+        benchmark::execute(&mut connection.client, &args, model, prompt, reused).await
+    }
+    .await;
     result.and(connection.shutdown().await)
 }
 
@@ -53,6 +78,10 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+    use crate::{
+        config::{AppConfig, Paths},
+        daemon,
+    };
 
     static NEXT_PROMPT: AtomicU64 = AtomicU64::new(0);
 
@@ -60,14 +89,17 @@ mod tests {
     async fn zero_samples_does_not_start_server() {
         let (paths, mut args) = fixture();
         args.samples = 0;
-        assert!(run(paths.clone(), AppConfig::default(), args).await.is_err());
+        assert!(run(&Instance::Socket(paths.socket_file.clone()), args).await.is_err());
         assert!(!paths.socket_file.exists());
     }
 
     #[tokio::test]
     async fn ephemeral_server_is_cleaned_after_request_error() {
         let (paths, args) = fixture();
-        assert!(run(paths.clone(), AppConfig::default(), args).await.is_err());
+        let connection = daemon::connect_or_start(&paths, &AppConfig::default())
+            .await
+            .expect("ephemeral server");
+        assert!(run_connection(connection, args, "hello".to_owned()).await.is_err());
         assert!(!paths.socket_file.exists());
     }
 

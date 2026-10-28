@@ -5,6 +5,7 @@ use crate::{
     cli::ConfigCommand,
     config::{Paths, Store},
     error::{Error, Result},
+    instance::Instance,
     output,
     rpc::{self, proto},
 };
@@ -12,7 +13,22 @@ use crate::{
 const HF_TOKEN: &str = "hugging_face.token";
 const HTTP_API_KEY: &str = "server.api_key";
 
-pub async fn run(paths: &Paths, store: &Store, command: ConfigCommand) -> Result<()> {
+pub async fn run(instance: &Instance, command: ConfigCommand) -> Result<()> {
+    if instance.attached_socket().is_some() {
+        if matches!(command, ConfigCommand::Init | ConfigCommand::Edit) {
+            return Err(Error::Config(
+                "config init/edit are local operations; use config show/set for an attached server"
+                    .to_owned(),
+            ));
+        }
+        let mut client = instance.connect_existing().await?;
+        return attached(&mut client, command).await;
+    }
+    let paths = Paths::discover()?;
+    run_local(&paths, &Store::new(paths.clone()), command).await
+}
+
+async fn run_local(paths: &Paths, store: &Store, command: ConfigCommand) -> Result<()> {
     let mut client = optional_client(paths).await?;
     match command {
         ConfigCommand::Init => {
@@ -135,10 +151,16 @@ fn edit_temporary(store: &Store, temporary: &std::path::Path) -> Result<()> {
 async fn optional_client(paths: &Paths) -> Result<Option<rpc::Client>> {
     match rpc::connect(&paths.socket_file).await {
         Ok(client) => Ok(Some(client)),
-        Err(Error::Transport(_)) => Ok(None),
+        Err(error) if rpc::unavailable(&error) => Ok(None),
         Err(error) => Err(error),
     }
 }
+
+mod attached;
+use attached::attached;
+
+#[cfg(test)]
+mod tests;
 
 async fn show(store: &Store, client: Option<&mut rpc::Client>) -> Result<()> {
     if let Some(client) = client {

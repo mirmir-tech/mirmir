@@ -1,3 +1,5 @@
+mod http;
+
 use std::{
     sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel},
     time::Duration,

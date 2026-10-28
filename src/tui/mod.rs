@@ -23,21 +23,22 @@ use self::{
     app::{App, ChatStatus, RefreshSnapshot},
     terminal::TerminalGuard,
 };
-use crate::{
-    config::{AppConfig, Paths},
-    daemon,
-    error::Result,
-    rpc,
-};
+use crate::{error::Result, instance::Instance, rpc};
 
-pub async fn run(paths: Paths, config: AppConfig) -> Result<()> {
-    let mut connection = daemon::connect_or_start(&paths, &config).await?;
+pub async fn run(instance: &Instance) -> Result<()> {
+    let mut connection = instance.connect().await?;
     let reused = connection.reused();
-    let result = dashboard(&mut connection.client, reused).await;
+    let result =
+        dashboard(&mut connection.client, reused, instance, connection.socket.clone()).await;
     result.and(connection.shutdown().await)
 }
 
-async fn dashboard(client: &mut rpc::Client, server_reused: bool) -> Result<()> {
+async fn dashboard(
+    client: &mut rpc::Client,
+    server_reused: bool,
+    instance: &Instance,
+    socket: std::path::PathBuf,
+) -> Result<()> {
     let mut terminal = TerminalGuard::new()?;
     let mut events = EventStream::new();
     let mut refresh = tokio::time::interval(Duration::from_secs(1));
@@ -47,6 +48,7 @@ async fn dashboard(client: &mut rpc::Client, server_reused: bool) -> Result<()> 
     let mut chat_telemetry = tokio::time::interval(Duration::from_millis(250));
     chat_telemetry.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut app = App::new(server_reused);
+    app.endpoint = Some(crate::instance::Endpoint::new(instance, socket));
     let mut refresh_task = Some(begin_refresh(client));
     let mut chat_telemetry_task = None;
     app.begin_activity(client);
