@@ -2,6 +2,7 @@ pub mod command;
 mod editing;
 mod file;
 mod generation;
+mod model_runtime;
 mod models;
 mod paths;
 mod presentation;

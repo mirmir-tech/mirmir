@@ -7,13 +7,18 @@ use super::error::ApiError;
 #[serde(deny_unknown_fields)]
 pub struct TemplateOptions {
     pub enable_thinking: Option<bool>,
+    /// Shorter reasoning, for templates that declare `medium_effort`.
+    pub medium_effort: Option<bool>,
+    /// Drops earlier turns' reasoning, for templates that declare
+    /// `truncate_history_thinking`.
+    pub truncate_history_thinking: Option<bool>,
 }
 
 /// Accept the vLLM thinking switch without silently changing a caller's
 /// declared mode. Unsupported template options fail during deserialization.
 pub(super) fn resolve(
     explicit: Option<ReasoningMode>,
-    template: Option<TemplateOptions>,
+    template: Option<&TemplateOptions>,
 ) -> Result<ReasoningMode, ApiError> {
     let compatible = template.and_then(|options| options.enable_thinking).map(|enabled| {
         if enabled {
@@ -28,6 +33,23 @@ pub(super) fn resolve(
         )),
         (left, right) => Ok(left.or(right).unwrap_or_default()),
     }
+}
+
+/// The template's effort and history switches. An omitted switch, and an
+/// effort switch left off, keep the template's default.
+pub(super) fn controls(
+    template: Option<&TemplateOptions>,
+) -> (libmir::ReasoningEffort, libmir::ReasoningHistory) {
+    let effort = match template.and_then(|options| options.medium_effort) {
+        Some(true) => libmir::ReasoningEffort::Efficient,
+        Some(false) | None => libmir::ReasoningEffort::ModelDefault,
+    };
+    let history = match template.and_then(|options| options.truncate_history_thinking) {
+        Some(true) => libmir::ReasoningHistory::Truncate,
+        Some(false) => libmir::ReasoningHistory::Keep,
+        None => libmir::ReasoningHistory::ModelDefault,
+    };
+    (effort, history)
 }
 
 /// Allowance within, never in addition to, the total completion limit.

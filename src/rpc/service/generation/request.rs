@@ -38,6 +38,8 @@ pub(super) fn chat_request(request: &proto::GenerateRequest) -> Result<Generatio
         reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
         reasoning_token_budget: None,
         reasoning: libmir::ReasoningMode::ModelDefault,
+        reasoning_effort: libmir::ReasoningEffort::ModelDefault,
+        reasoning_history: libmir::ReasoningHistory::ModelDefault,
     })
 }
 

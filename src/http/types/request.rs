@@ -39,7 +39,9 @@ impl ChatRequest {
             (left, right) => left.or(right),
         };
         let (messages, image) = messages(self.messages)?;
-        let reasoning = crate::http::reasoning::resolve(self.reasoning, self.chat_template_kwargs)?;
+        let template = self.chat_template_kwargs.as_ref();
+        let reasoning = crate::http::reasoning::resolve(self.reasoning, template)?;
+        let (reasoning_effort, reasoning_history) = crate::http::reasoning::controls(template);
         let reasoning_token_budget = crate::http::reasoning::budget(
             self.thinking_token_budget,
             reasoning,
@@ -68,6 +70,8 @@ impl ChatRequest {
             tool_constraints: self.tool_constraints,
             reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
             reasoning,
+            reasoning_effort,
+            reasoning_history,
             reasoning_token_budget,
         };
         Ok((selector, request, image))

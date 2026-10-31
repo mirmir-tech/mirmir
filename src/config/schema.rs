@@ -3,6 +3,7 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use libmir::KvCacheDType;
 use serde::{Deserialize, Serialize};
 
+use super::model_runtime::ModelRuntimeConfig;
 use crate::error::{Error, Result};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -61,6 +62,8 @@ pub struct ModelConfig {
     pub hub: Option<HubModelConfig>,
     #[serde(default)]
     pub generation: GenerationConfig,
+    #[serde(default, skip_serializing_if = "ModelRuntimeConfig::is_unset")]
+    pub runtime: ModelRuntimeConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,17 +227,6 @@ impl ModelConfig {
             return Err(Error::Config(format!("model `{expected_id}` has an empty path")));
         }
         Ok(())
-    }
-}
-
-impl GenerationConfig {
-    #[must_use]
-    pub const fn has_overrides(self) -> bool {
-        self.max_tokens.is_some()
-            || self.temperature.is_some()
-            || self.top_p.is_some()
-            || self.top_k.is_some()
-            || self.repetition_penalty.is_some()
     }
 }
 

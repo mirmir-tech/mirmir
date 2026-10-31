@@ -22,6 +22,7 @@ impl Store {
                     path: direct.to_owned(),
                     hub: hub.clone(),
                     generation: GenerationConfig::default(),
+                    runtime: super::model_runtime::ModelRuntimeConfig::default(),
                 },
                 Err(error) => return Err(error),
             }
@@ -52,6 +53,17 @@ fn validate_id(id: &str, hub: Option<&HubModelConfig>) -> Result<()> {
         Ok(())
     } else {
         Err(Error::Config(format!("model id `{id}` does not match `{expected}`")))
+    }
+}
+
+impl GenerationConfig {
+    #[must_use]
+    pub const fn has_overrides(self) -> bool {
+        self.max_tokens.is_some()
+            || self.temperature.is_some()
+            || self.top_p.is_some()
+            || self.top_k.is_some()
+            || self.repetition_penalty.is_some()
     }
 }
 

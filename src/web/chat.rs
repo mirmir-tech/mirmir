@@ -198,6 +198,8 @@ fn application_request(
         reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
         reasoning_token_budget: None,
         reasoning: libmir::ReasoningMode::ModelDefault,
+        reasoning_effort: libmir::ReasoningEffort::ModelDefault,
+        reasoning_history: libmir::ReasoningHistory::ModelDefault,
     };
     Ok((selector, request, image))
 }

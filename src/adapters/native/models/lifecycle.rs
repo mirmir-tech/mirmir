@@ -29,7 +29,7 @@ impl NativeRuntime {
                 &resolved.path,
                 generation_defaults(&resolved.generation),
                 &resolved.key,
-                force,
+                resolved.runtime.load_options(force),
             )? {
                 Check::Ready => break,
                 Check::Pressure { eviction_can_help: true, .. }
@@ -43,7 +43,7 @@ impl NativeRuntime {
             let attempt = self.library.load_with_options(
                 &resolved.path,
                 defaults,
-                libmir::ModelLoadOptions { allow_memory_overcommit: force },
+                resolved.runtime.load_options(force),
                 progress,
             );
             if matches!(&attempt, Err(libmir::Error::MemoryAdmission { .. })) {

@@ -2045,8 +2045,6 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libmir"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3db412a9161de51b12a677a5b6f409e09f4db18e72f0dc5c0cc7c3797d8abc6"
 dependencies = [
  "async-trait",
  "jsonschema",
@@ -2071,8 +2069,6 @@ dependencies = [
 [[package]]
 name = "libmir-admission"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d94ba796e7c7d0a7f2dfcbc11fcf4da6c8a7d4b0fa40d24a7bbf183b41b3300"
 dependencies = [
  "libmir-models",
 ]
@@ -2080,8 +2076,6 @@ dependencies = [
 [[package]]
 name = "libmir-core"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fb5d4b7f4c2eb8f7fe58a64052d7131c1123aacbe76cf5aeac46374352e20e7"
 dependencies = [
  "serde",
  "serde_json",
@@ -2092,8 +2086,6 @@ dependencies = [
 [[package]]
 name = "libmir-cuda"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "057297b13bd2a21a207dc6ee30eb931b9fc02270a21489cf60dcaf8fcec32af3"
 dependencies = [
  "async-trait",
  "libmir-admission",
@@ -2112,8 +2104,6 @@ dependencies = [
 [[package]]
 name = "libmir-metal"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e31235f4100799d7809d5ea43d111317cfde13ffced7ea28e469070088b92c21"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2132,8 +2122,6 @@ dependencies = [
 [[package]]
 name = "libmir-models"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "050723e3d8ba8532bb3a31a19bb804a54e6fcb17993d863b8a538ffc1017e3bf"
 dependencies = [
  "image",
  "libmir-core",
@@ -2150,8 +2138,6 @@ dependencies = [
 [[package]]
 name = "libmir-runtime"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f9a20e4b8fa23eb27c515af83b4994830710a9ec6654b3bf2a3ea0e0f7a13ac"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2397,8 +2383,6 @@ dependencies = [
 [[package]]
 name = "mircuda"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7f26af9c83c44740eda0ceab245c3f39e50a5f9b16696560e26effbd846e211"
 dependencies = [
  "blake3",
  "half",
@@ -2411,8 +2395,6 @@ dependencies = [
 [[package]]
 name = "mircuda-macros"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b3a7de89d93150c3e01d39b1100cf5b7dfe35dd3a78b21746149344013b62d0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2422,8 +2404,6 @@ dependencies = [
 [[package]]
 name = "mircuda-sys"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49358523ada1652f86caad41dca5fa9c083d2918f4ec70ba913a6894399e1283"
 dependencies = [
  "cc",
  "cudarc",
@@ -2470,8 +2450,6 @@ dependencies = [
 [[package]]
 name = "mirtal"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dccdbbfe4b309f8d49900e8e64ddee9f748d5d5df052fa92f4bfa74857014af8"
 dependencies = [
  "cxx",
  "mirtal-macros",
@@ -2482,8 +2460,6 @@ dependencies = [
 [[package]]
 name = "mirtal-macros"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b83aa0c273c6df02fe9847ba3987e814dd86aee96a0bfb812a9a89e8353995fe"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2493,8 +2469,6 @@ dependencies = [
 [[package]]
 name = "mirtal-sys"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c5c911b22a9cb9d07b5bf0a782db7b466f7a76fc79334b3c44c3bf8a9bcc7fc"
 dependencies = [
  "cxx",
  "cxx-build",
