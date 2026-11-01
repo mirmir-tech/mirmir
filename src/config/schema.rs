@@ -43,6 +43,8 @@ pub struct RuntimeSettings {
     pub cached_prefill_policy: Option<libmir::CachedPrefillPolicy>,
     pub prefill_decode_policy: Option<libmir::PrefillDecodePolicy>,
     pub prefill_refill_policy: Option<libmir::PrefillRefillPolicy>,
+    /// Tokens a model with a multi-token prediction module drafts per step.
+    pub speculative_draft_tokens: Option<std::num::NonZeroUsize>,
     #[cfg(target_os = "macos")]
     pub metal_decode_reservation: Option<libmir::MetalDecodeReservation>,
     pub memory_reserve_percent: Option<u8>,
