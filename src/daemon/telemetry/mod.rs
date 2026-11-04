@@ -67,3 +67,6 @@ fn record(service: &RuntimeService) {
         tracing::warn!(%error, "telemetry sample could not be recorded");
     }
 }
+
+#[cfg(test)]
+mod tests;

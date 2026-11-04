@@ -154,6 +154,13 @@ Templates declaring the controls also accept
 addition to `enable_thinking`. These are validated per template; the separate
 OpenAI `reasoning_effort` field remains unsupported.
 
+JSON response schemas and explicit incompatible sampling settings are rejected
+before generation or SSE starts. When sampling controls are omitted in schema
+mode, repetition penalty is 1, minimum tokens is 0, and EOS is honored, even if
+the checkpoint has different defaults. Valid schemas continue to constrain token
+selection during decode; completed content is also checked against the original
+schema. Model-specific tokenizer/backend failures can still occur during setup.
+
 ## Nemotron-H and speculative decoding
 
 The Nemotron-3.5-Super NVFP4 text path runs on CUDA. MTP is opt-in:
@@ -161,6 +168,9 @@ The Nemotron-3.5-Super NVFP4 text path runs on CUDA. MTP is opt-in:
 ```sh
 mirmir config set runtime.speculative_draft_tokens 3
 ```
+
+The CUDA draft window is bounded to 1–8 tokens; each draft retains rollback state.
+This setting does not add speculative memory reservations on CPU or Metal.
 
 Restart the runtime to apply it; use `auto` to remove the override. MTP needs
 checkpoint prediction weights and additional memory. It can improve a single

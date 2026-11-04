@@ -105,6 +105,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_unbounded_speculative_windows_during_deserialization() {
+        for value in [0, 9, 1_000_000, usize::MAX] {
+            let document = format!("[runtime]\nspeculative_draft_tokens = {value}\n");
+            assert!(toml::from_str::<crate::config::AppConfig>(&document).is_err());
+        }
+        for value in [1, 8] {
+            let document = format!("[runtime]\nspeculative_draft_tokens = {value}\n");
+            let config: crate::config::AppConfig =
+                toml::from_str(&document).expect("bounded window");
+            assert_eq!(
+                config.runtime.speculative_draft_tokens.map(libmir::DraftTokens::get),
+                Some(value)
+            );
+        }
+    }
+
+    #[test]
     fn maps_vision_resource_policy_to_libmir() {
         let settings = RuntimeSettings {
             prefill_batch_wait_us: Some(3_000),

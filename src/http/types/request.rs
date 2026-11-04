@@ -94,6 +94,7 @@ impl ChatRequest {
             reasoning_history,
             reasoning_token_budget,
         };
+        request.validate().map_err(|error| ApiError::bad_request(error.to_string()))?;
         Ok((selector, request, image))
     }
 }
