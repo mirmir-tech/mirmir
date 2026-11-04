@@ -38,6 +38,21 @@ impl ChatRequest {
             },
             (left, right) => left.or(right),
         };
+        let response_format = self.response_format.map_or(
+            Ok(libmir::ResponseFormat::Text),
+            super::super::format::ResponseFormat::into_libmir,
+        )?;
+        let schema_output = match (&self.tool_constraints, &response_format) {
+            (libmir::ToolConstraints::Schema, libmir::ResponseFormat::JsonSchema(_)) => {
+                return Err(ApiError::bad_request(
+                    "tool_constraints=schema and a JSON response_format are exclusive",
+                ));
+            },
+            (libmir::ToolConstraints::Schema, _) | (_, libmir::ResponseFormat::JsonSchema(_)) => {
+                true
+            },
+            (libmir::ToolConstraints::None, libmir::ResponseFormat::Text) => false,
+        };
         let (messages, image) = messages(self.messages)?;
         let template = self.chat_template_kwargs.as_ref();
         let reasoning = crate::http::reasoning::resolve(self.reasoning, template)?;
@@ -45,7 +60,7 @@ impl ChatRequest {
         let reasoning_token_budget = crate::http::reasoning::budget(
             self.thinking_token_budget,
             reasoning,
-            self.tool_constraints,
+            schema_output,
             max_tokens,
             image.is_some(),
         )?;
@@ -68,6 +83,7 @@ impl ChatRequest {
             },
             seed: self.seed,
             tool_constraints: self.tool_constraints,
+            response_format,
             reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
             reasoning,
             reasoning_effort,

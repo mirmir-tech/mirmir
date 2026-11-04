@@ -12,6 +12,7 @@ pub(super) fn chat_request(request: &proto::GenerateRequest) -> Result<Generatio
     )?;
     Ok(GenerationRequest {
         tool_constraints: libmir::ToolConstraints::None,
+        response_format: libmir::ResponseFormat::Text,
         conversation: Conversation {
             messages: messages(request)?,
             tools: request.tools.iter().map(tool).collect::<Result<_, _>>()?,

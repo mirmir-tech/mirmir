@@ -180,6 +180,7 @@ fn application_request(
     let selector = chat.model.clone();
     let request = libmir::GenerationRequest {
         tool_constraints: libmir::ToolConstraints::None,
+        response_format: libmir::ResponseFormat::Text,
         conversation: libmir::Conversation {
             messages,
             tools: Vec::new(),

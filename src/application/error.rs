@@ -96,7 +96,8 @@ impl From<libmir::Error> for Error {
     fn from(error: libmir::Error) -> Self {
         match error {
             libmir::Error::Cancelled => Self::Cancelled,
-            libmir::Error::InvalidToolCall(message) => Self::InvalidModelOutput(message),
+            libmir::Error::InvalidToolCall(message)
+            | libmir::Error::InvalidResponseFormat(message) => Self::InvalidModelOutput(message),
             error @ (libmir::Error::MemoryAdmission { .. }
             | libmir::Error::VisionResourceLimit { .. }) => Self::MemoryPressure(error.to_string()),
             error @ (libmir::Error::EmptyPrompt

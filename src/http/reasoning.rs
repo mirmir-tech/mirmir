@@ -53,18 +53,19 @@ pub(super) fn controls(
 }
 
 /// Allowance within, never in addition to, the total completion limit.
-/// Explicit schema-tool reasoning reserves a quarter for the tool by default;
+/// Explicit reasoning before schema-constrained output (a schema tool or a
+/// JSON response format) reserves a quarter for that output by default;
 /// an explicit allowance still wins. Other decoding modes retain their
 /// defaults.
 pub(super) fn budget(
     value: Option<u64>,
     mode: ReasoningMode,
-    constraints: libmir::ToolConstraints,
+    schema_output: bool,
     total: Option<u64>,
     image: bool,
 ) -> Result<Option<std::num::NonZeroUsize>, ApiError> {
     let value = value.or_else(|| {
-        (!image && mode == ReasoningMode::Enabled && constraints == libmir::ToolConstraints::Schema)
+        (!image && mode == ReasoningMode::Enabled && schema_output)
             .then_some(total)
             .flatten()
             .filter(|total| *total >= 3)
@@ -73,9 +74,9 @@ pub(super) fn budget(
     let Some(value) = value else {
         return Ok(None);
     };
-    if image || mode != ReasoningMode::Enabled || constraints != libmir::ToolConstraints::Schema {
+    if image || mode != ReasoningMode::Enabled || !schema_output {
         return Err(ApiError::bad_request(
-            "thinking_token_budget requires enabled reasoning and schema-constrained text tools",
+            "thinking_token_budget requires enabled reasoning and schema-constrained text output",
         ));
     }
     if value.checked_add(2).zip(total).is_none_or(|(minimum, total)| minimum > total) {
