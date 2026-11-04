@@ -42,6 +42,11 @@ impl ChatRequest {
             Ok(libmir::ResponseFormat::Text),
             super::super::format::ResponseFormat::into_libmir,
         )?;
+        let tool_choice = crate::protocol::openai::tool_choice(self.tool_choice)
+            .map_err(ApiError::bad_request)?;
+        response_format
+            .validate_tool_choice(&tool_choice)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
         let schema_output = match (&self.tool_constraints, &response_format) {
             (libmir::ToolConstraints::Schema, libmir::ResponseFormat::JsonSchema(_)) => {
                 return Err(ApiError::bad_request(
@@ -69,8 +74,7 @@ impl ChatRequest {
             conversation: libmir::Conversation {
                 messages,
                 tools: self.tools.into_iter().map(Into::into).collect(),
-                tool_choice: crate::protocol::openai::tool_choice(self.tool_choice)
-                    .map_err(ApiError::bad_request)?,
+                tool_choice,
             },
             options: libmir::GenerationOverrides {
                 max_tokens: optional_usize(max_tokens)?,

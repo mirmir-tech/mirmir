@@ -1,3 +1,5 @@
+use axum::response::IntoResponse;
+
 use super::*;
 
 #[test]
@@ -43,5 +45,26 @@ fn response_format_json_schema_constrains_content() -> Result<(), Box<dyn std::e
         "json_schema":{"name":"x","schema":{"type":"object"},"strict":false}});
     let request: ChatRequest = serde_json::from_value(body)?;
     assert!(request.into_application().is_err());
+    Ok(())
+}
+
+#[test]
+fn json_content_rejects_required_and_named_tools_before_generation()
+-> Result<(), Box<dyn std::error::Error>> {
+    for choice in [
+        serde_json::json!("required"),
+        serde_json::json!({"type":"function","function":{"name":"emit"}}),
+    ] {
+        let body = serde_json::json!({"model":"qwen","messages":[{"role":"user","content":"Hi"}],
+            "reasoning":"disabled","response_format":{"type":"json_object"},"tool_choice":choice,
+            "tools":[{"type":"function","function":{"name":"emit","parameters":{"type":"object"}}}]});
+        let request: ChatRequest = serde_json::from_value(body.clone())?;
+        let error = request.into_application().err().ok_or("accepted conflicting output modes")?;
+        assert_eq!(error.into_response().status(), axum::http::StatusCode::BAD_REQUEST);
+        let mut optional = body;
+        optional["tool_choice"] = serde_json::json!("auto");
+        let request: ChatRequest = serde_json::from_value(optional)?;
+        assert!(request.into_application().is_ok());
+    }
     Ok(())
 }
