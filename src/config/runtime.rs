@@ -42,6 +42,9 @@ impl RuntimeSettings {
         if let Some(value) = self.cached_prefill_policy {
             config.scheduler.cached_prefill_policy = value;
         }
+        config.scheduler.speculation = self
+            .speculative_draft_tokens
+            .map(|draft_tokens| libmir::Speculation { draft_tokens });
         #[cfg(target_os = "macos")]
         if let Some(value) = self.metal_decode_reservation {
             config.metal.cache.decode_reservation = value;

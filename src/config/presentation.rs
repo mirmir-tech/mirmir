@@ -128,6 +128,7 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
         ("runtime.prefill_batch_wait_us", optional(runtime.prefill_batch_wait_us)),
         ("runtime.decode_batch_wait_us", optional(runtime.decode_batch_wait_us)),
         ("runtime.decode_priority_burst", optional(runtime.decode_priority_burst)),
+        ("runtime.speculative_draft_tokens", optional(runtime.speculative_draft_tokens)),
         ("runtime.cached_prefill_policy", optional(runtime.cached_prefill_policy)),
         ("runtime.prefill_decode_policy", optional(runtime.prefill_decode_policy)),
         ("runtime.prefill_refill_policy", optional(runtime.prefill_refill_policy)),

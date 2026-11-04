@@ -1,51 +1,52 @@
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
+    thread::JoinHandle,
     time::Duration,
 };
 
-use tokio::{sync::oneshot, time::timeout};
+use tokio::{task::spawn_blocking, time::timeout};
 
 use crate::{error::Result, rpc::RuntimeService};
 
 pub struct Sampler {
     shutdown: Option<mpsc::Sender<()>>,
-    finished: oneshot::Receiver<Result<()>>,
+    worker: Option<JoinHandle<Result<()>>>,
 }
 
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+/// After this long, shutdown reports that it is still waiting for the
+/// sampling thread. It keeps waiting: the thread holds runtime state, and
+/// the process must not exit while another thread is still releasing it.
+const SHUTDOWN_WARNING: Duration = Duration::from_secs(2);
 
 impl Sampler {
     pub fn start(service: RuntimeService) -> Self {
         let (shutdown, receiver) = mpsc::channel();
-        let (finished, completion) = oneshot::channel();
-        let worker =
-            std::thread::Builder::new().name("mirmir-telemetry".to_owned()).spawn(move || {
-                let result = sample_until_shutdown(&service, &receiver);
-                let _completion_result = finished.send(result);
-            });
-        if let Err(error) = worker {
-            tracing::error!(%error, "telemetry sampler thread failed to start");
-        }
-        Self {
-            shutdown: Some(shutdown),
-            finished: completion,
-        }
+        let worker = std::thread::Builder::new()
+            .name("mirmir-telemetry".to_owned())
+            .spawn(move || sample_until_shutdown(&service, &receiver))
+            .inspect_err(
+                |error| tracing::error!(%error, "telemetry sampler thread failed to start"),
+            )
+            .ok();
+        Self { shutdown: Some(shutdown), worker }
     }
 
     pub async fn shutdown(mut self) -> Result<()> {
         if let Some(shutdown) = self.shutdown.take() {
             let _shutdown_result = shutdown.send(());
         }
-        match timeout(SHUTDOWN_TIMEOUT, &mut self.finished).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_closed)) => Ok(()),
-            Err(_elapsed) => {
-                tracing::warn!(
-                    "telemetry sampler shutdown timed out; detaching the sampling thread"
-                );
-                Ok(())
-            },
+        let Some(worker) = self.worker.take() else {
+            return Ok(());
+        };
+        // Joining also waits for the thread to drop its runtime handle.
+        let mut joined = spawn_blocking(move || {
+            worker.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        });
+        if let Ok(result) = timeout(SHUTDOWN_WARNING, &mut joined).await {
+            return result?;
         }
+        tracing::warn!("telemetry sampler is still finishing; waiting for it before exit");
+        joined.await?
     }
 }
 

@@ -180,6 +180,7 @@ fn application_request(
     let selector = chat.model.clone();
     let request = libmir::GenerationRequest {
         tool_constraints: libmir::ToolConstraints::None,
+        response_format: libmir::ResponseFormat::Text,
         conversation: libmir::Conversation {
             messages,
             tools: Vec::new(),
@@ -198,6 +199,8 @@ fn application_request(
         reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
         reasoning_token_budget: None,
         reasoning: libmir::ReasoningMode::ModelDefault,
+        reasoning_effort: libmir::ReasoningEffort::ModelDefault,
+        reasoning_history: libmir::ReasoningHistory::ModelDefault,
     };
     Ok((selector, request, image))
 }

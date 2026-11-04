@@ -3,6 +3,7 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use libmir::KvCacheDType;
 use serde::{Deserialize, Serialize};
 
+use super::model_runtime::ModelRuntimeConfig;
 use crate::error::{Error, Result};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -42,6 +43,8 @@ pub struct RuntimeSettings {
     pub cached_prefill_policy: Option<libmir::CachedPrefillPolicy>,
     pub prefill_decode_policy: Option<libmir::PrefillDecodePolicy>,
     pub prefill_refill_policy: Option<libmir::PrefillRefillPolicy>,
+    /// Tokens a model with a multi-token prediction module drafts per step.
+    pub speculative_draft_tokens: Option<std::num::NonZeroUsize>,
     #[cfg(target_os = "macos")]
     pub metal_decode_reservation: Option<libmir::MetalDecodeReservation>,
     pub memory_reserve_percent: Option<u8>,
@@ -61,6 +64,8 @@ pub struct ModelConfig {
     pub hub: Option<HubModelConfig>,
     #[serde(default)]
     pub generation: GenerationConfig,
+    #[serde(default, skip_serializing_if = "ModelRuntimeConfig::is_unset")]
+    pub runtime: ModelRuntimeConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,17 +229,6 @@ impl ModelConfig {
             return Err(Error::Config(format!("model `{expected_id}` has an empty path")));
         }
         Ok(())
-    }
-}
-
-impl GenerationConfig {
-    #[must_use]
-    pub const fn has_overrides(self) -> bool {
-        self.max_tokens.is_some()
-            || self.temperature.is_some()
-            || self.top_p.is_some()
-            || self.top_k.is_some()
-            || self.repetition_penalty.is_some()
     }
 }
 

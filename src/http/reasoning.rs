@@ -7,13 +7,18 @@ use super::error::ApiError;
 #[serde(deny_unknown_fields)]
 pub struct TemplateOptions {
     pub enable_thinking: Option<bool>,
+    /// Shorter reasoning, for templates that declare `medium_effort`.
+    pub medium_effort: Option<bool>,
+    /// Drops earlier turns' reasoning, for templates that declare
+    /// `truncate_history_thinking`.
+    pub truncate_history_thinking: Option<bool>,
 }
 
 /// Accept the vLLM thinking switch without silently changing a caller's
 /// declared mode. Unsupported template options fail during deserialization.
 pub(super) fn resolve(
     explicit: Option<ReasoningMode>,
-    template: Option<TemplateOptions>,
+    template: Option<&TemplateOptions>,
 ) -> Result<ReasoningMode, ApiError> {
     let compatible = template.and_then(|options| options.enable_thinking).map(|enabled| {
         if enabled {
@@ -30,19 +35,37 @@ pub(super) fn resolve(
     }
 }
 
+/// The template's effort and history switches. An omitted switch, and an
+/// effort switch left off, keep the template's default.
+pub(super) fn controls(
+    template: Option<&TemplateOptions>,
+) -> (libmir::ReasoningEffort, libmir::ReasoningHistory) {
+    let effort = match template.and_then(|options| options.medium_effort) {
+        Some(true) => libmir::ReasoningEffort::Efficient,
+        Some(false) | None => libmir::ReasoningEffort::ModelDefault,
+    };
+    let history = match template.and_then(|options| options.truncate_history_thinking) {
+        Some(true) => libmir::ReasoningHistory::Truncate,
+        Some(false) => libmir::ReasoningHistory::Keep,
+        None => libmir::ReasoningHistory::ModelDefault,
+    };
+    (effort, history)
+}
+
 /// Allowance within, never in addition to, the total completion limit.
-/// Explicit schema-tool reasoning reserves a quarter for the tool by default;
+/// Explicit reasoning before schema-constrained output (a schema tool or a
+/// JSON response format) reserves a quarter for that output by default;
 /// an explicit allowance still wins. Other decoding modes retain their
 /// defaults.
 pub(super) fn budget(
     value: Option<u64>,
     mode: ReasoningMode,
-    constraints: libmir::ToolConstraints,
+    schema_output: bool,
     total: Option<u64>,
     image: bool,
 ) -> Result<Option<std::num::NonZeroUsize>, ApiError> {
     let value = value.or_else(|| {
-        (!image && mode == ReasoningMode::Enabled && constraints == libmir::ToolConstraints::Schema)
+        (!image && mode == ReasoningMode::Enabled && schema_output)
             .then_some(total)
             .flatten()
             .filter(|total| *total >= 3)
@@ -51,9 +74,9 @@ pub(super) fn budget(
     let Some(value) = value else {
         return Ok(None);
     };
-    if image || mode != ReasoningMode::Enabled || constraints != libmir::ToolConstraints::Schema {
+    if image || mode != ReasoningMode::Enabled || !schema_output {
         return Err(ApiError::bad_request(
-            "thinking_token_budget requires enabled reasoning and schema-constrained text tools",
+            "thinking_token_budget requires enabled reasoning and schema-constrained text output",
         ));
     }
     if value.checked_add(2).zip(total).is_none_or(|(minimum, total)| minimum > total) {

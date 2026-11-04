@@ -13,10 +13,11 @@ impl NativeRuntime {
         path: &Path,
         overrides: GenerationOverrides,
         selector: &str,
-        force: bool,
+        options: libmir::ModelLoadOptions,
     ) -> Result<Check> {
+        let force = options.allow_memory_overcommit;
         let descriptor = ModelDescriptor::inspect(path, overrides)?;
-        let report = self.memory_report(&descriptor)?;
+        let report = self.memory_report(&descriptor, options)?;
         let estimate = report.estimate;
         tracing::info!(
             model = selector,
@@ -52,8 +53,12 @@ impl NativeRuntime {
         }
     }
 
-    pub fn memory_report(&self, descriptor: &ModelDescriptor) -> Result<MemoryReport> {
-        let config = self.library.model_config(descriptor)?;
+    pub fn memory_report(
+        &self,
+        descriptor: &ModelDescriptor,
+        options: libmir::ModelLoadOptions,
+    ) -> Result<MemoryReport> {
+        let config = self.library.model_config_with_options(descriptor, options)?;
         let target = self.library.backend_target()?;
         let estimate = descriptor.memory_estimate_for(&config, &target);
         let memory = self.library.memory_snapshot()?;

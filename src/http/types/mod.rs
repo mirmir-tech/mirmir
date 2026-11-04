@@ -20,6 +20,7 @@ pub struct ChatRequest {
     pub reasoning: Option<libmir::ReasoningMode>,
     #[serde(default)]
     pub tool_constraints: libmir::ToolConstraints,
+    pub response_format: Option<super::format::ResponseFormat>,
     pub chat_template_kwargs: Option<super::reasoning::TemplateOptions>,
     pub thinking_token_budget: Option<u64>,
     pub reasoning_budget: Option<serde_json::Value>,

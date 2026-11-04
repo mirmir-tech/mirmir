@@ -12,6 +12,7 @@ pub(super) fn chat_request(request: &proto::GenerateRequest) -> Result<Generatio
     )?;
     Ok(GenerationRequest {
         tool_constraints: libmir::ToolConstraints::None,
+        response_format: libmir::ResponseFormat::Text,
         conversation: Conversation {
             messages: messages(request)?,
             tools: request.tools.iter().map(tool).collect::<Result<_, _>>()?,
@@ -38,6 +39,8 @@ pub(super) fn chat_request(request: &proto::GenerateRequest) -> Result<Generatio
         reasoning_cycle: libmir::ReasoningCyclePolicy::default(),
         reasoning_token_budget: None,
         reasoning: libmir::ReasoningMode::ModelDefault,
+        reasoning_effort: libmir::ReasoningEffort::ModelDefault,
+        reasoning_history: libmir::ReasoningHistory::ModelDefault,
     })
 }
 
