@@ -9,6 +9,7 @@ use crate::{
     error::Result,
 };
 
+mod decision;
 mod foundation;
 mod session;
 mod settings;
