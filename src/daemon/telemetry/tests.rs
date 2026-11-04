@@ -1,32 +1,43 @@
 use super::*;
 
 #[tokio::test]
-async fn shutdown_waits_for_worker_to_release_its_runtime_handle() -> Result<()> {
+async fn stalled_host_worker_does_not_block_shutdown() -> Result<()> {
     let (shutdown, receiver) = mpsc::channel();
-    let (finishing, started) = tokio::sync::oneshot::channel();
+    let (finished, completion) = oneshot::channel();
     let (release, gate) = mpsc::channel();
     let worker = std::thread::spawn(move || {
         receiver.recv().expect("shutdown signal");
-        let _sent = finishing.send(());
-        gate.recv().expect("release worker");
-        Ok(())
+        gate.recv().expect("release stalled host I/O");
+        let _sent = finished.send(Ok(()));
     });
-    let sampler = Sampler {
-        shutdown: Some(shutdown),
-        worker: Some(worker),
-    };
-    let task = tokio::spawn(sampler.shutdown());
-    started.await.expect("worker finishing");
-    let detached = task.is_finished();
-    release.send(()).expect("release blocked worker");
-    task.await??;
-    assert!(!detached, "shutdown returned before the sampler released its state");
+    let sampler = Sampler { shutdown, finished: completion };
+    let result = timeout(Duration::from_secs(1), sampler.finish(Duration::from_millis(20))).await;
+    release.send(()).expect("release worker");
+    worker.join().expect("worker exits");
+    result.expect("bounded shutdown")?;
     Ok(())
 }
 
 #[tokio::test]
 async fn shutdown_propagates_history_flush_failure() {
-    let worker = std::thread::spawn(|| Err(crate::error::Error::Config("flush failed".into())));
-    let sampler = Sampler { shutdown: None, worker: Some(worker) };
+    let (shutdown, _) = mpsc::channel();
+    let (finished, completion) = oneshot::channel();
+    finished
+        .send(Err(crate::error::Error::Config("flush failed".into())))
+        .expect("send failure");
+    let sampler = Sampler { shutdown, finished: completion };
     assert!(sampler.shutdown().await.is_err());
+}
+
+#[tokio::test]
+async fn shutdown_waits_for_normal_flush_completion() -> Result<()> {
+    let (shutdown, receiver) = mpsc::channel();
+    let (finished, completion) = oneshot::channel();
+    let worker = std::thread::spawn(move || {
+        receiver.recv().expect("shutdown signal");
+        let _sent = finished.send(Ok(()));
+    });
+    Sampler { shutdown, finished: completion }.shutdown().await?;
+    worker.join().expect("worker exits");
+    Ok(())
 }

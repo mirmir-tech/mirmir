@@ -85,6 +85,7 @@ impl From<crate::error::Error> for Error {
             | crate::error::Error::NotSocket(_)
             | crate::error::Error::Json(_)
             | crate::error::Error::Join(_)
+            | crate::error::Error::TelemetryWorker(_)
             | crate::error::Error::Integer(_)) => Self::Infrastructure(error.to_string()),
         }
     }

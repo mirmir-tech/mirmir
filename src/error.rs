@@ -42,6 +42,8 @@ pub enum Error {
     Transport(#[from] tonic::transport::Error),
     #[error("gRPC request failed: {0}")]
     Status(#[from] tonic::Status),
+    #[error("telemetry worker stopped without a completion result: {0}")]
+    TelemetryWorker(#[from] tokio::sync::oneshot::error::RecvError),
     #[error("server task failed: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error("inference error: {0}")]

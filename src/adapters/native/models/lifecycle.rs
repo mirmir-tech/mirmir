@@ -74,7 +74,10 @@ impl NativeRuntime {
             model: loaded,
             last_used: self.lifecycle.next_residency(),
         };
-        self.lifecycle.state()?.resident.insert(resolved.key, entry.clone());
+        let mut state = self.lifecycle.state()?;
+        state.resident.insert(resolved.key.clone(), entry.clone());
+        self.telemetry_source.insert(resolved.key, entry.model.cache_stats_reader());
+        drop(state);
         if let Err(error) = self.store.activate_model(&entry.info.id) {
             tracing::warn!(%error, model = entry.info.id, "failed to persist active model");
         }
@@ -117,6 +120,7 @@ impl NativeRuntime {
         drop(state);
 
         let model_id = entry.info.id.clone();
+        self.telemetry_source.remove(&model_id);
         entry.model.unload()?;
         if let Err(error) = self.store.deactivate_model(&model_id) {
             tracing::warn!(%error, model = model_id, "failed to persist automatic model eviction");
@@ -147,6 +151,7 @@ impl NativeRuntime {
             return Err(Error::ModelInUse(key));
         }
         drop(state);
+        self.telemetry_source.remove(&entry.info.id);
         entry.model.unload()?;
         self.store
             .deactivate_model(&key)

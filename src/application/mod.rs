@@ -35,8 +35,8 @@ pub use startup::StartupStatus;
 use telemetry::Telemetry;
 pub use telemetry::{
     CompletionMetrics, GenerationTelemetry, HistorySample, KvTelemetry,
-    RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT, RuntimeTelemetry, SAMPLING_INTERVAL_MS,
-    Snapshot as TelemetrySnapshot,
+    RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT, Recorder as TelemetryRecorder, RuntimeTelemetry,
+    SAMPLING_INTERVAL_MS, Snapshot as TelemetrySnapshot, Source as TelemetrySource,
 };
 pub use transfer::available_message;
 
@@ -119,14 +119,12 @@ impl Application {
         Ok(self.telemetry.snapshot(self.runtime.telemetry()?))
     }
 
-    pub fn record_telemetry_history(&self) -> Result<()> {
-        self.telemetry_history.record(&self.telemetry_snapshot()?)?;
-        Ok(())
-    }
-
-    pub fn flush_telemetry_history(&self) -> Result<()> {
-        self.telemetry_history.flush()?;
-        Ok(())
+    pub fn telemetry_recorder(&self) -> TelemetryRecorder {
+        TelemetryRecorder::new(
+            self.runtime.telemetry_source(),
+            self.telemetry.clone(),
+            self.telemetry_history.clone(),
+        )
     }
 
     pub fn telemetry_history(&self, limit: u32) -> Result<Vec<HistorySample>> {
@@ -159,5 +157,25 @@ mod tests {
         assert_eq!(Application::health().protocol_version, PROTOCOL_VERSION);
         assert_eq!(Application::health().server_version, env!("CARGO_PKG_VERSION"));
         assert_eq!(application.models().expect("model registry should be readable").len(), 0);
+    }
+    #[test]
+    fn telemetry_recorder_does_not_retain_native_runtime() -> crate::error::Result<()> {
+        let root = std::env::temp_dir().join(format!("mirmir-recorder-{}", std::process::id()));
+        let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
+        let history_path = paths.telemetry_file.clone();
+        let native = Arc::new(adapters::native::NativeRuntime::new(
+            &AppConfig::default(),
+            Store::new(paths),
+        ));
+        let weak = Arc::downgrade(&native);
+        let application =
+            Application::from_ports(native.clone(), native.clone(), native, history_path);
+        let recorder = application.telemetry_recorder();
+        drop(application);
+        assert!(weak.upgrade().is_none(), "recorder kept the runtime alive");
+        recorder.record()?;
+        recorder.flush()?;
+        std::fs::remove_dir_all(root)?;
+        Ok(())
     }
 }
