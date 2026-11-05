@@ -42,6 +42,9 @@ impl RuntimeSettings {
         if let Some(value) = self.cached_prefill_policy {
             config.scheduler.cached_prefill_policy = value;
         }
+        config.scheduler.speculation = self
+            .speculative_draft_tokens
+            .map(|draft_tokens| libmir::Speculation { draft_tokens });
         #[cfg(target_os = "macos")]
         if let Some(value) = self.metal_decode_reservation {
             config.metal.cache.decode_reservation = value;
@@ -100,6 +103,23 @@ impl super::schema::RuntimeSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_unbounded_speculative_windows_during_deserialization() {
+        for value in [0, 9, 1_000_000, usize::MAX] {
+            let document = format!("[runtime]\nspeculative_draft_tokens = {value}\n");
+            assert!(toml::from_str::<crate::config::AppConfig>(&document).is_err());
+        }
+        for value in [1, 8] {
+            let document = format!("[runtime]\nspeculative_draft_tokens = {value}\n");
+            let config: crate::config::AppConfig =
+                toml::from_str(&document).expect("bounded window");
+            assert_eq!(
+                config.runtime.speculative_draft_tokens.map(libmir::DraftTokens::get),
+                Some(value)
+            );
+        }
+    }
 
     #[test]
     fn maps_vision_resource_policy_to_libmir() {

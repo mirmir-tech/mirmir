@@ -9,6 +9,9 @@ use crate::{
 };
 
 pub trait ModelRuntimePort: Send + Sync {
+    fn telemetry_source(&self) -> crate::application::TelemetrySource {
+        crate::application::TelemetrySource::default()
+    }
     fn telemetry(&self) -> Result<RuntimeTelemetry>;
     fn models(&self) -> Result<Vec<ModelInfo>>;
     fn active_models(&self) -> Result<Vec<String>>;

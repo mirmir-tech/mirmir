@@ -18,6 +18,7 @@ use crate::{
 
 pub struct NativeRuntime {
     pub library: Library,
+    pub telemetry_source: crate::application::TelemetrySource,
     pub store: Store,
     pub catalog: Catalog,
     pub lifecycle: ModelLifecycle,
@@ -34,8 +35,12 @@ impl NativeRuntime {
     #[must_use]
     pub fn new(config: &AppConfig, store: Store) -> Self {
         let runtime = config.runtime.to_libmir(&store.paths().state_dir);
+        let library = Library::new(runtime);
+        let telemetry_source =
+            crate::application::TelemetrySource::new(library.device_telemetry_reader());
         Self {
-            library: Library::new(runtime),
+            library,
+            telemetry_source,
             catalog: Catalog::new(store.clone()),
             store,
             lifecycle: ModelLifecycle::default(),

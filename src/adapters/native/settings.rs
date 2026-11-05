@@ -12,7 +12,7 @@ impl NativeRuntime {
     pub fn inspect_model(&self, selector: &str) -> Result<ModelInspection> {
         let resolved = self.store.resolve_model(selector)?;
         let descriptor = ModelDescriptor::inspect(&resolved.path, overrides(resolved.generation))?;
-        let memory = self.memory_report(&descriptor)?;
+        let memory = self.memory_report(&descriptor, resolved.runtime.load_options(false))?;
         Ok(ModelInspection {
             settings: matches!(descriptor.task(), ModelTask::Generation)
                 .then(|| descriptor.generation()),

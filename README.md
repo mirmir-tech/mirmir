@@ -133,6 +133,55 @@ is disabled. A token budget that truncates a tool call still returns the existin
 invalid-output error. Schema mode runs on Metal and CUDA and is not exposed
 through the CLI or private gRPC protocol.
 
+## Structured JSON content
+
+`POST /v1/chat/completions` accepts `response_format` with `text`, `json_object`,
+or `json_schema`. A JSON schema needs a nonblank name and `strict: true` (or
+omitted). Metal and CUDA constrain decoding and validate the completed JSON.
+Literal protocol markers inside strings remain content, not reasoning controls.
+
+JSON content cannot be combined with `tool_constraints: "schema"` or a
+required/named `tool_choice`; these combinations return HTTP 400 before work
+starts. Sampling requires `repetition_penalty: 1`, `min_tokens: 0`, and
+`ignore_eos: false`. Incomplete or invalid final JSON returns
+`422 invalid_model_output`; streaming clients must handle errors after partial
+content. `thinking_token_budget` and the automatic quarter-budget reservation
+also apply to JSON with enabled reasoning. See the
+[structured-output guide](https://docs.mirmir.tech/api/structured-output.html).
+
+Templates declaring the controls also accept
+`chat_template_kwargs.medium_effort` and `truncate_history_thinking`, in
+addition to `enable_thinking`. These are validated per template; the separate
+OpenAI `reasoning_effort` field remains unsupported.
+
+JSON response schemas and explicit incompatible sampling settings are rejected
+before generation or SSE starts. When sampling controls are omitted in schema
+mode, repetition penalty is 1, minimum tokens is 0, and EOS is honored, even if
+the checkpoint has different defaults. Valid schemas continue to constrain token
+selection during decode; completed content is also checked against the original
+schema. Model-specific tokenizer/backend failures can still occur during setup.
+
+## Nemotron-H and speculative decoding
+
+The Nemotron-3.5-Super NVFP4 text path runs on CUDA. MTP is opt-in:
+
+```sh
+mirmir config set runtime.speculative_draft_tokens 3
+```
+
+The CUDA draft window is bounded to 1–8 tokens; each draft retains rollback state.
+This setting does not add speculative memory reservations on CPU or Metal.
+
+Restart the runtime to apply it; use `auto` to remove the override. MTP needs
+checkpoint prediction weights and additional memory. It can improve a single
+stream, but is not guaranteed to improve a concurrent batch. Nemotron-H's
+state-space mixer is not implemented on Metal. Gemma 4 CUDA also gains faster
+sliding-window and 512-wide global attention prefill.
+
+A model's TOML file supports `[runtime] kv_blocks = 512` to override global
+K/V sizing, useful for a small reranker beside a larger generation model.
+Reload that model to apply the override.
+
 ## Laya decisions (manual testing)
 
 `POST /v1/decide` asks a local Laya decision checkpoint one question per

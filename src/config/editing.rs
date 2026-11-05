@@ -66,6 +66,9 @@ fn patch(document: &mut DocumentMut, key: &str, input: &str) -> Result<()> {
         "runtime.decode_priority_burst" => {
             optional_integer(document, "decode_priority_burst", key, input)?;
         },
+        "runtime.speculative_draft_tokens" => {
+            optional_integer(document, "speculative_draft_tokens", key, input)?;
+        },
         "runtime.memory_reserve_percent" => {
             optional_integer(document, "memory_reserve_percent", key, input)?;
         },

@@ -35,7 +35,7 @@ pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Own
     set_socket_permissions(&paths.socket_file, paths.socket_access())?;
     let incoming = UnixListenerStream::new(listener);
     let (shutdown, receiver) = oneshot::channel();
-    let sampler = Sampler::start(service.clone());
+    let sampler = Sampler::start(&service);
     let task = tokio::spawn(async move {
         Server::builder()
             .add_service(RuntimeServer::new(service))

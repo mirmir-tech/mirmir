@@ -15,12 +15,8 @@ impl RuntimeService {
             .map_err(super::status::application)
     }
 
-    pub(crate) fn record_telemetry_history(&self) -> Result<(), Status> {
-        self.application.record_telemetry_history().map_err(super::status::application)
-    }
-
-    pub(crate) fn flush_telemetry_history(&self) -> Result<(), Status> {
-        self.application.flush_telemetry_history().map_err(super::status::application)
+    pub(crate) fn telemetry_recorder(&self) -> crate::application::TelemetryRecorder {
+        self.application.telemetry_recorder()
     }
 
     pub(crate) fn telemetry_history_response(

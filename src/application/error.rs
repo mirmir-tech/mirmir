@@ -85,6 +85,7 @@ impl From<crate::error::Error> for Error {
             | crate::error::Error::NotSocket(_)
             | crate::error::Error::Json(_)
             | crate::error::Error::Join(_)
+            | crate::error::Error::TelemetryWorker(_)
             | crate::error::Error::Integer(_)) => Self::Infrastructure(error.to_string()),
         }
     }
@@ -96,7 +97,8 @@ impl From<libmir::Error> for Error {
     fn from(error: libmir::Error) -> Self {
         match error {
             libmir::Error::Cancelled => Self::Cancelled,
-            libmir::Error::InvalidToolCall(message) => Self::InvalidModelOutput(message),
+            libmir::Error::InvalidToolCall(message)
+            | libmir::Error::InvalidResponseFormat(message) => Self::InvalidModelOutput(message),
             error @ (libmir::Error::MemoryAdmission { .. }
             | libmir::Error::VisionResourceLimit { .. }) => Self::MemoryPressure(error.to_string()),
             error @ (libmir::Error::EmptyPrompt

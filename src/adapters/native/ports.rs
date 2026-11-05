@@ -85,6 +85,10 @@ impl ConfigurationPort for NativeRuntime {
 }
 
 impl ModelRuntimePort for NativeRuntime {
+    fn telemetry_source(&self) -> crate::application::TelemetrySource {
+        self.telemetry_source.clone()
+    }
+
     fn telemetry(&self) -> Result<RuntimeTelemetry> {
         self.telemetry()
     }

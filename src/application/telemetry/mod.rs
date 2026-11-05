@@ -1,6 +1,10 @@
 mod history;
 mod live;
 mod rates;
+mod recorder;
+mod source;
+pub use recorder::Recorder;
+pub use source::Source;
 mod request;
 mod runtime;
 mod snapshot;
