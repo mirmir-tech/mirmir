@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 use super::{super::NativeRuntime, presentation};
 use crate::{
@@ -26,7 +29,7 @@ impl NativeRuntime {
             .filter_map(|config| config.hub.as_ref().map(|hub| hub.repo_id.clone()))
             .collect::<HashSet<_>>();
         let mut known_paths =
-            configs.iter().map(|config| config.path.clone()).collect::<HashSet<_>>();
+            configs.iter().map(|config| canonical(&config.path)).collect::<HashSet<_>>();
         let mut listed = configs
             .iter()
             .map(|config| configured(config, &recent, &state.resident, &state.loading, self))
@@ -97,25 +100,28 @@ fn append_cached(
     cached: CachedModel,
     managed: bool,
     known_repos: &mut HashSet<String>,
-    known_paths: &mut HashSet<std::path::PathBuf>,
+    known_paths: &mut HashSet<PathBuf>,
     models: &HashMap<String, ModelEntry>,
     loading: &HashSet<String>,
 ) {
-    if known_repos.contains(&cached.repo_id) || known_paths.contains(&cached.snapshot) {
+    // Path selectors resolve to canonical keys, so residency must match on the
+    // same key even when the hub cache is reached through a symlink.
+    let snapshot = canonical(&cached.snapshot);
+    if known_repos.contains(&cached.repo_id) || known_paths.contains(&snapshot) {
         return;
     }
     let Ok(id) = model_key(&cached.repo_id) else {
         return;
     };
-    let details = presentation::inspect(&cached.snapshot, GenerationConfig::default());
-    let selector = cached.snapshot.display().to_string();
+    let details = presentation::inspect(&snapshot, GenerationConfig::default());
+    let selector = snapshot.display().to_string();
     listed.push(info(
         id,
         cached.repo_id.clone(),
         cached.revision,
         cached.commit,
         selector.clone(),
-        state(&selector, &cached.snapshot, details.loadable, models, loading),
+        state(&selector, &snapshot, details.loadable, models, loading),
         selector,
         managed,
         None,
@@ -123,7 +129,11 @@ fn append_cached(
         None,
     ));
     known_repos.insert(cached.repo_id);
-    known_paths.insert(cached.snapshot);
+    known_paths.insert(snapshot);
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn configured(
@@ -147,7 +157,8 @@ fn configured(
         config.path.display().to_string(),
         state(&config.id, &config.path, details.loadable, models, loading),
         config.id.clone(),
-        config.hub.is_some() && config.path.starts_with(&runtime.store.paths().hub_cache_dir),
+        config.hub.is_some()
+            && canonical(&config.path).starts_with(canonical(&runtime.store.paths().hub_cache_dir)),
         recent.get(&config.id).copied(),
         &details,
         models.get(&config.id),
@@ -200,7 +211,7 @@ fn info(
 
 fn state(
     selector: &str,
-    path: &std::path::Path,
+    path: &Path,
     loadable: bool,
     models: &HashMap<String, ModelEntry>,
     loading: &HashSet<String>,
@@ -217,3 +228,6 @@ fn state(
         LocalModelState::Missing
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests;

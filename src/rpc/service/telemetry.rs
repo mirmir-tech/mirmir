@@ -3,7 +3,10 @@ use tonic::Status;
 use super::RuntimeService;
 pub use crate::application::SAMPLING_INTERVAL_MS;
 use crate::{
-    application::{HistorySample, TELEMETRY_RETENTION_LIMIT, TelemetrySnapshot},
+    application::{
+        AcceleratorMemory, AcceleratorMemoryPool, HistorySample, HostMemory,
+        TELEMETRY_RETENTION_LIMIT, TelemetrySnapshot,
+    },
     rpc::proto,
 };
 
@@ -49,9 +52,6 @@ impl From<TelemetrySnapshot> for proto::TelemetrySnapshot {
             mean_tokens_per_second: value.mean_tokens_per_second,
             last_ttft_ms: value.last_ttft_ms,
             mean_ttft_ms: value.mean_ttft_ms,
-            host_total_memory_bytes: value.host_total_memory_bytes,
-            host_available_memory_bytes: value.host_available_memory_bytes,
-            memory_source: value.memory_source,
             kv_total_blocks: value.kv_total_blocks,
             kv_used_blocks: value.kv_used_blocks,
             kv_cached_prefixes: value.kv_cached_prefixes,
@@ -74,6 +74,8 @@ impl From<TelemetrySnapshot> for proto::TelemetrySnapshot {
             device_power_watts: value.device_power_watts,
             device_power_limit_watts: value.device_power_limit_watts,
             device_name: value.device_name,
+            host_memory: value.host_memory.map(Into::into),
+            accelerator_memory: value.accelerator_memory.map(Into::into),
         }
     }
 }
@@ -88,9 +90,6 @@ impl From<HistorySample> for proto::TelemetryHistorySample {
             prefill_tokens_per_second: value.prefill_tokens_per_second,
             decode_tokens_per_second: value.decode_tokens_per_second,
             ttft_ms: value.ttft_ms,
-            memory_total_bytes: value.memory_total_bytes,
-            memory_available_bytes: value.memory_available_bytes,
-            memory_source: value.memory_source,
             kv_total_blocks: value.kv_total_blocks,
             kv_used_blocks: value.kv_used_blocks,
             total_requests: value.total_requests,
@@ -99,6 +98,61 @@ impl From<HistorySample> for proto::TelemetryHistorySample {
             device_temperature_celsius: value.device_temperature_celsius,
             device_power_watts: value.device_power_watts,
             device_power_limit_watts: value.device_power_limit_watts,
+            host_memory: value.host_memory.map(Into::into),
         }
+    }
+}
+
+impl From<HostMemory> for proto::HostMemory {
+    fn from(value: HostMemory) -> Self {
+        Self {
+            total_bytes: value.total_bytes,
+            available_bytes: value.available_bytes,
+        }
+    }
+}
+
+impl From<AcceleratorMemory> for proto::AcceleratorMemory {
+    fn from(value: AcceleratorMemory) -> Self {
+        let pool = match value.pool {
+            AcceleratorMemoryPool::MetalWorkingSet => proto::AcceleratorMemoryPool::MetalWorkingSet,
+            AcceleratorMemoryPool::CudaDevice => proto::AcceleratorMemoryPool::CudaDevice,
+            AcceleratorMemoryPool::CudaUnified => proto::AcceleratorMemoryPool::CudaUnified,
+        };
+        Self {
+            pool: pool.into(),
+            total_bytes: value.total_bytes,
+            available_bytes: value.available_bytes,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exposes_host_and_accelerator_memory_as_separate_typed_pools() {
+        let snapshot = proto::TelemetrySnapshot::from(TelemetrySnapshot {
+            host_memory: HostMemory::from_totals(64, 20),
+            accelerator_memory: Some(AcceleratorMemory {
+                pool: AcceleratorMemoryPool::MetalWorkingSet,
+                total_bytes: 48,
+                available_bytes: 30,
+            }),
+            ..Default::default()
+        });
+        assert_eq!(
+            snapshot.host_memory,
+            Some(proto::HostMemory { total_bytes: 64, available_bytes: 20 })
+        );
+        let accelerator = snapshot.accelerator_memory.expect("accelerator memory");
+        assert_eq!(accelerator.pool(), proto::AcceleratorMemoryPool::MetalWorkingSet);
+        assert_eq!((accelerator.total_bytes, accelerator.available_bytes), (48, 30));
+        let sample = proto::TelemetryHistorySample::from(HistorySample {
+            host_memory: HostMemory::from_totals(64, 20),
+            ..Default::default()
+        });
+        assert_eq!(sample.host_memory, snapshot.host_memory);
     }
 }

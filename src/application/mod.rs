@@ -34,9 +34,10 @@ use startup::Startup;
 pub use startup::StartupStatus;
 use telemetry::Telemetry;
 pub use telemetry::{
-    CompletionMetrics, GenerationTelemetry, HistorySample, KvTelemetry,
-    RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT, Recorder as TelemetryRecorder, RuntimeTelemetry,
-    SAMPLING_INTERVAL_MS, Snapshot as TelemetrySnapshot, Source as TelemetrySource,
+    AcceleratorMemory, AcceleratorMemoryPool, CompletionMetrics, GenerationTelemetry,
+    HistorySample, HostMemory, KvTelemetry, RETENTION_LIMIT as TELEMETRY_RETENTION_LIMIT,
+    Recorder as TelemetryRecorder, RuntimeTelemetry, SAMPLING_INTERVAL_MS,
+    Snapshot as TelemetrySnapshot, Source as TelemetrySource,
 };
 pub use transfer::available_message;
 
@@ -46,7 +47,7 @@ pub struct Health {
     pub server_version: &'static str,
 }
 
-pub const PROTOCOL_VERSION: &str = "1";
+pub const PROTOCOL_VERSION: &str = "2";
 
 #[derive(Clone)]
 pub struct Application {

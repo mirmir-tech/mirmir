@@ -104,15 +104,9 @@ impl App {
             .samples
             .iter()
             .map(|sample| TelemetryPoint {
-                memory_total_bytes: sample.memory_total_bytes,
-                memory_used_bytes: used_memory(
-                    sample.memory_total_bytes,
-                    sample.memory_available_bytes,
-                ),
-                memory_percent: percentage(
-                    sample.memory_total_bytes,
-                    sample.memory_available_bytes,
-                ),
+                memory_total_bytes: sample.host_memory.as_ref().map(|memory| memory.total_bytes),
+                memory_used_bytes: sample.host_memory.as_ref().map(used_memory),
+                memory_percent: sample.host_memory.as_ref().and_then(percentage),
                 gpu_percent: sample.gpu_utilization_percent,
                 temperature_celsius: sample.device_temperature_celsius,
                 power_watts: sample.device_power_watts,
@@ -122,20 +116,18 @@ impl App {
     }
 }
 
-fn used_memory(total: Option<u64>, available: Option<u64>) -> Option<u64> {
-    total.zip(available).map(|(total, available)| total.saturating_sub(available))
+const fn used_memory(memory: &proto::HostMemory) -> u64 {
+    memory.total_bytes.saturating_sub(memory.available_bytes)
 }
 
-fn percentage(total: Option<u64>, available: Option<u64>) -> Option<f64> {
-    match (total, available) {
-        (Some(total), Some(available)) if total > 0 => {
-            let used = total.saturating_sub(available);
-            let basis_points =
-                u32::try_from(u128::from(used) * 10_000 / u128::from(total)).unwrap_or(10_000);
-            Some(f64::from(basis_points) / 100.0)
-        },
-        _ => None,
-    }
+fn percentage(memory: &proto::HostMemory) -> Option<f64> {
+    let total = memory.total_bytes;
+    (total > 0).then(|| {
+        let basis_points =
+            u32::try_from(u128::from(used_memory(memory)) * 10_000 / u128::from(total))
+                .unwrap_or(10_000);
+        f64::from(basis_points) / 100.0
+    })
 }
 
 #[cfg(test)]
@@ -144,9 +136,11 @@ mod tests {
 
     #[test]
     fn computes_bounded_memory_percentage() {
-        assert_eq!(percentage(Some(100), Some(25)), Some(75.0));
-        assert_eq!(percentage(Some(100), Some(120)), Some(0.0));
-        assert_eq!(percentage(None, None), None);
+        let memory =
+            |total_bytes, available_bytes| proto::HostMemory { total_bytes, available_bytes };
+        assert_eq!(percentage(&memory(100, 25)), Some(75.0));
+        assert_eq!(percentage(&memory(100, 120)), Some(0.0));
+        assert_eq!(percentage(&memory(0, 0)), None);
     }
 
     #[test]
@@ -159,8 +153,7 @@ mod tests {
         app.apply_history(&proto::TelemetryHistoryResponse {
             samples: vec![proto::TelemetryHistorySample {
                 e2e_tokens_per_second: Some(24.4),
-                memory_total_bytes: Some(100),
-                memory_available_bytes: Some(25),
+                host_memory: Some(proto::HostMemory { total_bytes: 100, available_bytes: 25 }),
                 ..Default::default()
             }],
             retention_limit: 900,

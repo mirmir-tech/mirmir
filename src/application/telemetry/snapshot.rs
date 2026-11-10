@@ -1,3 +1,5 @@
+use super::{AcceleratorMemory, HostMemory};
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Snapshot {
     pub sampled_at_unix_ms: u64,
@@ -13,9 +15,8 @@ pub struct Snapshot {
     pub mean_tokens_per_second: Option<f64>,
     pub last_ttft_ms: Option<f64>,
     pub mean_ttft_ms: Option<f64>,
-    pub host_total_memory_bytes: Option<u64>,
-    pub host_available_memory_bytes: Option<u64>,
-    pub memory_source: String,
+    pub host_memory: Option<HostMemory>,
+    pub accelerator_memory: Option<AcceleratorMemory>,
     pub kv_total_blocks: u64,
     pub kv_used_blocks: u64,
     pub kv_cached_prefixes: u64,
@@ -50,9 +51,8 @@ pub struct HistorySample {
     pub prefill_tokens_per_second: Option<f64>,
     pub decode_tokens_per_second: Option<f64>,
     pub ttft_ms: Option<f64>,
-    pub memory_total_bytes: Option<u64>,
-    pub memory_available_bytes: Option<u64>,
-    pub memory_source: String,
+    /// Host RAM only; the recorder never samples accelerator memory.
+    pub host_memory: Option<HostMemory>,
     pub kv_total_blocks: u64,
     pub kv_used_blocks: u64,
     pub total_requests: u64,
