@@ -6,7 +6,7 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::{application::GenerationResult, rpc::proto};
 
-#[path = "generation/request.rs"]
+#[path = "request.rs"]
 mod request_conversion;
 
 impl RuntimeService {
