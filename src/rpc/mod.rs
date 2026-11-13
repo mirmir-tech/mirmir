@@ -1,7 +1,7 @@
 mod client;
 mod service;
 
-pub use client::{Client, connect, unavailable};
+pub use client::{Client, connect, connect_remote, unavailable};
 pub use service::RuntimeService;
 
 pub use crate::application::PROTOCOL_VERSION;

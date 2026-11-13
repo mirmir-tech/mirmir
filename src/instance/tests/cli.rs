@@ -59,6 +59,8 @@ impl Sandbox {
                 .args(["serve", "--no-http", "--shared-socket"])
                 .env("MIRMIR_CONFIG_HOME", self.root.join("server/config"))
                 .env("MIRMIR_STATE_HOME", self.root.join("server/state"))
+                // Keep the fixture away from the developer's own models.
+                .env("HF_HUB_CACHE", self.root.join("server/hf-hub-cache"))
                 .current_dir(self.root.join("server"))
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())

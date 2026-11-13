@@ -6,6 +6,7 @@ mod dashboard;
 mod generation;
 mod local_models;
 mod models;
+mod remote;
 mod restore;
 mod settings;
 mod status;
@@ -18,11 +19,12 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::proto;
-use crate::application::Application;
+use crate::{application::Application, remote::RemoteAccess};
 
 #[derive(Clone)]
 pub struct RuntimeService {
     application: Application,
+    remote: RemoteAccess,
 }
 
 #[tonic::async_trait]
@@ -202,15 +204,37 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::CancelOperationRequest>,
     ) -> Result<Response<proto::CancelOperationResponse>, Status> {
-        let operation_id = request.into_inner().operation_id;
-        let response = activity::cancellation(self.application.cancel_operation(&operation_id));
-        tracing::info!(
-            operation = %operation_id,
-            found = response.found,
-            accepted = response.accepted,
-            state = %response.state,
-            "operation cancellation requested"
-        );
-        Ok(Response::new(response))
+        Ok(Response::new(activity::cancel(
+            &self.application,
+            &request.into_inner().operation_id,
+        )))
+    }
+
+    async fn get_remote_access(
+        &self,
+        _request: Request<proto::GetRemoteAccessRequest>,
+    ) -> Result<Response<proto::RemoteAccessStatus>, Status> {
+        self.remote_status().await.map(Response::new)
+    }
+
+    async fn set_remote_access(
+        &self,
+        request: Request<proto::SetRemoteAccessRequest>,
+    ) -> Result<Response<proto::RemoteAccessStatus>, Status> {
+        self.set_remote(request.into_inner()).await.map(Response::new)
+    }
+
+    async fn create_remote_key(
+        &self,
+        request: Request<proto::CreateRemoteKeyRequest>,
+    ) -> Result<Response<proto::CreateRemoteKeyResponse>, Status> {
+        self.issue_remote_key(&request.into_inner()).map(Response::new)
+    }
+
+    async fn revoke_remote_key(
+        &self,
+        request: Request<proto::RevokeRemoteKeyRequest>,
+    ) -> Result<Response<proto::RevokeRemoteKeyResponse>, Status> {
+        self.withdraw_remote_key(&request.into_inner()).map(Response::new)
     }
 }

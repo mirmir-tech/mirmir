@@ -14,7 +14,7 @@ use std::{
 };
 
 pub use cache::{
-    CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
+    CachedModel, PartialDownload, discover_cached_models_in, discover_external_models,
     discover_partial_downloads_in,
 };
 pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate};
@@ -64,7 +64,7 @@ impl Catalog {
     ) -> Result<SearchResults> {
         let token = self.store.hf_token()?;
         let page = hub::search(&self.client, token.as_deref(), query, limit, cursor).await?;
-        let external = discover_cached_models()
+        let external = discover_external_models(self.store.paths())
             .into_iter()
             .map(|model| model.repo_id)
             .collect::<HashSet<_>>();

@@ -6,6 +6,15 @@ their own.
 
 ## Protocol 2
 
+### Remote access management
+
+`GetRemoteAccess`, `SetRemoteAccess`, `CreateRemoteKey` and `RevokeRemoteKey`
+manage the TLS listener and its API keys. They are served only over the local
+socket; over TLS they return `PERMISSION_DENIED` for every key. Scopes are the
+typed `RemoteKeyScope` (`USE`, `CONTROL`). `CreateRemoteKeyResponse.secret` is
+the only time a key's value is sent. Remote calls carry
+`authorization: Bearer mmk_…` metadata. See [remote access](remote-access.md).
+
 ### Telemetry memory pools are typed and explicit
 
 Protocol 1 sent one memory figure with a free-form `memory_source` label, and

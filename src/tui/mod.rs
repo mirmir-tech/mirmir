@@ -29,7 +29,7 @@ pub async fn run(instance: &Instance) -> Result<()> {
     let mut connection = instance.connect().await?;
     let reused = connection.reused();
     let result =
-        dashboard(&mut connection.client, reused, instance, connection.socket.clone()).await;
+        dashboard(&mut connection.client, reused, instance, connection.address.clone()).await;
     result.and(connection.shutdown().await)
 }
 
@@ -37,7 +37,7 @@ async fn dashboard(
     client: &mut rpc::Client,
     server_reused: bool,
     instance: &Instance,
-    socket: std::path::PathBuf,
+    address: crate::instance::Address,
 ) -> Result<()> {
     let mut terminal = TerminalGuard::new()?;
     let mut events = EventStream::new();
@@ -48,7 +48,7 @@ async fn dashboard(
     let mut chat_telemetry = tokio::time::interval(Duration::from_millis(250));
     chat_telemetry.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut app = App::new(server_reused);
-    app.endpoint = Some(crate::instance::Endpoint::new(instance, socket));
+    app.endpoint = Some(crate::instance::Endpoint::new(instance, address));
     let mut refresh_task = Some(begin_refresh(client));
     let mut chat_telemetry_task = None;
     app.begin_activity(client);

@@ -109,6 +109,18 @@ fn server_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document:
             config.server.request_timeout_seconds.to_string(),
         ),
         ("server.max_concurrency", config.server.max_concurrency.to_string()),
+        (
+            "server.remote_bind",
+            config.server.remote_bind.clone().unwrap_or_else(|| "off".to_owned()),
+        ),
+        (
+            "server.remote_tls_cert",
+            path_or_self_signed(config.server.remote_tls_cert.as_deref()),
+        ),
+        (
+            "server.remote_tls_key",
+            path_or_self_signed(config.server.remote_tls_key.as_deref()),
+        ),
     ] {
         push(values, document, key, &value, true, true);
     }
@@ -145,6 +157,10 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
     ] {
         push(values, document, key, &value, true, true);
     }
+}
+
+fn path_or_self_signed(path: Option<&std::path::Path>) -> String {
+    path.map_or_else(|| "self-signed".to_owned(), |path| path.display().to_string())
 }
 
 fn push(

@@ -7,7 +7,7 @@ use super::{super::NativeRuntime, presentation};
 use crate::{
     application::{LocalModelInfo, LocalModelState, ModelEntry, Result},
     catalog::{
-        CachedModel, PartialDownload, discover_cached_models, discover_cached_models_in,
+        CachedModel, PartialDownload, discover_cached_models_in, discover_external_models,
         discover_partial_downloads_in,
     },
     config::{GenerationConfig, HubModelConfig, ModelConfig, model_key},
@@ -43,7 +43,7 @@ impl NativeRuntime {
         for partial in discover_partial_downloads_in(&self.store.paths().hub_cache_dir) {
             append_partial(&mut listed, partial, &mut known_repos);
         }
-        for cached in discover_cached_models() {
+        for cached in discover_external_models(self.store.paths()) {
             append_cached(
                 &mut listed, cached, false, &mut known_repos, &mut known_paths, &state.resident,
                 &state.loading,

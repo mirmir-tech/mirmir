@@ -78,9 +78,11 @@ fn header(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Paragraph::new(line)
             .block(
                 Block::new()
-                    .title_bottom(app.endpoint.as_ref().map_or_else(String::new, |endpoint| {
-                        format!(" {} ", endpoint.socket().display())
-                    }))
+                    .title_bottom(
+                        app.endpoint.as_ref().map_or_else(String::new, |endpoint| {
+                            format!(" {} ", endpoint.address())
+                        }),
+                    )
                     .borders(Borders::BOTTOM)
                     .border_style(Style::new().fg(theme::BORDER)),
             )

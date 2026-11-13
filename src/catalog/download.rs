@@ -2,7 +2,7 @@ use hf_hub::HFClient;
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
 
-use super::{cache::discover_cached_models, resumable};
+use super::{cache::discover_external_models, resumable};
 use crate::{
     config::{ModelConfig, Store, model_key},
     error::{Error, Result},
@@ -84,10 +84,11 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
         .into_iter()
         .find(|repo| repo.repo_type == "model" && repo.repo_id == repo_id);
     let external = || {
-        discover_cached_models()
+        let root = store.paths().external_hub_cache.clone()?;
+        discover_external_models(store.paths())
             .into_iter()
             .find(|model| model.repo_id == repo_id)
-            .map(|model| (model.repo_path, hf_hub::resolve_cache_dir(), None))
+            .map(|model| (model.repo_path, root, None))
     };
     let target = managed
         .map(|repo| (repo.repo_path, store.paths().hub_cache_dir.clone(), None))

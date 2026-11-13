@@ -33,7 +33,8 @@ pub async fn serve(paths: Paths, mut config: AppConfig, args: ServeArgs) -> Resu
         ));
     }
     let application = adapters::native::application(&config, store);
-    let service = RuntimeService::from_application(application.clone());
+    let remote = crate::remote::RemoteAccess::new(Store::new(paths.clone()));
+    let service = RuntimeService::from_application(application.clone(), remote);
     let owner = server::start_service(paths.clone(), service.clone())?;
     tracing::info!(socket = %paths.socket_file.display(), "gRPC server listening");
     if args.no_http {

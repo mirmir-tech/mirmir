@@ -1,6 +1,6 @@
 [package]
 name = "mirmir"
-version = "0.5.5"
+version = "0.6.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "Native local model runtime, TUI, CLI, and OpenAI-compatible server"
@@ -44,16 +44,22 @@ hf-hub = { version = "1.0", features = ["rustls-tls"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 prost = "0.14"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "crypto", "pem"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "logging", "std", "tls12"] }
+rustls-native-certs = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
+subtle = "2.6"
 thiserror = "2"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 toml = "0.9"
 toml_edit = "0.23"
-tonic = { version = "0.14", features = ["transport"] }
+tonic = { version = "0.14", features = ["tls-aws-lc", "transport"] }
 tonic-prost = "0.14"
 tower = { version = "0.5", features = ["limit"] }
 tower-http = { version = "0.6", features = ["cors", "timeout", "trace"] }
@@ -61,13 +67,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libmir = { version = "0.5.5", default-features = false, features = ["cpu", "metal"] }
+libmir = { version = "0.6.0", default-features = false, features = ["cpu", "metal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libmir = { version = "0.5.5", default-features = false, features = ["cpu", "cuda"] }
+libmir = { version = "0.6.0", default-features = false, features = ["cpu", "cuda"] }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "linux")))'.dependencies]
-libmir = { version = "0.5.5", default-features = false }
+libmir = { version = "0.6.0", default-features = false }
 
 [build-dependencies]
 prost-build = "0.14"

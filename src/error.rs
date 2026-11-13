@@ -22,6 +22,12 @@ pub enum Error {
         #[source]
         source: Box<Self>,
     },
+    #[error("remote access: {0}")]
+    Remote(String),
+    #[error("TLS error: {0}")]
+    Tls(#[from] rustls::Error),
+    #[error("certificate generation failed: {0}")]
+    Certificate(#[from] rcgen::Error),
     #[error("model `{0}` is not configured and is not a local path")]
     ModelNotFound(String),
     #[error("I/O error: {0}")]

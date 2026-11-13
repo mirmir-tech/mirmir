@@ -24,6 +24,9 @@ pub struct Paths {
     pub ux_state_file: PathBuf,
     pub telemetry_file: PathBuf,
     pub hub_cache_dir: PathBuf,
+    /// The user's own Hugging Face cache, listed beside the managed one.
+    /// Discovered paths include it; explicit roots, as in tests, do not.
+    pub external_hub_cache: Option<PathBuf>,
     pub socket_file: PathBuf,
     pub lock_file: PathBuf,
     socket_placement: SocketPlacement,
@@ -49,7 +52,9 @@ impl Paths {
         let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
             .map(PathBuf::from)
             .map_or_else(|| state_dir.clone(), |root| root.join("mirmir"));
-        Ok(Self::from_roots(config_dir, state_dir, &runtime_dir))
+        let mut paths = Self::from_roots(config_dir, state_dir, &runtime_dir);
+        paths.external_hub_cache = Some(hf_hub::resolve_cache_dir());
+        Ok(paths)
     }
 
     #[must_use]
@@ -65,6 +70,7 @@ impl Paths {
             ux_state_file: config_dir.join("state.toml"),
             telemetry_file: state_dir.join("telemetry.toml"),
             hub_cache_dir: state_dir.join("hf-hub"),
+            external_hub_cache: None,
             socket_file: runtime_dir.join("mirmir.sock"),
             lock_file: runtime_dir.join("mirmir.lock"),
             config_dir,

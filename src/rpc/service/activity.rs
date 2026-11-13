@@ -56,6 +56,21 @@ impl From<application::ActivityEvent> for proto::ActivityEvent {
     }
 }
 
+pub fn cancel(
+    application: &crate::application::Application,
+    operation_id: &str,
+) -> proto::CancelOperationResponse {
+    let response = cancellation(application.cancel_operation(operation_id));
+    tracing::info!(
+        operation = %operation_id,
+        found = response.found,
+        accepted = response.accepted,
+        state = %response.state,
+        "operation cancellation requested"
+    );
+    response
+}
+
 pub fn cancellation(value: application::CancelOutcome) -> proto::CancelOperationResponse {
     match value {
         application::CancelOutcome::NotFound => proto::CancelOperationResponse {
