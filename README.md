@@ -12,7 +12,7 @@ Use MiRMiR when you want one binary to download and manage models, serve
 applications, chat locally, and observe inference performance directly on your
 own hardware.
 
-## Two views of the same runtime
+## Three views of the same runtime
 
 ### Terminal dashboard
 
@@ -30,6 +30,20 @@ latency, throughput, and K/V cache telemetry into the terminal.
 
 The optional web dashboard exposes the same local runtime, models, settings,
 and telemetry in a browser.
+
+### MiRMiR for Mac
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://mirmir.tech/assets/screenshots/mac-overview-0.6.0-dark-f6ea7fb4.webp">
+  <img alt="MiRMiR for Mac overview with live throughput, time to first token, memory and recent generations" src="https://mirmir.tech/assets/screenshots/mac-overview-0.6.0-light-6bf06191.webp">
+</picture>
+
+[MiRMiR for Mac](https://github.com/mirmir-tech/mirmir-app) is a native SwiftUI
+app in the menu bar for macOS 27 or later on Apple silicon. It includes the
+runtime, attaches to a running server through its gRPC service or starts its
+own, and switches
+between this Mac and remote servers over TLS. See the
+[Mac app guide](https://docs.mirmir.tech/user/mac-app.html).
 
 ## Install
 
