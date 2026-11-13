@@ -3,11 +3,12 @@ mod refill;
 mod reset;
 use std::{
     fs,
+    path::Path,
     sync::atomic::{AtomicU64, Ordering},
 };
 
 use super::*;
-use crate::config::Paths;
+use crate::config::{Paths, RemoteCertificate};
 
 static NEXT_EDIT: AtomicU64 = AtomicU64::new(0);
 
@@ -74,8 +75,40 @@ fn sets_and_clears_the_remote_listener() -> Result<()> {
     store.set_config_value("server.remote_bind", "0.0.0.0:7443")?;
     assert_eq!(store.load()?.server.remote_bind.as_deref(), Some("0.0.0.0:7443"));
     assert!(store.set_config_value("server.remote_bind", "not an address").is_err());
-    assert!(store.set_config_value("server.remote_tls_cert", "/etc/cert.pem").is_err());
     store.set_config_value("server.remote_bind", "off")?;
     assert_eq!(store.load()?.server.remote_bind, None);
+    Ok(())
+}
+
+#[test]
+fn sets_and_resets_the_remote_certificate_pair_one_key_at_a_time() -> Result<()> {
+    for (first, second) in [
+        ("server.remote_tls_cert", "server.remote_tls_key"),
+        ("server.remote_tls_key", "server.remote_tls_cert"),
+    ] {
+        let store = store();
+        let value = |key: &str| {
+            if key.ends_with("cert") {
+                "/etc/cert.pem"
+            } else {
+                "/etc/key.pem"
+            }
+        };
+        store.set_config_value(first, value(first))?;
+        assert!(store.load()?.server.remote_certificate().is_err(), "a half pair is refused");
+        store.set_config_value(second, value(second))?;
+        let server = store.load()?.server;
+        assert_eq!(
+            server.remote_certificate()?,
+            RemoteCertificate::Configured {
+                certificate: Path::new("/etc/cert.pem"),
+                key: Path::new("/etc/key.pem"),
+            }
+        );
+        store.set_config_value(first, "auto")?;
+        assert!(store.load()?.server.remote_certificate().is_err());
+        store.set_config_value(second, "auto")?;
+        assert_eq!(store.load()?.server.remote_certificate()?, RemoteCertificate::SelfSigned);
+    }
     Ok(())
 }

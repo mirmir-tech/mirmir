@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use libmir::KvCacheDType;
 use serde::{Deserialize, Serialize};
 
-pub use self::server::{DEFAULT_REMOTE_BIND, ServerSettings};
+pub use self::server::{DEFAULT_REMOTE_BIND, RemoteCertificate, ServerSettings};
 use super::model_runtime::ModelRuntimeConfig;
 use crate::error::{Error, Result};
 

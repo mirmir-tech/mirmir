@@ -1,3 +1,5 @@
+use std::{collections::BTreeSet, fs};
+
 use super::*;
 
 fn store(name: &str) -> (KeyStore, PathBuf) {
@@ -58,4 +60,91 @@ fn validates_key_names() {
     assert!(keys.create("tab\there", Scope::Use).is_err());
     assert!(keys.create(&"x".repeat(MAX_NAME_CHARS + 1), Scope::Use).is_err());
     drop(fs::remove_dir_all(root));
+}
+
+const WRITERS: usize = 32;
+
+fn ids(records: &[KeyRecord]) -> BTreeSet<String> {
+    records.iter().map(|record| record.id.clone()).collect()
+}
+
+#[test]
+fn concurrent_creates_keep_every_key() -> Result<()> {
+    let (keys, root) = store("concurrent-create");
+    let shared = &keys;
+    let created = std::thread::scope(|scope| {
+        // Spawn every writer before joining any, so they all race.
+        let mut workers = Vec::with_capacity(WRITERS);
+        for index in 0..WRITERS {
+            workers.push(scope.spawn(move || shared.create(&format!("key-{index}"), Scope::Use)));
+        }
+        workers
+            .into_iter()
+            .map(|worker| worker.join().expect("writer thread"))
+            .collect::<Vec<_>>()
+    });
+    let created = created.into_iter().collect::<Result<Vec<_>>>()?;
+    let records = created.iter().map(|(record, _)| record.clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&keys.list()?), ids(&records));
+    assert_eq!(keys.list()?.len(), WRITERS);
+    let reread = KeyStore::new(root.join("remote").join("keys.json"));
+    assert_eq!(reread.list()?.len(), WRITERS);
+    for (record, presented) in &created {
+        assert_eq!(reread.verify(presented)?.as_ref(), Some(record));
+    }
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn concurrent_creates_through_separate_stores_keep_every_key() -> Result<()> {
+    let (first, root) = store("concurrent-stores");
+    let path = root.join("remote").join("keys.json");
+    let stores: Vec<_> = (0..WRITERS).map(|_| KeyStore::new(path.clone())).collect();
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = stores
+            .iter()
+            .enumerate()
+            .map(|(index, keys)| {
+                scope.spawn(move || keys.create(&format!("key-{index}"), Scope::Use))
+            })
+            .collect();
+        workers
+            .into_iter()
+            .try_for_each(|worker| worker.join().expect("writer thread").map(drop))
+    })?;
+    assert_eq!(first.list()?.len(), WRITERS);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn concurrent_create_and_revoke_lose_neither_change() -> Result<()> {
+    let (keys, root) = store("concurrent-revoke");
+    let doomed = (0..WRITERS)
+        .map(|index| keys.create(&format!("old-{index}"), Scope::Control).map(|(record, _)| record))
+        .collect::<Result<Vec<_>>>()?;
+    let shared = &keys;
+    let created = std::thread::scope(|scope| {
+        let revokers: Vec<_> = doomed
+            .iter()
+            .map(|record| scope.spawn(move || shared.revoke(&record.id)))
+            .collect();
+        let mut creators = Vec::with_capacity(WRITERS);
+        for index in 0..WRITERS {
+            creators.push(scope.spawn(move || shared.create(&format!("new-{index}"), Scope::Use)));
+        }
+        for revoker in revokers {
+            assert!(revoker.join().expect("revoker thread")?, "every old key is revoked once");
+        }
+        creators
+            .into_iter()
+            .map(|creator| creator.join().expect("creator thread").map(|(record, _)| record))
+            .collect::<Result<Vec<_>>>()
+    })?;
+    assert_eq!(ids(&keys.list()?), ids(&created));
+    let reread = KeyStore::new(root.join("remote").join("keys.json"));
+    assert_eq!(ids(&reread.list()?), ids(&created));
+    fs::remove_dir_all(root)?;
+    Ok(())
 }

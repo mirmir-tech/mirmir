@@ -18,7 +18,8 @@ pub use models::model_key;
 pub use paths::{Paths, SocketAccess};
 pub use presentation::{ConfigPresentation, PresentedValue, SecretPresentation};
 pub use schema::{
-    AppConfig, DEFAULT_REMOTE_BIND, GenerationConfig, HubModelConfig, ModelConfig, ServerSettings,
+    AppConfig, DEFAULT_REMOTE_BIND, GenerationConfig, HubModelConfig, ModelConfig,
+    RemoteCertificate, ServerSettings,
 };
 pub use store::{StateRecovery, Store};
 

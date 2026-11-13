@@ -71,6 +71,19 @@ mirmir remote enable
 
 Clients then verify it against the system trust store and need no fingerprint.
 
+Each command saves one key. The listener needs both: while only one is set,
+`mirmir config show` reports the other as `missing`, `mirmir remote enable`
+fails with an error naming it, and a server start keeps the listener off and
+shows that error in `mirmir remote status`. `mirmir remote enable` restarts a
+running listener with the new certificate. To return to the
+self-signed certificate, reset both keys and enable again:
+
+```sh
+mirmir config set server.remote_tls_cert auto
+mirmir config set server.remote_tls_key auto
+mirmir remote enable
+```
+
 ## Connect from another computer
 
 ```sh

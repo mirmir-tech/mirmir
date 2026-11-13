@@ -1,26 +1,29 @@
 //! Remote API keys: a JSON file of named, scoped digests in the state
 //! directory. The file is reread when it changes, so a key created or revoked
 //! while the server runs applies to the next request.
+//!
+//! Every change is one transaction: the store's writer mutex and an advisory
+//! lock beside the file cover rereading the file, changing it, replacing it
+//! atomically and publishing the result to the verification cache, so
+//! concurrent writers in this or another process never lose an update.
 
+mod file;
 mod secret;
 #[cfg(test)]
 mod tests;
 
 use std::{
-    fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use file::{Stamp, WriteLock};
 pub use secret::display_prefix;
 use serde::{Deserialize, Serialize};
 
 use super::Scope;
-use crate::{
-    config::write_text,
-    error::{Error, Result},
-};
+use crate::error::{Error, Result};
 
 const MAX_NAME_CHARS: usize = 64;
 
@@ -33,19 +36,15 @@ pub struct KeyRecord {
     digest: String,
 }
 
-#[derive(Default, Serialize, Deserialize)]
-struct KeyFile {
-    keys: Vec<KeyRecord>,
-}
-
 pub struct KeyStore {
     path: PathBuf,
     cache: Mutex<Cached>,
+    writer: Mutex<()>,
 }
 
 #[derive(Default)]
 struct Cached {
-    modified: Option<SystemTime>,
+    stamp: Option<Stamp>,
     keys: Vec<KeyRecord>,
 }
 
@@ -55,6 +54,7 @@ impl KeyStore {
         Self {
             path,
             cache: Mutex::new(Cached::default()),
+            writer: Mutex::new(()),
         }
     }
 
@@ -74,21 +74,19 @@ impl KeyStore {
             created_at_unix_ms: now_unix_ms(),
             digest: generated.digest,
         };
-        let mut keys = self.list()?;
-        keys.push(record.clone());
-        self.save(keys)?;
+        self.transact(|keys| {
+            keys.push(record.clone());
+            true
+        })?;
         Ok((record, generated.presented))
     }
 
     pub fn revoke(&self, id: &str) -> Result<bool> {
-        let mut keys = self.list()?;
-        let before = keys.len();
-        keys.retain(|key| key.id != id);
-        let revoked = keys.len() != before;
-        if revoked {
-            self.save(keys)?;
-        }
-        Ok(revoked)
+        self.transact(|keys| {
+            let before = keys.len();
+            keys.retain(|key| key.id != id);
+            keys.len() != before
+        })
     }
 
     /// The record of a valid presented key. Malformed and unknown keys are
@@ -105,37 +103,27 @@ impl KeyStore {
     }
 
     fn with_current<T>(&self, read: impl FnOnce(&[KeyRecord]) -> T) -> Result<T> {
-        let modified = modified(&self.path)?;
+        let stamp = file::stamp(&self.path)?;
         let mut cache = self.cache.lock().map_err(|_| poisoned())?;
-        if cache.modified != modified {
-            cache.keys = load(&self.path, modified.is_some())?;
-            cache.modified = modified;
+        if cache.stamp != stamp {
+            (cache.stamp, cache.keys) = file::load(&self.path)?;
         }
         Ok(read(&cache.keys))
     }
 
-    fn save(&self, keys: Vec<KeyRecord>) -> Result<()> {
-        let rendered = serde_json::to_string_pretty(&KeyFile { keys })?;
-        write_text(&self.path, &rendered, true)?;
-        *self.cache.lock().map_err(|_| poisoned())? = Cached::default();
-        Ok(())
-    }
-}
-
-fn load(path: &Path, exists: bool) -> Result<Vec<KeyRecord>> {
-    if !exists {
-        return Ok(Vec::new());
-    }
-    crate::config::ensure_private_file(path)?;
-    let file: KeyFile = serde_json::from_str(&fs::read_to_string(path)?)?;
-    Ok(file.keys)
-}
-
-fn modified(path: &Path) -> Result<Option<SystemTime>> {
-    match fs::metadata(path) {
-        Ok(metadata) => Ok(Some(metadata.modified()?)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
+    /// Applies `change` to the current file contents under both writer locks,
+    /// saves when it reports a change, and publishes the result to the cache
+    /// before releasing the locks. Returns whether anything changed.
+    fn transact(&self, change: impl FnOnce(&mut Vec<KeyRecord>) -> bool) -> Result<bool> {
+        let _writer = self.writer.lock().map_err(|_| poisoned())?;
+        let _file = WriteLock::acquire(&self.path)?;
+        let (mut stamp, mut keys) = file::load(&self.path)?;
+        let changed = change(&mut keys);
+        if changed {
+            stamp = file::save(&self.path, &keys)?;
+        }
+        *self.cache.lock().map_err(|_| poisoned())? = Cached { stamp, keys };
+        Ok(changed)
     }
 }
 

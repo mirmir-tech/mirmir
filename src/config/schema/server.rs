@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,11 +24,22 @@ pub struct ServerSettings {
     /// TLS listen address of the remote gRPC service; absent keeps remote
     /// access off.
     pub remote_bind: Option<String>,
-    /// PEM certificate chain for the remote listener; absent uses a
-    /// self-signed certificate from the state directory.
+    /// PEM certificate chain for the remote listener; absent with
+    /// `remote_tls_key` uses a self-signed certificate from the state
+    /// directory. The pair is edited one key at a time, so one half may be
+    /// persisted alone; [`ServerSettings::remote_certificate`] refuses it.
     pub remote_tls_cert: Option<PathBuf>,
     /// PEM private key matching `remote_tls_cert`.
     pub remote_tls_key: Option<PathBuf>,
+}
+
+/// The certificate the remote listener presents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteCertificate<'a> {
+    /// Generated once in the state directory.
+    SelfSigned,
+    /// A configured certificate chain and its private key.
+    Configured { certificate: &'a Path, key: &'a Path },
 }
 
 impl Default for ServerSettings {
@@ -60,6 +75,19 @@ impl ServerSettings {
         self.remote_bind.as_deref().map(parse_remote).transpose()
     }
 
+    /// The remote listener's certificate. A half-configured pair is an error
+    /// naming the missing key, so the listener never starts with it.
+    pub fn remote_certificate(&self) -> Result<RemoteCertificate<'_>> {
+        match (self.remote_tls_cert.as_deref(), self.remote_tls_key.as_deref()) {
+            (None, None) => Ok(RemoteCertificate::SelfSigned),
+            (Some(certificate), Some(key)) => {
+                Ok(RemoteCertificate::Configured { certificate, key })
+            },
+            (Some(_), None) => Err(incomplete("server.remote_tls_key", "server.remote_tls_cert")),
+            (None, Some(_)) => Err(incomplete("server.remote_tls_cert", "server.remote_tls_key")),
+        }
+    }
+
     #[must_use]
     pub const fn request_timeout(&self) -> Duration {
         Duration::from_secs(self.request_timeout_seconds)
@@ -84,13 +112,15 @@ impl ServerSettings {
             return Err(Error::Config("server.max_concurrency must be positive".to_owned()));
         }
         self.remote_address()?;
-        if self.remote_tls_cert.is_some() != self.remote_tls_key.is_some() {
-            return Err(Error::Config(
-                "server.remote_tls_cert and server.remote_tls_key must be set together".to_owned(),
-            ));
-        }
         Ok(())
     }
+}
+
+fn incomplete(missing: &str, present: &str) -> Error {
+    Error::Config(format!(
+        "{missing} is not set: set it to complete the TLS pair with {present}, or reset {present} \
+         to `auto` for the self-signed certificate"
+    ))
 }
 
 fn parse_remote(bind: &str) -> Result<SocketAddr> {

@@ -5,7 +5,7 @@ use std::{
 
 use super::{super::NativeRuntime, presentation};
 use crate::{
-    application::{LocalModelInfo, LocalModelState, ModelEntry, Result},
+    application::{LocalModelInfo, LocalModelState, ModelInfo, Result},
     catalog::{
         CachedModel, PartialDownload, discover_cached_models_in, discover_external_models,
         discover_partial_downloads_in,
@@ -24,6 +24,11 @@ impl NativeRuntime {
             .map(|(rank, id)| (id, u32::try_from(rank).unwrap_or(u32::MAX)))
             .collect::<HashMap<_, _>>();
         let state = self.lifecycle.state()?;
+        let resident = state
+            .resident
+            .iter()
+            .map(|(selector, entry)| (selector.as_str(), &entry.info))
+            .collect::<Resident<'_>>();
         let mut known_repos = configs
             .iter()
             .filter_map(|config| config.hub.as_ref().map(|hub| hub.repo_id.clone()))
@@ -32,11 +37,11 @@ impl NativeRuntime {
             configs.iter().map(|config| canonical(&config.path)).collect::<HashSet<_>>();
         let mut listed = configs
             .iter()
-            .map(|config| configured(config, &recent, &state.resident, &state.loading, self))
+            .map(|config| configured(config, &recent, &resident, &state.loading, self))
             .collect::<Vec<_>>();
         for cached in discover_cached_models_in(&self.store.paths().hub_cache_dir) {
             append_cached(
-                &mut listed, cached, true, &mut known_repos, &mut known_paths, &state.resident,
+                &mut listed, cached, true, &mut known_repos, &mut known_paths, &resident,
                 &state.loading,
             );
         }
@@ -45,7 +50,7 @@ impl NativeRuntime {
         }
         for cached in discover_external_models(self.store.paths()) {
             append_cached(
-                &mut listed, cached, false, &mut known_repos, &mut known_paths, &state.resident,
+                &mut listed, cached, false, &mut known_repos, &mut known_paths, &resident,
                 &state.loading,
             );
         }
@@ -54,6 +59,9 @@ impl NativeRuntime {
         Ok(listed)
     }
 }
+
+/// Resident models' presented details by their canonical selector.
+type Resident<'a> = HashMap<&'a str, &'a ModelInfo>;
 
 fn append_partial(
     listed: &mut Vec<LocalModelInfo>,
@@ -101,7 +109,7 @@ fn append_cached(
     managed: bool,
     known_repos: &mut HashSet<String>,
     known_paths: &mut HashSet<PathBuf>,
-    models: &HashMap<String, ModelEntry>,
+    models: &Resident<'_>,
     loading: &HashSet<String>,
 ) {
     // Path selectors resolve to canonical keys, so residency must match on the
@@ -122,11 +130,11 @@ fn append_cached(
         cached.commit,
         selector.clone(),
         state(&selector, &snapshot, details.loadable, models, loading),
-        selector,
+        selector.clone(),
         managed,
         None,
         &details,
-        None,
+        models.get(selector.as_str()).copied(),
     ));
     known_repos.insert(cached.repo_id);
     known_paths.insert(snapshot);
@@ -139,7 +147,7 @@ fn canonical(path: &Path) -> PathBuf {
 fn configured(
     config: &ModelConfig,
     recent: &HashMap<String, u32>,
-    models: &HashMap<String, ModelEntry>,
+    models: &Resident<'_>,
     loading: &HashSet<String>,
     runtime: &NativeRuntime,
 ) -> LocalModelInfo {
@@ -161,7 +169,7 @@ fn configured(
             && canonical(&config.path).starts_with(canonical(&runtime.store.paths().hub_cache_dir)),
         recent.get(&config.id).copied(),
         &details,
-        models.get(&config.id),
+        models.get(config.id.as_str()).copied(),
     )
 }
 
@@ -177,7 +185,7 @@ fn info(
     managed: bool,
     recent_rank: Option<u32>,
     details: &presentation::ModelPresentation,
-    loaded: Option<&ModelEntry>,
+    loaded: Option<&ModelInfo>,
 ) -> LocalModelInfo {
     LocalModelInfo {
         id,
@@ -189,9 +197,9 @@ fn info(
         recent_rank,
         selector,
         managed,
-        image_input: loaded.is_some_and(|entry| entry.info.image_input),
+        image_input: loaded.is_some_and(|info| info.image_input),
         image_unavailable_reason: loaded
-            .map(|entry| entry.info.image_unavailable_reason.clone())
+            .map(|info| info.image_unavailable_reason.clone())
             .unwrap_or_default(),
         model_class: details.class.clone(),
         loadable: details.loadable,
@@ -213,7 +221,7 @@ fn state(
     selector: &str,
     path: &Path,
     loadable: bool,
-    models: &HashMap<String, ModelEntry>,
+    models: &Resident<'_>,
     loading: &HashSet<String>,
 ) -> LocalModelState {
     if models.contains_key(selector) {

@@ -9,8 +9,8 @@ use std::{fs, path::Path};
 pub use fingerprint::Fingerprint;
 
 use crate::{
-    config::{ServerSettings, ensure_private_file, write_text},
-    error::{Error, Result},
+    config::{RemoteCertificate, ServerSettings, ensure_private_file, write_text},
+    error::Result,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,14 +38,11 @@ impl std::fmt::Debug for Identity {
 }
 
 pub fn identity(state_dir: &Path, settings: &ServerSettings) -> Result<Identity> {
-    match (&settings.remote_tls_cert, &settings.remote_tls_key) {
-        (Some(certificate), Some(key)) => {
+    match settings.remote_certificate()? {
+        RemoteCertificate::Configured { certificate, key } => {
             read(certificate, key, CertificateSource::Configured, false)
         },
-        (None, None) => self_signed(&state_dir.join("remote").join("tls")),
-        _ => Err(Error::Config(
-            "server.remote_tls_cert and server.remote_tls_key must be set together".to_owned(),
-        )),
+        RemoteCertificate::SelfSigned => self_signed(&state_dir.join("remote").join("tls")),
     }
 }
 
@@ -124,7 +121,11 @@ mod tests {
         assert_eq!(reused.source, CertificateSource::Configured);
         assert_eq!(reused.fingerprint, first.fingerprint);
         let half = ServerSettings { remote_tls_key: None, ..configured };
-        assert!(identity(&root, &half).is_err());
+        let rejection = identity(&root, &half).expect_err("a half pair must not start TLS");
+        assert!(
+            rejection.to_string().contains("server.remote_tls_key is not set"),
+            "{rejection}"
+        );
         fs::remove_dir_all(root)?;
         Ok(())
     }
