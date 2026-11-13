@@ -40,8 +40,8 @@ and telemetry in a browser.
 
 [MiRMiR for Mac](https://github.com/mirmir-tech/mirmir-app) is a native SwiftUI
 app in the menu bar for macOS 27 or later on Apple silicon. It includes the
-runtime, attaches to a running server through its gRPC service or starts its
-own, and switches
+runtime and runs it sandboxed as its own server, separate from the CLI's (its
+API is on port 18080), and switches
 between this Mac and remote servers over TLS. See the
 [Mac app guide](https://docs.mirmir.tech/user/mac-app.html).
 
