@@ -7,6 +7,15 @@ use tonic::Status;
 use crate::rpc::proto;
 
 pub(super) fn chat_request(request: &proto::GenerateRequest) -> Result<GenerationRequest, Status> {
+    if let Some(image) = &request.image
+        && image.len() > crate::media::MAX_IMAGE_BYTES
+    {
+        return Err(Status::invalid_argument(format!(
+            "the image has {} bytes; images may have at most {} bytes",
+            image.len(),
+            crate::media::MAX_IMAGE_BYTES
+        )));
+    }
     let tool_choice = crate::rpc::service::status::invalid(
         request.tool_choice_json.as_deref().map(serde_json::from_str).transpose(),
     )?;

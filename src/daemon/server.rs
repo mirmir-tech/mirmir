@@ -8,7 +8,7 @@ use super::{guard::InstanceGuard, telemetry::Sampler};
 use crate::{
     config::{AppConfig, Paths, SocketAccess, Store},
     error::Result,
-    rpc::{RuntimeService, proto::runtime_server::RuntimeServer},
+    rpc::{self, RuntimeService},
 };
 
 pub struct Owner {
@@ -42,7 +42,7 @@ pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Own
     tokio::spawn(async move { configured.remote().start_configured(configured.clone()).await });
     let task = tokio::spawn(async move {
         Server::builder()
-            .add_service(RuntimeServer::new(service))
+            .add_service(rpc::server(service))
             .serve_with_incoming_shutdown(incoming, async {
                 drop(receiver.await);
             })

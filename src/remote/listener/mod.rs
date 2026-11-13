@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     error::{Error, Result},
-    rpc::{RuntimeService, proto::runtime_server::RuntimeServer},
+    rpc::{self, RuntimeService},
 };
 
 /// How long in-flight calls may finish after the listener stops accepting.
@@ -48,7 +48,7 @@ impl Listener {
         let router = Server::builder()
             .tls_config(tls)?
             .layer(AuthLayer::new(guard))
-            .add_service(RuntimeServer::new(service));
+            .add_service(rpc::server(service));
         let closer = Closer::new();
         let incoming = TcpIncoming::from(listener).map({
             let open = closer.handle();

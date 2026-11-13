@@ -103,6 +103,11 @@ runtime. The TUI header shows `REMOTE` and `grpcs://host:port`.
 `mirmir remote fingerprint` only reads the certificate. It sends no request and
 no key.
 
+Reaching the server (TCP, the TLS handshake and the first Health call) must
+finish within 10 seconds; otherwise the command fails and names the address.
+Calls on an established connection, such as generation, loading or downloads,
+keep running as long as they need.
+
 ## Protection and limits
 
 - TLS 1.2 or 1.3 through rustls; the handshake proves the server holds the
@@ -112,6 +117,9 @@ no key.
 - After 20 failed attempts from one address within a minute, that address is
   refused for the rest of the minute (`RESOURCE_EXHAUSTED`).
 - Rejections are logged with the peer address and method, never the key.
+- Both the local socket and the TLS listener accept requests up to 32 MiB, room
+  for an image of up to 20 MiB with its conversation; a larger image is refused
+  with `INVALID_ARGUMENT`.
 - The server lists clients seen in the last 15 minutes with the key name,
   scope, peer address and request count. Last use is kept in memory and resets
   when the server restarts.

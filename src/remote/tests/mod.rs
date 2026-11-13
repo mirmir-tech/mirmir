@@ -112,5 +112,7 @@ async fn reports_a_listener_that_cannot_bind() -> crate::error::Result<()> {
     Ok(())
 }
 
+mod deadlines;
+mod requests;
 mod shutdown;
 mod transitions;

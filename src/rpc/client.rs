@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     error::{Error, Result},
-    remote::RemoteTarget,
+    remote::{CONNECT_TIMEOUT, RemoteTarget, within},
 };
 
 pub type Client = RuntimeClient<InterceptedService<Channel, Credentials>>;
@@ -34,8 +34,17 @@ impl Interceptor for Credentials {
     }
 }
 
-/// Connects to a remote server's TLS listener and checks its protocol.
+/// Connects to a remote server's TLS listener and checks its protocol. TCP,
+/// TLS and the first Health call together get [`CONNECT_TIMEOUT`].
 pub async fn connect_remote(target: &RemoteTarget) -> Result<Client> {
+    connect_remote_within(target, CONNECT_TIMEOUT).await
+}
+
+pub async fn connect_remote_within(target: &RemoteTarget, limit: Duration) -> Result<Client> {
+    within(&target.address, limit, establish(target)).await
+}
+
+async fn establish(target: &RemoteTarget) -> Result<Client> {
     let header = MetadataValue::try_from(format!("Bearer {}", target.key))
         .map_err(|_| Error::Remote("the API key contains invalid characters".to_owned()))?;
     let channel = target.channel().await.map_err(|error| remote_failure(target, &error))?;

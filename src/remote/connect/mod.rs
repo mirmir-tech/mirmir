@@ -3,7 +3,11 @@
 
 mod verifier;
 
-use std::sync::{Arc, Mutex};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use hyper_util::rt::TokioIo;
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
@@ -43,6 +47,25 @@ pub enum Trust {
     System,
 }
 
+/// How long reaching a remote server may take: TCP, the TLS handshake and
+/// the first call. Long-running calls on an established channel keep their
+/// own lifecycle.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Runs one connection attempt to `address`, failing after `limit`.
+pub async fn within<T>(
+    address: &str,
+    limit: Duration,
+    attempt: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    tokio::time::timeout(limit, attempt).await.map_err(|_| {
+        Error::Remote(format!(
+            "{address} did not complete the connection within {limit:?}; check that it serves \
+             mirmir remote access (`mirmir remote enable`) on that port"
+        ))
+    })?
+}
+
 impl RemoteTarget {
     pub async fn channel(&self) -> Result<Channel> {
         let config = Arc::new(client_config(self.trust)?);
@@ -52,6 +75,7 @@ impl RemoteTarget {
             Error::Remote(format!("`{address}` is not a server address: {error}"))
         })?;
         Ok(endpoint
+            .connect_timeout(CONNECT_TIMEOUT)
             .connect_with_connector(service_fn(move |_: Uri| {
                 let connector = TlsConnector::from(config.clone());
                 let address = address.clone();
@@ -69,6 +93,14 @@ impl RemoteTarget {
 /// The fingerprint of the certificate a server presents, without trusting
 /// it: what a client shows before pinning on first use.
 pub async fn presented_fingerprint(address: &str) -> Result<Fingerprint> {
+    presented_fingerprint_within(address, CONNECT_TIMEOUT).await
+}
+
+pub async fn presented_fingerprint_within(address: &str, limit: Duration) -> Result<Fingerprint> {
+    within(address, limit, capture_fingerprint(address)).await
+}
+
+async fn capture_fingerprint(address: &str) -> Result<Fingerprint> {
     let seen = Arc::new(Mutex::new(None));
     let mut config = ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()?
