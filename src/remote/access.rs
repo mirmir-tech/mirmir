@@ -28,6 +28,9 @@ struct Inner {
     keys: Arc<KeyStore>,
     clients: Arc<Clients>,
     guard: Arc<Guard>,
+    /// Serializes every change of remote access, from the configuration
+    /// write to the running listener, so the two never disagree.
+    transition: Mutex<()>,
     state: Mutex<State>,
 }
 
@@ -36,6 +39,8 @@ struct State {
     listener: Option<Listener>,
     /// Why the configured listener is not running.
     error: Option<String>,
+    /// The server is shutting down: no listener starts again.
+    closed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +80,7 @@ impl RemoteAccess {
                 keys,
                 clients,
                 guard,
+                transition: Mutex::default(),
                 state: Mutex::default(),
             }),
         }
@@ -83,9 +89,16 @@ impl RemoteAccess {
     /// Starts the listener when the configuration enables remote access. A
     /// failure is reported in the status; the local server keeps running.
     pub async fn start_configured(&self, service: RuntimeService) {
+        let _transition = self.inner.transition.lock().await;
+        if self.inner.state.lock().await.closed {
+            return;
+        }
         let started = match self.configured_bind() {
             Ok(None) => Ok(()),
-            Ok(Some(bind)) => self.listen(&bind, service).await,
+            Ok(Some(bind)) => match parse(&bind) {
+                Ok(address) => self.listen(address, service).await,
+                Err(error) => Err(error),
+            },
             Err(error) => Err(error),
         };
         if let Err(error) = started {
@@ -93,28 +106,49 @@ impl RemoteAccess {
         }
     }
 
-    /// Starts or restarts the listener and persists its address.
+    /// Persists the listen address and starts or restarts the listener on it.
+    /// When the listener cannot start, the previous setting is restored.
     pub async fn enable(&self, bind: Option<&str>, service: RuntimeService) -> Result<Status> {
-        let configured = self.configured_bind()?;
-        let bind = bind
-            .map(str::trim)
-            .filter(|bind| !bind.is_empty())
-            .map(str::to_owned)
-            .or(configured)
-            .unwrap_or_else(|| DEFAULT_REMOTE_BIND.to_owned());
-        self.listen(&bind, service).await?;
-        self.inner.store.set_config_value("server.remote_bind", &bind)?;
-        self.status().await
+        {
+            let _transition = self.inner.transition.lock().await;
+            if self.inner.state.lock().await.closed {
+                return Err(Error::Remote("the server is shutting down".to_owned()));
+            }
+            let configured = self.configured_bind()?;
+            let bind = bind
+                .map(str::trim)
+                .filter(|bind| !bind.is_empty())
+                .map(str::to_owned)
+                .or_else(|| configured.clone())
+                .unwrap_or_else(|| DEFAULT_REMOTE_BIND.to_owned());
+            let address = parse(&bind)?;
+            self.persist(Some(&bind))?;
+            if let Err(error) = self.listen(address, service).await {
+                if let Err(restore) = self.persist(configured.as_deref()) {
+                    tracing::error!(%restore, "cannot restore the remote access setting");
+                }
+                return Err(error);
+            }
+            self.status().await
+        }
     }
 
+    /// Persists that remote access is off, then stops the listener and closes
+    /// its connections. When the setting cannot be written nothing changes.
     pub async fn disable(&self) -> Result<Status> {
-        let previous = self.inner.state.lock().await.listener.take();
-        if let Some(listener) = previous {
-            listener.stop().await;
+        {
+            let _transition = self.inner.transition.lock().await;
+            self.persist(None)?;
+            let previous = {
+                let mut state = self.inner.state.lock().await;
+                state.error = None;
+                state.listener.take()
+            };
+            if let Some(listener) = previous {
+                listener.stop().await;
+            }
+            self.status().await
         }
-        self.inner.store.set_config_value("server.remote_bind", "off")?;
-        self.inner.state.lock().await.error = None;
-        self.status().await
     }
 
     pub async fn status(&self) -> Result<Status> {
@@ -157,39 +191,37 @@ impl RemoteAccess {
         Ok(revoked)
     }
 
+    /// Stops the listener for good; later enables are refused.
     pub async fn shutdown(&self) {
-        let listener = self.inner.state.lock().await.listener.take();
+        let _transition = self.inner.transition.lock().await;
+        let listener = {
+            let mut state = self.inner.state.lock().await;
+            state.closed = true;
+            state.listener.take()
+        };
         if let Some(listener) = listener {
             listener.stop().await;
         }
     }
 
-    #[expect(
-        clippy::significant_drop_tightening,
-        reason = "the state lock serializes stopping the old listener and starting the new one"
-    )]
-    async fn listen(&self, bind: &str, service: RuntimeService) -> Result<()> {
-        let address: SocketAddr = bind.parse().map_err(|error| {
-            Error::Config(format!("remote address `{bind}` is invalid: {error}"))
-        })?;
+    /// Replaces the running listener. Callers hold the transition lock.
+    async fn listen(&self, address: SocketAddr, service: RuntimeService) -> Result<()> {
         let config = self.inner.store.load()?;
         let identity = tls::identity(&self.inner.store.paths().state_dir, &config.server)?;
-        let mut state = self.inner.state.lock().await;
-        if let Some(previous) = state.listener.take() {
+        let previous = self.inner.state.lock().await.listener.take();
+        if let Some(previous) = previous {
             previous.stop().await;
         }
-        let listener = Listener::start(address, identity, self.inner.guard.clone(), service).await;
-        match listener {
-            Ok(listener) => {
-                state.listener = Some(listener);
-                state.error = None;
-                Ok(())
-            },
-            Err(error) => {
-                state.error = Some(error.to_string());
-                Err(error)
-            },
-        }
+        let started = Listener::start(address, identity, self.inner.guard.clone(), service).await;
+        let (listener, error, result) = match started {
+            Ok(listener) => (Some(listener), None, Ok(())),
+            Err(error) => (None, Some(error.to_string()), Err(error)),
+        };
+        let mut state = self.inner.state.lock().await;
+        state.listener = listener;
+        state.error = error;
+        drop(state);
+        result
     }
 
     async fn fail(&self, error: Error) {
@@ -197,7 +229,16 @@ impl RemoteAccess {
         self.inner.state.lock().await.error = Some(error.to_string());
     }
 
+    fn persist(&self, bind: Option<&str>) -> Result<()> {
+        self.inner.store.set_config_value("server.remote_bind", bind.unwrap_or("off"))
+    }
+
     fn configured_bind(&self) -> Result<Option<String>> {
         Ok(self.inner.store.load()?.server.remote_bind)
     }
+}
+
+fn parse(bind: &str) -> Result<SocketAddr> {
+    bind.parse()
+        .map_err(|error| Error::Config(format!("remote address `{bind}` is invalid: {error}")))
 }
