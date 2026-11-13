@@ -89,6 +89,11 @@ impl Application {
         self.activity.subscribe()
     }
 
+    #[cfg(test)]
+    pub fn activity_subscribers(&self) -> usize {
+        self.activity.subscribers()
+    }
+
     #[must_use]
     pub fn cancel_operation(&self, operation_id: &str) -> CancelOutcome {
         self.activity.cancel(operation_id)

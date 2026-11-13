@@ -17,9 +17,15 @@ pub fn watch(
             }
         }
     }
+    // The producer ends with its stream: a dropped response closes `sender`,
+    // which wakes it even while no activity arrives.
     drop(tokio::spawn(async move {
         loop {
-            match events.recv().await {
+            let next = tokio::select! {
+                () = sender.closed() => break,
+                event = events.recv() => event,
+            };
+            match next {
                 Ok(event) => {
                     if sender.send(Ok(event.into())).await.is_err() {
                         break;
@@ -90,3 +96,6 @@ pub fn cancellation(value: application::CancelOutcome) -> proto::CancelOperation
         },
     }
 }
+
+#[cfg(test)]
+mod tests;
