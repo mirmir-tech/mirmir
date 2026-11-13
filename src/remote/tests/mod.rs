@@ -111,3 +111,5 @@ async fn reports_a_listener_that_cannot_bind() -> crate::error::Result<()> {
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
+
+mod shutdown;

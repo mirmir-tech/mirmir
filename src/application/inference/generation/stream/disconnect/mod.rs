@@ -1,7 +1,10 @@
 use libmir::CancellationToken;
 use tokio::{sync::mpsc, task::JoinHandle};
 
-pub(super) struct Watch(JoinHandle<()>);
+/// Cancels a generation as soon as its consumer goes away, independently of
+/// output; dropping the watch retires it so it neither keeps the sender alive
+/// nor cancels a generation that already finished.
+pub struct Watch(JoinHandle<()>);
 
 impl Watch {
     pub(super) fn new<T: Send + 'static>(

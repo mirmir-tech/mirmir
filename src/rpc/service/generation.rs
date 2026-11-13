@@ -22,14 +22,28 @@ pub fn stream(
     service: RuntimeService,
     request: proto::GenerateRequest,
 ) -> ReceiverStream<Result<proto::GenerateEvent, Status>> {
-    let (sender, receiver) = mpsc::channel(64);
     let session = service.application.start_generation(&request.model);
+    spawn(service, request, session)
+}
+
+/// Runs `session` on a blocking worker. A client that disconnects cancels it
+/// even before any output; the watch retires when the worker completes.
+fn spawn(
+    service: RuntimeService,
+    request: proto::GenerateRequest,
+    session: crate::application::GenerationSession,
+) -> ReceiverStream<Result<proto::GenerateEvent, Status>> {
+    let (sender, receiver) = mpsc::channel(64);
     drop(sender.try_send(Ok(proto::GenerateEvent {
         event: Some(proto::generate_event::Event::Started(proto::OperationStarted {
             operation_id: session.operation_id().to_owned(),
         })),
     })));
-    drop(tokio::task::spawn_blocking(move || run(&service, &request, &sender, session)));
+    let disconnect = session.watch_disconnect(sender.clone());
+    drop(tokio::task::spawn_blocking(move || {
+        let _disconnect = disconnect;
+        run(&service, &request, &sender, session);
+    }));
     ReceiverStream::new(receiver)
 }
 
@@ -135,3 +149,6 @@ fn proto_tool_call(call: libmir::ToolCall) -> proto::ChatToolCall {
         }),
     }
 }
+
+#[cfg(test)]
+mod tests;
