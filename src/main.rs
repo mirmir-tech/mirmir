@@ -10,7 +10,6 @@ mod http;
 mod instance;
 mod media;
 mod model;
-mod model_format;
 mod output;
 mod prompt;
 mod protocol;
