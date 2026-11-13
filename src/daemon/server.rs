@@ -130,8 +130,10 @@ mod tests {
         let telemetry = client.telemetry(TelemetryRequest {}).await?.into_inner();
         assert_eq!(telemetry.loaded_models, 0);
         assert_eq!(telemetry.total_requests, 0);
-        assert!(telemetry.host_total_memory_bytes.is_some());
+        let host = telemetry.host_memory.expect("live host memory");
         let history = await_history(&mut client).await?;
+        let sampled = history.samples.last().and_then(|sample| sample.host_memory);
+        assert_eq!(sampled.map(|memory| memory.total_bytes), Some(host.total_bytes));
         assert_ne!(history.samples, Vec::<crate::rpc::proto::TelemetryHistorySample>::new());
         assert_eq!(history.sampling_interval_ms, 1_000);
         let configuration =

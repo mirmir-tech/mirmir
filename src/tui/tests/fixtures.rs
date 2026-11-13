@@ -50,9 +50,6 @@ pub fn telemetry() -> crate::rpc::proto::TelemetrySnapshot {
         mean_tokens_per_second: Some(20.0),
         last_ttft_ms: Some(12.0),
         mean_ttft_ms: Some(15.0),
-        host_total_memory_bytes: Some(16 * 1024 * 1024 * 1024),
-        host_available_memory_bytes: Some(8 * 1024 * 1024 * 1024),
-        memory_source: "test unified memory".to_owned(),
         kv_total_blocks: 128,
         kv_used_blocks: 32,
         kv_cached_prefixes: 2,
@@ -75,5 +72,10 @@ pub fn telemetry() -> crate::rpc::proto::TelemetrySnapshot {
         device_power_watts: Some(32.0),
         device_power_limit_watts: Some(48.0),
         device_name: "test device".to_owned(),
+        host_memory: Some(crate::rpc::proto::HostMemory {
+            total_bytes: 16 * 1024 * 1024 * 1024,
+            available_bytes: 8 * 1024 * 1024 * 1024,
+        }),
+        accelerator_memory: None,
     }
 }

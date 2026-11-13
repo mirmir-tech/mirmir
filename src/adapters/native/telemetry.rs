@@ -1,7 +1,5 @@
-use sysinfo::System;
-
 use super::NativeRuntime;
-use crate::application::{KvTelemetry, Result, RuntimeTelemetry};
+use crate::application::{AcceleratorMemory, HostMemory, KvTelemetry, Result, RuntimeTelemetry};
 
 impl NativeRuntime {
     pub fn telemetry(&self) -> Result<RuntimeTelemetry> {
@@ -12,35 +10,19 @@ impl NativeRuntime {
         }
         let loaded_models = u64::try_from(state.resident.len()).unwrap_or(u64::MAX);
         drop(state);
-        let (host_total, host_available, memory_source) = memory(&self.library);
+        let accelerator_memory = self
+            .library
+            .memory_snapshot()
+            .ok()
+            .as_ref()
+            .and_then(AcceleratorMemory::from_backend);
         let device = self.library.device_telemetry_snapshot().unwrap_or_default();
         Ok(RuntimeTelemetry {
             loaded_models,
-            host_total,
-            host_available,
-            memory_source,
+            host_memory: HostMemory::sample(),
+            accelerator_memory,
             kv,
             device,
         })
     }
-}
-
-fn memory(library: &libmir::Library) -> (Option<u64>, Option<u64>, String) {
-    if let Ok(memory) = library.memory_snapshot() {
-        return (memory.total_bytes, memory.available_bytes, memory.source);
-    }
-    let mut system = System::new();
-    system.refresh_memory();
-    let total = system.total_memory();
-    let available = system.available_memory();
-    let source = if cfg!(target_os = "macos") {
-        "macOS unified system memory"
-    } else {
-        "host memory; accelerator telemetry unavailable"
-    };
-    (
-        (total > 0).then_some(total),
-        (total > 0).then_some(available),
-        source.to_owned(),
-    )
 }

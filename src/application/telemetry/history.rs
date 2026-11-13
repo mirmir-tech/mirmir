@@ -15,7 +15,7 @@ use crate::{
 
 pub const RETENTION_LIMIT: usize = 900;
 pub const SAMPLING_INTERVAL_MS: u64 = 1_000;
-const FILE_VERSION: u32 = 1;
+const FILE_VERSION: u32 = 2;
 const FLUSH_INTERVAL: usize = 5;
 
 #[derive(Clone)]
@@ -112,9 +112,7 @@ fn sample(snapshot: &Snapshot) -> HistorySample {
                 .or(snapshot.last_decode_tokens_per_second),
         ),
         ttft_ms: finite(snapshot.current_ttft_ms.or(snapshot.last_ttft_ms)),
-        memory_total_bytes: snapshot.host_total_memory_bytes,
-        memory_available_bytes: snapshot.host_available_memory_bytes,
-        memory_source: snapshot.memory_source.clone(),
+        host_memory: snapshot.host_memory,
         kv_total_blocks: snapshot.kv_total_blocks,
         kv_used_blocks: snapshot.kv_used_blocks,
         total_requests: snapshot.total_requests,
@@ -172,6 +170,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+    use crate::application::HostMemory;
 
     static NEXT_HISTORY: AtomicU64 = AtomicU64::new(0);
 
@@ -188,6 +187,7 @@ mod tests {
         assert_eq!(restored[0].e2e_tokens_per_second, Some(24.0));
         assert_eq!(restored[0].prefill_tokens_per_second, Some(48.0));
         assert_eq!(restored[0].decode_tokens_per_second, Some(12.0));
+        assert_eq!(restored[0].host_memory, HostMemory::from_totals(64, 16));
         fs::remove_file(path)?;
         Ok(())
     }
@@ -216,7 +216,7 @@ mod tests {
             current_tokens_per_second: Some(rate),
             last_prefill_tokens_per_second: Some(rate * 2.0),
             last_decode_tokens_per_second: Some(rate / 2.0),
-            memory_source: "test".to_owned(),
+            host_memory: HostMemory::from_totals(64, 16),
             ..Default::default()
         }
     }

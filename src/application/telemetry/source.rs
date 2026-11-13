@@ -4,9 +4,8 @@ use std::{
 };
 
 use libmir::{CacheStats, CacheStatsReader, DeviceTelemetryReader};
-use sysinfo::System;
 
-use super::{KvTelemetry, RuntimeTelemetry};
+use super::{HostMemory, KvTelemetry, RuntimeTelemetry};
 
 /// Host-only observers: never owns a Model, Library, runtime port or native
 /// handle.
@@ -51,21 +50,27 @@ impl Source {
         }
         let device = state.device.clone();
         drop(state);
-        let mut system = System::new();
-        system.refresh_memory();
-        let total = system.total_memory();
         RuntimeTelemetry {
             loaded_models,
-            host_total: (total > 0).then_some(total),
-            host_available: (total > 0).then_some(system.available_memory()),
-            memory_source: if cfg!(target_os = "macos") {
-                "macOS unified system memory"
-            } else {
-                "host system memory"
-            }
-            .into(),
+            host_memory: HostMemory::sample(),
+            accelerator_memory: None,
             kv,
             device: device.snapshot(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_source_samples_host_memory_like_live_telemetry() {
+        let sampled = Source::default().snapshot();
+        assert_eq!(
+            sampled.host_memory.map(|memory| memory.total_bytes),
+            HostMemory::sample().map(|memory| memory.total_bytes)
+        );
+        assert_eq!(sampled.accelerator_memory, None);
     }
 }

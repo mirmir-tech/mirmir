@@ -18,9 +18,6 @@ pub(super) fn snapshot() -> TelemetrySnapshot {
         mean_tokens_per_second: Some(40.8),
         last_ttft_ms: Some(184.0),
         mean_ttft_ms: Some(196.4),
-        host_total_memory_bytes: Some(52 * 1024 * 1024 * 1024),
-        host_available_memory_bytes: Some(33 * 1024 * 1024 * 1024),
-        memory_source: "Apple unified memory".to_owned(),
         kv_total_blocks: 4096,
         kv_used_blocks: 896,
         kv_cached_prefixes: 3,
@@ -43,6 +40,15 @@ pub(super) fn snapshot() -> TelemetrySnapshot {
         device_power_watts: Some(34.0),
         device_power_limit_watts: Some(48.0),
         device_name: "Apple M4 Max".to_owned(),
+        host_memory: Some(crate::rpc::proto::HostMemory {
+            total_bytes: 64 * 1024 * 1024 * 1024,
+            available_bytes: 33 * 1024 * 1024 * 1024,
+        }),
+        accelerator_memory: Some(crate::rpc::proto::AcceleratorMemory {
+            pool: crate::rpc::proto::AcceleratorMemoryPool::MetalWorkingSet.into(),
+            total_bytes: 52 * 1024 * 1024 * 1024,
+            available_bytes: 33 * 1024 * 1024 * 1024,
+        }),
     }
 }
 

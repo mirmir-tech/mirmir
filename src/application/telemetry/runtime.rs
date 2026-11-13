@@ -1,3 +1,5 @@
+use super::{AcceleratorMemory, HostMemory};
+
 #[derive(Default)]
 pub struct KvTelemetry {
     pub total: u64,
@@ -9,9 +11,8 @@ pub struct KvTelemetry {
 
 pub struct RuntimeTelemetry {
     pub loaded_models: u64,
-    pub host_total: Option<u64>,
-    pub host_available: Option<u64>,
-    pub memory_source: String,
+    pub host_memory: Option<HostMemory>,
+    pub accelerator_memory: Option<AcceleratorMemory>,
     pub kv: KvTelemetry,
     pub device: libmir::DeviceTelemetrySnapshot,
 }

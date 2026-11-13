@@ -375,9 +375,8 @@ message TelemetrySnapshot {
   optional double mean_tokens_per_second = 11;
   optional double last_ttft_ms = 12;
   optional double mean_ttft_ms = 13;
-  optional uint64 host_total_memory_bytes = 14;
-  optional uint64 host_available_memory_bytes = 15;
-  string memory_source = 16;
+  reserved 14, 15, 16;
+  reserved "host_total_memory_bytes", "host_available_memory_bytes", "memory_source";
   uint64 kv_total_blocks = 17;
   uint64 kv_used_blocks = 18;
   uint64 kv_cached_prefixes = 19;
@@ -400,6 +399,32 @@ message TelemetrySnapshot {
   optional double device_power_watts = 36;
   optional double device_power_limit_watts = 37;
   string device_name = 38;
+  // Host RAM, sampled exactly as TelemetryHistorySample.host_memory.
+  HostMemory host_memory = 39;
+  // Accelerator backend budget; live only, never part of history samples.
+  AcceleratorMemory accelerator_memory = 40;
+}
+
+// Host system RAM reported by the operating system.
+message HostMemory {
+  uint64 total_bytes = 1;
+  uint64 available_bytes = 2;
+}
+
+enum AcceleratorMemoryPool {
+  ACCELERATOR_MEMORY_POOL_UNSPECIFIED = 0;
+  // Metal recommended working-set budget within unified memory.
+  ACCELERATOR_MEMORY_POOL_METAL_WORKING_SET = 1;
+  // Dedicated CUDA device memory.
+  ACCELERATOR_MEMORY_POOL_CUDA_DEVICE = 2;
+  // Integrated CUDA memory bounded by the shared host pool.
+  ACCELERATOR_MEMORY_POOL_CUDA_UNIFIED = 3;
+}
+
+message AcceleratorMemory {
+  AcceleratorMemoryPool pool = 1;
+  uint64 total_bytes = 2;
+  uint64 available_bytes = 3;
 }
 
 message TelemetryHistoryRequest {
@@ -420,9 +445,8 @@ message TelemetryHistorySample {
   optional double prefill_tokens_per_second = 5;
   optional double decode_tokens_per_second = 6;
   optional double ttft_ms = 7;
-  optional uint64 memory_total_bytes = 8;
-  optional uint64 memory_available_bytes = 9;
-  string memory_source = 10;
+  reserved 8, 9, 10;
+  reserved "memory_total_bytes", "memory_available_bytes", "memory_source";
   uint64 kv_total_blocks = 11;
   uint64 kv_used_blocks = 12;
   uint64 total_requests = 13;
@@ -431,6 +455,8 @@ message TelemetryHistorySample {
   optional double device_temperature_celsius = 16;
   optional double device_power_watts = 17;
   optional double device_power_limit_watts = 18;
+  // Host RAM, sampled exactly as TelemetrySnapshot.host_memory.
+  HostMemory host_memory = 19;
 }
 
 message GetConfigurationRequest {}

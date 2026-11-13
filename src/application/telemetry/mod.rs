@@ -1,5 +1,6 @@
 mod history;
 mod live;
+mod memory;
 mod rates;
 mod recorder;
 mod source;
@@ -11,6 +12,7 @@ mod snapshot;
 mod stage;
 
 pub use history::{History, RETENTION_LIMIT, SAMPLING_INTERVAL_MS};
+pub use memory::{AcceleratorMemory, AcceleratorMemoryPool, HostMemory};
 pub use request::{GenerationTelemetry, Telemetry};
 pub use runtime::{KvTelemetry, RuntimeTelemetry};
 pub use snapshot::{HistorySample, Snapshot};
