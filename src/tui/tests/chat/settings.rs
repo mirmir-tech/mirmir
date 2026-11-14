@@ -17,6 +17,7 @@ fn renders_chat_parameter_editor_and_active_indicator() -> Result<(), std::conve
         selected: 0,
         save_default: true,
         persisted: true,
+        token_limit: Some(40_960),
         status: ChatSettingsStatus::Editing,
         error: None,
     });
@@ -41,5 +42,6 @@ fn parameters() -> ChatParameters {
         top_k: 40,
         repetition_penalty: 1.1,
         seed: None,
+        token_limit: None,
     }
 }

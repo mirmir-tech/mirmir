@@ -25,7 +25,7 @@ pub struct ModelContext {
 }
 
 /// What a chosen context may be for one model: whole blocks, from one block
-/// up to the model's own context length.
+/// up to the most its concurrent requests can use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ContextLimits {
     pub block_tokens: NonZeroU64,
@@ -46,7 +46,7 @@ impl ContextLimits {
         let maximum = self.max_tokens.max(self.min_tokens());
         if tokens.get() > maximum {
             return Err(Error::InvalidContext(format!(
-                "{tokens} tokens exceed the model's context of {maximum} tokens"
+                "{tokens} tokens exceed the {maximum} tokens the model's requests can use"
             )));
         }
         let blocks = tokens.get().div_ceil(self.block_tokens.get());

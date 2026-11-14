@@ -6,6 +6,32 @@ their own.
 
 ## Protocol 2
 
+### Model context (0.6.1, additive)
+
+A model's context is its K/V capacity in tokens. It is chosen per model and
+saved as `[runtime] kv_blocks` in the model's configuration, which every load
+uses, including restoration. `ModelContextChoice` is either `automatic` (sized
+from free memory, the default) or `tokens`, rounded up to whole K/V blocks.
+
+- `InspectModelRequest.context` estimates memory for that context instead of
+  the saved one. `InspectModelResponse.context` (`ModelContext`) reports
+  `block_tokens`, `min_tokens` (one block), `max_tokens` (the model's context
+  length times the requests it serves at once, the most a shared K/V cache
+  can use and what automatic sizing is capped at), the `saved` choice, `automatic_tokens` (what automatic sizing gives
+  now) and `resident_tokens` while the model is loaded. It is absent for
+  models without a K/V cache, and from 0.6.0 servers: a client hides its
+  context control then rather than send a choice the server would drop.
+- `LoadModelRequest.context` saves the choice, then loads with it.
+  `UpdateModelGenerationRequest.context` saves it without loading; such a
+  request may omit `settings`, but not both.
+- A token count above `max_tokens` returns `INVALID_ARGUMENT`. One request's
+  prompt and output stay limited by the model's context length.
+- Inspecting a loaded model estimates a reload: its own memory counts as
+  free. `ModelMemoryEstimate.max_safe_context_tokens` is the largest context
+  that fits the budget, no longer capped by the configured capacity.
+
+The fields are optional additions, so the protocol version stays 2.
+
 ### Remote access management
 
 `GetRemoteAccess`, `SetRemoteAccess`, `CreateRemoteKey` and `RevokeRemoteKey`

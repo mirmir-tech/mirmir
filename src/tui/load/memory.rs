@@ -1,6 +1,6 @@
-use crate::tui::app::LoadDialog;
+use crate::tui::{app::LoadDialog, ranges::grouped};
 
-pub(super) fn memory_summary(dialog: &LoadDialog) -> (f64, String) {
+pub(super) fn memory_summary(dialog: &LoadDialog, refreshing: bool) -> (f64, String) {
     let Some(memory) = dialog.memory.as_ref() else {
         return (0.0, "memory estimate unavailable".to_owned());
     };
@@ -12,21 +12,24 @@ pub(super) fn memory_summary(dialog: &LoadDialog) -> (f64, String) {
         f64::from(basis_points) / 10_000.0
     });
     let budget = memory.budget_bytes.map_or_else(|| "unknown".to_owned(), binary_size);
-    let safe_context = memory
-        .max_safe_context_tokens
-        .map_or_else(|| "unknown".to_owned(), |tokens| tokens.to_string());
+    let safe_context = memory.max_safe_context_tokens.map_or_else(|| "unknown".to_owned(), grouped);
     let forced = if dialog.force {
         " · FORCE"
+    } else {
+        ""
+    };
+    let refreshing = if refreshing {
+        " · updating"
     } else {
         ""
     };
     (
         ratio,
         format!(
-            "{} · need {} / budget {budget} · safe ctx {safe_context} · cache {}{forced}",
-            memory.fit,
+            "{} · need {} / {budget} · ctx {} · safe {safe_context}{forced}{refreshing}",
+            memory.fit.replace('_', " "),
             binary_size(memory.required_bytes),
-            memory.configured_cache_tokens,
+            grouped(memory.configured_cache_tokens),
         ),
     )
 }

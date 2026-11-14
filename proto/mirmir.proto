@@ -110,7 +110,8 @@ message ModelContext {
   // Tokens per K/V block; a chosen context is a whole number of blocks.
   uint64 block_tokens = 1;
   uint64 min_tokens = 2;
-  // The model's own context length.
+  // The most the model can use: its context length for each of the requests
+  // it serves at once (what automatic sizing is capped at).
   uint64 max_tokens = 3;
   // The context saved for this model and used by every load.
   ModelContextChoice saved = 4;

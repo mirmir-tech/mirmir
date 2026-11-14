@@ -24,7 +24,8 @@ pub use error::{Error, ErrorClass, Result};
 pub use inference::{GenerationEvent, GenerationResult, GenerationSession};
 pub use models::{
     Check, LocalModelInfo, LocalModelState, MemoryFit, MemoryReport, ModelEntry, ModelInfo,
-    eviction_can_help, eviction_candidate, rejection, safe_context, state::ModelLifecycle,
+    eviction_can_help, eviction_candidate, fitting_tokens, rejection, safe_context,
+    state::ModelLifecycle,
 };
 pub use ports::{
     CatalogPort, ConfigurationPort, ModelRuntimePort, TransferPhase, TransferProgress,

@@ -4,6 +4,7 @@ mod capture;
 mod history;
 mod markdown;
 mod message;
+mod parameters;
 mod stream;
 
 use leptos::prelude::*;
@@ -15,6 +16,7 @@ use self::{
     attachment::{Attachment, AttachmentChip, attach},
     history::{HistoryPanel, SavedConversation},
     message::MessageView,
+    parameters::{ParameterPanel, Parameters},
     stream::run_generation,
 };
 use crate::{api, components::Icon, state::RuntimeState, types::ChatMessage};
@@ -114,32 +116,15 @@ fn Composer(selected_model: RwSignal<String>) -> impl IntoView {
     let runtime = expect_context::<RuntimeState>();
     let chat = expect_context::<ChatState>();
     let prompt = RwSignal::new(String::new());
-    let max_tokens = RwSignal::new(String::new());
-    let temperature = RwSignal::new(String::new());
-    let top_p = RwSignal::new(String::new());
-    let top_k = RwSignal::new(String::new());
-    let repetition = RwSignal::new(String::new());
-    let seed = RwSignal::new(String::new());
+    let parameters = Parameters::new();
+    parameters.track_model(selected_model);
     let submit = move || {
         let text = prompt.get_untracked().trim().to_owned();
         if text.is_empty() || chat.running.get_untracked() {
             return;
         }
         prompt.set(String::new());
-        run_generation(
-            runtime,
-            chat,
-            selected_model.get_untracked(),
-            text,
-            Parameters {
-                max_tokens,
-                temperature,
-                top_p,
-                top_k,
-                repetition,
-                seed,
-            },
-        );
+        run_generation(runtime, chat, selected_model.get_untracked(), text, parameters);
     };
     let loaded_models = move || {
         runtime
@@ -152,47 +137,10 @@ fn Composer(selected_model: RwSignal<String>) -> impl IntoView {
     view! { <div class="composer-dock"><form class="chat-composer" on:submit=move |event| { event.prevent_default(); submit(); } on:dragover=move |event: DragEvent| event.prevent_default() on:drop=move |event: DragEvent| { event.prevent_default(); if let Some(file) = event.data_transfer().and_then(|data| data.files()).and_then(|files| files.get(0)) { attach(runtime, chat, file); } }>
         <AttachmentChip />
         <div class="prompt-row"><label class="composer-button attach-button" data-tooltip="Add attachment" aria-label="Add attachment"><Icon name="add" /><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden on:change=move |event| { if let Some(file) = event_target::<web_sys::HtmlInputElement>(&event).files().and_then(|files| files.get(0)) { attach(runtime, chat, file); } } /></label><textarea rows="2" placeholder="Message MiRMiR — Enter to send, Shift+Enter for a new line" prop:value=move || prompt.get() on:input=move |event| prompt.set(event_target_value(&event)) on:keydown=move |event| { if event.key() == "Enter" && !event.shift_key() { event.prevent_default(); submit(); } } disabled=move || chat.running.get()></textarea><Show when=move || chat.running.get()><button class="composer-button cancel-button" type="button" data-tooltip="Stop generation" aria-label="Stop generation" on:click=move |_| cancel_generation(runtime, chat)>"■"</button></Show><button class="composer-button send-button" type="submit" data-tooltip="Send message" aria-label="Send message" disabled=move || chat.running.get()>"↑"</button></div>
-        <div class="composer-footer"><label class="model-picker"><span>"Model"</span><select prop:value=move || selected_model.get() on:change=move |event| selected_model.set(event_target_value(&event))><option value="">"Select model"</option><For each=loaded_models key=|model| model.selector.clone() children=move |model| { let selector = model.selector.clone(); view! { <option value=selector>{model.id}</option> } } /></select></label><details class="chat-settings"><summary>"Parameters"</summary><div class="chat-parameters"><Parameter label="Max tokens" value=max_tokens /><Parameter label="Temperature" value=temperature /><Parameter label="Top P" value=top_p /><Parameter label="Top K" value=top_k /><Parameter label="Repetition" value=repetition /><Parameter label="Seed" value=seed /></div></details><span class="stage">{move || chat.status.get()}</span></div>
+        <div class="composer-footer"><label class="model-picker"><span>"Model"</span><select prop:value=move || selected_model.get() on:change=move |event| selected_model.set(event_target_value(&event))><option value="">"Select model"</option><For each=loaded_models key=|model| model.selector.clone() children=move |model| { let selector = model.selector.clone(); view! { <option value=selector>{model.id}</option> } } /></select></label><ParameterPanel parameters /><span class="stage">{move || chat.status.get()}</span></div>
     </form></div> }
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct Parameters {
-    max_tokens: RwSignal<String>,
-    temperature: RwSignal<String>,
-    top_p: RwSignal<String>,
-    top_k: RwSignal<String>,
-    repetition: RwSignal<String>,
-    seed: RwSignal<String>,
-}
-impl Parameters {
-    pub fn request(self) -> ParsedParameters {
-        ParsedParameters {
-            max_tokens: parse(self.max_tokens),
-            temperature: parse(self.temperature),
-            top_p: parse(self.top_p),
-            top_k: parse(self.top_k),
-            repetition_penalty: parse(self.repetition),
-            seed: parse(self.seed),
-        }
-    }
-}
-pub(super) struct ParsedParameters {
-    max_tokens: Option<u64>,
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-    top_k: Option<u64>,
-    repetition_penalty: Option<f32>,
-    seed: Option<u64>,
-}
-fn parse<T: std::str::FromStr>(signal: RwSignal<String>) -> Option<T> {
-    signal.get_untracked().parse().ok()
-}
-
-#[component]
-fn Parameter(label: &'static str, value: RwSignal<String>) -> impl IntoView {
-    view! { <label>{label}<input type="number" prop:value=move || value.get() on:input=move |event| value.set(event_target_value(&event)) /></label> }
-}
 fn cancel_generation(runtime: RuntimeState, chat: ChatState) {
     let Some(operation_id) = chat.operation_id.get_untracked() else {
         return;

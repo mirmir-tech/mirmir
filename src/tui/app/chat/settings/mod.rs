@@ -6,7 +6,10 @@ pub use dialog::{ChatParameters, ChatSettingsDialog, ChatSettingsStatus};
 use tokio::sync::mpsc;
 
 use super::super::App;
-use crate::rpc::{Client, proto};
+use crate::{
+    rpc::{Client, proto},
+    tui::ranges::token_limit,
+};
 
 pub(in crate::tui::app) enum ChatSettingsEvent {
     Inspected(Box<proto::InspectModelResponse>),
@@ -63,6 +66,8 @@ impl App {
             },
             KeyCode::Up => self.move_chat_setting(false),
             KeyCode::Down | KeyCode::Tab => self.move_chat_setting(true),
+            KeyCode::Left => self.adjust_chat_setting(-1),
+            KeyCode::Right => self.adjust_chat_setting(1),
             KeyCode::Backspace => self.edit_chat_setting(None),
             KeyCode::Char(character) if character.is_ascii_digit() || character == '.' => {
                 self.edit_chat_setting(Some(character));
@@ -112,6 +117,10 @@ impl App {
         if let Some(dialog) = self.chat_settings_dialog.as_mut() {
             dialog.fields = settings_fields(settings, None);
             dialog.persisted = response.has_mirmir_overrides;
+            let context = response.context.as_ref();
+            let context =
+                context.map(|context| context.resident_tokens.unwrap_or(context.max_tokens));
+            dialog.token_limit = token_limit(context, response.capabilities.as_ref());
             dialog.status = ChatSettingsStatus::Editing;
             dialog.error = None;
         }
@@ -166,6 +175,18 @@ impl App {
         }
     }
 
+    fn adjust_chat_setting(&mut self, direction: i8) {
+        let Some(dialog) = self.chat_settings_dialog.as_mut() else {
+            return;
+        };
+        let Some(range) = dialog.ranges().get(dialog.selected).copied() else {
+            return;
+        };
+        let field = &mut dialog.fields[dialog.selected];
+        *field = range.adjust(field, direction);
+        dialog.error = None;
+    }
+
     fn edit_chat_setting(&mut self, character: Option<char>) {
         if let Some(dialog) = self.chat_settings_dialog.as_mut() {
             let field = &mut dialog.fields[dialog.selected];
@@ -180,31 +201,4 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn applies_parameters_only_to_the_matching_model() {
-        let mut app = App::new(true);
-        app.chat_parameters = Some(ChatParameters {
-            model: "selected".to_owned(),
-            max_tokens: 64,
-            temperature: 0.5,
-            top_p: 0.8,
-            top_k: 20,
-            repetition_penalty: 1.1,
-            seed: Some(42),
-        });
-        let mut request = proto::GenerateRequest {
-            model: "selected".to_owned(),
-            ..Default::default()
-        };
-        app.apply_chat_parameters(&mut request);
-        assert_eq!(request.max_tokens, Some(64));
-        assert_eq!(request.seed, Some(42));
-        request.model = "different".to_owned();
-        request.max_tokens = None;
-        app.apply_chat_parameters(&mut request);
-        assert_eq!(request.max_tokens, None);
-    }
-}
+mod tests;

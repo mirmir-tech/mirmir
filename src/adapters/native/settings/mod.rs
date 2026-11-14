@@ -7,7 +7,7 @@ use super::NativeRuntime;
 use crate::{
     application::{
         ContextChoice, ContextLimits, LoadDefaults, ModelContext, ModelDefaults, ModelInspection,
-        Result,
+        Result, fitting_tokens,
     },
     config::{GenerationConfig, HubModelConfig, ModelConfigChange, ModelRuntimeConfig, model_key},
 };
@@ -25,8 +25,14 @@ impl NativeRuntime {
         let limits = self.context_limits(&descriptor);
         let saved = limits.choice(resolved.runtime.kv_blocks);
         let shown = context.unwrap_or(saved);
-        let memory =
+        let mut memory =
             self.memory_report(&descriptor, options(limits.blocks(shown)?), resident.as_ref())?;
+        // A chosen context is a shared cache: report the largest that fits,
+        // up to what the model's requests can use, not one request's context.
+        memory.max_safe_context = memory
+            .budget
+            .and_then(|budget| fitting_tokens(memory.estimate, budget))
+            .map(|tokens| tokens.min(limits.max_tokens));
         let model_context = (memory.estimate.kv_bytes_per_token > 0)
             .then(|| -> Result<ModelContext> {
                 let automatic_tokens = if shown == ContextChoice::Automatic {
@@ -123,13 +129,18 @@ impl NativeRuntime {
         Ok((id, hub))
     }
 
-    /// Whole K/V blocks of the server's block size, up to the model's context.
+    /// Whole K/V blocks of the server's block size. The cache is shared by
+    /// the requests a model serves at once, so it is useful up to the model's
+    /// context for each of them: the most automatic sizing would give it.
     fn context_limits(&self, descriptor: &ModelDescriptor) -> ContextLimits {
-        let block_size = u64::try_from(self.library.config().kv_cache.block_size).unwrap_or(1);
+        let config = self.library.config();
+        let block_size = u64::try_from(config.kv_cache.block_size).unwrap_or(1);
+        let requests = u64::try_from(config.scheduler.max_batch_requests).unwrap_or(1).max(1);
+        let model_context = u64::try_from(descriptor.metadata().context_len).unwrap_or(u64::MAX);
         ContextLimits {
             block_tokens: std::num::NonZeroU64::new(block_size)
                 .unwrap_or(std::num::NonZeroU64::MIN),
-            max_tokens: u64::try_from(descriptor.metadata().context_len).unwrap_or(u64::MAX),
+            max_tokens: model_context.saturating_mul(requests),
         }
     }
 }

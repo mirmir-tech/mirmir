@@ -1,9 +1,12 @@
+mod context;
 mod dialog;
+mod refresh;
 mod slider;
 mod target;
 
+pub use context::{ContextChoice, ContextControl};
 use crossterm::event::{KeyCode, KeyEvent};
-pub use dialog::{LoadDialog, LoadStatus, LoadTarget};
+pub use dialog::{LoadDialog, LoadRow, LoadStatus, LoadTarget};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
@@ -35,6 +38,7 @@ impl App {
             task: String::new(),
             capabilities: None,
             status: LoadStatus::Inspecting,
+            context: None,
             fields: std::array::from_fn(|_| String::new()),
             selected: 0,
             has_mirmir_overrides: false,
@@ -44,6 +48,7 @@ impl App {
             error: None,
         });
         self.settings_rx = Some(receiver);
+        self.context_rx = None;
     }
 
     pub(super) fn handle_load_key(&mut self, key: KeyEvent, client: &Client) {
@@ -56,6 +61,7 @@ impl App {
         if key.code == KeyCode::Char('x') {
             self.load_dialog = None;
             self.settings_rx = None;
+            self.context_rx = None;
             return;
         }
         if status != LoadStatus::Editing {
@@ -64,10 +70,11 @@ impl App {
         match key.code {
             KeyCode::Enter => self.confirm_load(client),
             KeyCode::Char('f') => self.toggle_force_load(),
+            KeyCode::Char('a') => self.choose_automatic_context(client),
             KeyCode::Up => self.select_previous_setting(),
             KeyCode::Down | KeyCode::Tab => self.select_next_setting(),
-            KeyCode::Left => self.adjust_setting(-1),
-            KeyCode::Right => self.adjust_setting(1),
+            KeyCode::Left => self.adjust_setting(-1, client),
+            KeyCode::Right => self.adjust_setting(1, client),
             KeyCode::Backspace => self.edit_setting(None),
             KeyCode::Char(character) if character.is_ascii_digit() || character == '.' => {
                 self.edit_setting(Some(character));
@@ -77,6 +84,7 @@ impl App {
     }
 
     pub(super) fn poll_load_settings(&mut self) {
+        self.poll_context_refresh();
         let Some(result) = self.settings_rx.as_mut().map(mpsc::Receiver::try_recv) else {
             return;
         };
@@ -105,6 +113,11 @@ impl App {
         if let Some(dialog) = self.load_dialog.as_mut() {
             dialog.task = task;
             dialog.capabilities = response.capabilities;
+            dialog.context = response
+                .context
+                .filter(|_| dialog.task == "generation")
+                .map(ContextControl::new);
+            dialog.selected = 0;
             if let Some(settings) = settings {
                 dialog.fields = [
                     settings.max_tokens.to_string(),
@@ -144,6 +157,7 @@ impl App {
 
     pub(super) fn start_load_request(&mut self, client: &Client, request: proto::LoadModelRequest) {
         self.restore_in_flight = None;
+        self.context_rx = None;
         self.set_local_state(&request.selector, "loading");
         let (sender, receiver) = mpsc::channel(64);
         let mut client = client.clone();

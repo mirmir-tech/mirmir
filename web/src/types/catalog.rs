@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Deserialize)]
 pub struct CatalogResults {
@@ -28,9 +28,12 @@ pub struct Inspection {
     pub settings: Option<GenerationSettings>,
     pub memory: Memory,
     pub task: String,
+    pub capabilities: Option<Capabilities>,
+    /// Absent for models without a K/V cache and from older servers.
+    pub context: Option<ContextInfo>,
 }
 
-#[derive(Clone, Default, Deserialize, serde::Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GenerationSettings {
     pub max_tokens: u64,
     pub temperature: f32,
@@ -41,11 +44,81 @@ pub struct GenerationSettings {
 
 #[derive(Clone, Default, Deserialize)]
 pub struct Memory {
+    #[serde(default)]
+    pub weight_bytes: u64,
+    #[serde(default)]
+    pub kv_cache_bytes: u64,
+    #[serde(default)]
+    pub workspace_bytes: u64,
     pub required_bytes: u64,
+    pub available_bytes: Option<u64>,
+    pub budget_bytes: Option<u64>,
     pub memory_source: String,
-    pub fit: String,
+    pub fit: Fit,
     pub max_safe_context_tokens: Option<u64>,
-    pub configured_cache_tokens: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Fit {
+    Fits,
+    #[serde(rename = "does_not_fit")]
+    Exceeds,
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+impl Fit {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Fits => "Fits",
+            Self::Exceeds => "Does not fit",
+            Self::Unknown => "Fit unknown",
+        }
+    }
+
+    pub const fn class(self) -> &'static str {
+        match self {
+            Self::Fits => "fits",
+            Self::Exceeds => "does-not-fit",
+            Self::Unknown => "fit-unknown",
+        }
+    }
+}
+
+#[derive(Clone, Default, Deserialize)]
+pub struct Capabilities {
+    pub max_input_tokens: u64,
+}
+
+#[derive(Clone, Default, Deserialize)]
+pub struct ContextInfo {
+    pub block_tokens: u64,
+    pub min_tokens: u64,
+    pub max_tokens: u64,
+    pub saved: ContextChoice,
+    pub automatic_tokens: u64,
+    pub resident_tokens: Option<u64>,
+}
+
+/// `"automatic"`, or `{"tokens": N}`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextChoice {
+    #[default]
+    Automatic,
+    Tokens(u64),
+}
+
+impl ContextChoice {
+    /// The `context` query parameter of `/models/inspect`.
+    pub fn query(self) -> String {
+        match self {
+            Self::Automatic => "automatic".to_owned(),
+            Self::Tokens(tokens) => tokens.to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Default, Deserialize)]
