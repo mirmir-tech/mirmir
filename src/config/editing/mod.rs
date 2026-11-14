@@ -162,7 +162,8 @@ where
     }
 }
 
-const fn automatic(input: &str) -> bool {
+/// Whether `input` clears an optional setting instead of choosing a value.
+pub const fn automatic(input: &str) -> bool {
     input.is_empty() || input.eq_ignore_ascii_case("auto") || input.eq_ignore_ascii_case("none")
 }
 

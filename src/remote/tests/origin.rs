@@ -70,7 +70,11 @@ async fn a_control_key_cannot_change_server_settings_or_secrets() -> crate::erro
     let root = &remote.root;
     let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
     assert!(!paths.secrets_file.exists(), "no secret was written");
-    change(&mut remote.client, set("default_model", "chosen")).await?;
+    let unlisted = remote.root.join("state").display().to_string();
+    let refused = change(&mut remote.client, set("default_model", &unlisted)).await;
+    let refused = refused.expect_err("an unlisted default model");
+    assert_eq!(refused.code(), Code::InvalidArgument, "{refused}");
+    change(&mut remote.client, set("default_model", "auto")).await?;
     remote.finish().await
 }
 

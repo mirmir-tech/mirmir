@@ -3,7 +3,7 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::{
     application::ConfigurationChange,
-    config::{ConfigPresentation, SecretPresentation},
+    config::{self, ConfigPresentation, SecretPresentation},
     remote::{self, Origin},
     rpc::proto,
 };
@@ -64,6 +64,21 @@ pub(super) async fn update(
         return Err(Status::permission_denied(format!(
             "{what} can be changed only over the server's local socket"
         )));
+    }
+    if origin.is_remote()
+        && let ConfigurationChange::SetValue { key, value } = &change
+        && key.trim() == "default_model"
+    {
+        // The default model answers remote requests that name no model, so a
+        // remote key may choose only a model it could also name directly.
+        let application = service.application.clone();
+        let selector = value.trim().to_owned();
+        if !config::automatic(&selector) {
+            super::status::internal(
+                tokio::task::spawn_blocking(move || application.check_offered(&selector)).await,
+            )?
+            .map_err(super::status::application)?;
+        }
     }
     let outcome = service
         .application
