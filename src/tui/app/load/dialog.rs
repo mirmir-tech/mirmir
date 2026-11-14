@@ -45,13 +45,18 @@ pub struct LoadDialog {
 
 impl LoadDialog {
     /// The editable rows in display order: the context first when the model has
-    /// one.
+    /// one, then the generation settings of a generation model.
     pub fn rows(&self) -> impl Iterator<Item = LoadRow> {
+        let fields = if self.task == "generation" {
+            GENERATION_FIELDS
+        } else {
+            0
+        };
         self.context
             .is_some()
             .then_some(LoadRow::Context)
             .into_iter()
-            .chain((0..GENERATION_FIELDS).map(LoadRow::Field))
+            .chain((0..fields).map(LoadRow::Field))
     }
 
     pub fn row(&self) -> LoadRow {
@@ -69,19 +74,19 @@ impl LoadDialog {
     }
 
     pub(super) fn request(&self) -> Result<proto::LoadModelRequest, String> {
-        let (settings, context) = if self.task == "generation" {
+        let settings = if self.task == "generation" {
             let [tokens, temperature, top_p, top_k, penalty] = self.ranges();
-            let settings = proto::GenerationSettings {
+            Some(proto::GenerationSettings {
                 max_tokens: tokens.clamped(&self.fields[0])?,
                 temperature: temperature.clamped(&self.fields[1])?,
                 top_p: top_p.clamped(&self.fields[2])?,
                 top_k: top_k.clamped(&self.fields[3])?,
                 repetition_penalty: penalty.clamped(&self.fields[4])?,
-            };
-            (Some(settings), self.context.as_ref().map(|context| context.choice.to_proto()))
+            })
         } else {
-            (None, None)
+            None
         };
+        let context = self.context.as_ref().map(|context| context.choice.to_proto());
         Ok(proto::LoadModelRequest {
             selector: self.target.selector.clone(),
             settings,
@@ -159,5 +164,24 @@ mod tests {
         assert_eq!(dialog.row(), LoadRow::Field(0));
         assert_eq!(dialog.row_count(), GENERATION_FIELDS + 1);
         assert_eq!(dialog.ranges()[0].maximum.to_string(), "40960");
+    }
+
+    #[test]
+    fn a_reranker_with_a_cache_offers_and_sends_only_its_context() -> Result<(), String> {
+        let control = ContextControl::new(proto::ModelContext {
+            block_tokens: 16,
+            min_tokens: 16,
+            max_tokens: 8_192,
+            saved: Some(ContextChoice::Automatic.to_proto()),
+            automatic_tokens: 4_096,
+            resident_tokens: None,
+        });
+        let mut dialog = dialog("rerank", Some(control));
+        dialog.context.as_mut().ok_or("context")?.choice = ContextChoice::Tokens(2_048);
+        assert_eq!(dialog.rows().collect::<Vec<_>>(), vec![LoadRow::Context]);
+        let request = dialog.request()?;
+        assert!(request.settings.is_none());
+        assert_eq!(request.context, Some(ContextChoice::Tokens(2_048).to_proto()));
+        Ok(())
     }
 }

@@ -113,10 +113,8 @@ impl App {
         if let Some(dialog) = self.load_dialog.as_mut() {
             dialog.task = task;
             dialog.capabilities = response.capabilities;
-            dialog.context = response
-                .context
-                .filter(|_| dialog.task == "generation")
-                .map(ContextControl::new);
+            // Any model with a K/V cache, a causal reranker too, has a context.
+            dialog.context = response.context.map(ContextControl::new);
             dialog.selected = 0;
             if let Some(settings) = settings {
                 dialog.fields = [

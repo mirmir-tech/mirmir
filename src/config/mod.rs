@@ -1,6 +1,7 @@
 pub mod command;
 mod editing;
 mod file;
+mod folder;
 mod generation;
 mod model_runtime;
 mod models;
@@ -15,6 +16,7 @@ use std::path::Path;
 
 pub use editing::automatic;
 pub use file::{ensure_private_file, write_text, write_toml};
+pub use folder::folder_key;
 pub use generation::ModelConfigChange;
 pub use model_runtime::ModelRuntimeConfig;
 pub use models::model_key;

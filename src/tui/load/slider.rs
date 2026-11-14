@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, ListState},
@@ -18,9 +18,19 @@ use super::{
 };
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
-    if capabilities::draw(frame, area, dialog) {
-        return;
+    // Embedding and reranking models show what the checkpoint does; one with
+    // a K/V cache, such as a causal reranker, keeps its context row below.
+    let rows = u16::from(dialog.context.is_some());
+    let [summary, area] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(rows)]).areas(area);
+    if !capabilities::draw(frame, summary, dialog) {
+        draw_rows(frame, summary.union(area), dialog);
+    } else if rows > 0 {
+        draw_rows(frame, area, dialog);
     }
+}
+
+fn draw_rows(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
     let ranges = dialog.ranges();
     let items = dialog.rows().map(|row| {
         let (label, bar, value) = match row {

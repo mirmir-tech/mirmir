@@ -9,7 +9,10 @@ use crate::{
         ContextChoice, ContextLimits, LoadDefaults, ModelContext, ModelDefaults, ModelInspection,
         Result, fitting_tokens,
     },
-    config::{GenerationConfig, HubModelConfig, ModelConfigChange, ModelRuntimeConfig, model_key},
+    config::{
+        GenerationConfig, HubModelConfig, ModelConfigChange, ModelRuntimeConfig, folder_key,
+        model_key,
+    },
 };
 
 impl NativeRuntime {
@@ -99,7 +102,7 @@ impl NativeRuntime {
     /// The configuration a model's defaults are saved under. A configured
     /// model keeps its own; a cached checkpoint named only by its path, as
     /// clients name what the server lists, is saved under the repository it
-    /// was downloaded from.
+    /// was downloaded from, and any other folder under an id of its own.
     fn identity(
         &self,
         selector: &str,
@@ -109,16 +112,16 @@ impl NativeRuntime {
         if !config_id.is_empty() {
             return Ok((config_id.to_owned(), hub));
         }
-        let key = self.store.resolve_model(selector)?.key;
-        if !std::path::Path::new(&key).is_absolute() {
-            return Ok((key, hub));
+        let resolved = self.store.resolve_model(selector)?;
+        if !std::path::Path::new(&resolved.key).is_absolute() {
+            return Ok((resolved.key, hub));
         }
         let listed = self
             .local_models()?
             .into_iter()
             .find(|model| model.selector == selector && !model.repo_id.is_empty());
         let Some(model) = listed else {
-            return Ok((String::new(), hub));
+            return Ok((folder_key(&resolved.path), hub));
         };
         let id = model_key(&model.repo_id)?;
         let hub = hub.or(Some(HubModelConfig {
