@@ -6,7 +6,7 @@ mod failures;
 mod tests;
 
 use std::{
-    future::{Future, ready},
+    future::Future,
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
@@ -45,26 +45,30 @@ impl Guard {
     }
 
     /// Unauthenticated without a valid key, permission denied for a scope
-    /// that is too narrow or a local-only method.
+    /// that is too narrow or a local-only method. A valid key is never
+    /// throttled; failed attempts beyond a network's budget are refused as
+    /// exhausted without being logged one by one. Verification may reread the
+    /// key file, so callers run this on a blocking thread.
     pub fn authorize(
         &self,
         path: &str,
-        headers: &HeaderMap,
+        presented: Option<&str>,
         peer: Option<SocketAddr>,
     ) -> Result<KeyRecord, Status> {
-        let host = peer.map(|peer| peer.ip());
-        if self.failures.blocked(host) {
-            return Err(Status::resource_exhausted(
-                "too many failed authentication attempts; retry in a minute",
-            ));
-        }
+        let Some(peer) = peer else {
+            tracing::error!("refused a remote request whose connection has no peer address");
+            return Err(Status::internal("the server cannot identify the connection's peer"));
+        };
         let name = method(path);
-        let presented = bearer(headers);
         let key = match presented.map(|key| self.keys.verify(key)).transpose() {
             Ok(Some(Some(key))) => key,
+            Ok(_) if self.failures.record(peer.ip()) => {
+                return Err(Status::resource_exhausted(
+                    "too many failed authentication attempts; retry in a minute",
+                ));
+            },
             Ok(_) => {
-                self.failures.record(host);
-                tracing::warn!(peer = ?peer, method = name.unwrap_or(path), key_present = presented.is_some(), "rejected a remote request without a valid API key");
+                tracing::warn!(%peer, method = name.unwrap_or(path), key_present = presented.is_some(), "rejected a remote request without a valid API key");
                 return Err(Status::unauthenticated("a valid mirmir remote API key is required"));
             },
             Err(error) => {
@@ -143,9 +147,10 @@ type Pending<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 
 impl<S, B> Service<Request<B>> for Authenticated<S>
 where
-    S: Service<Request<B>, Response = Response<tonic::body::Body>>,
+    S: Service<Request<B>, Response = Response<tonic::body::Body>> + Clone + Send + 'static,
     S::Future: Send + 'static,
     S::Error: Send + 'static,
+    B: Send + 'static,
 {
     type Error = S::Error;
     type Future = Pending<Self::Response, Self::Error>;
@@ -155,13 +160,32 @@ where
         self.inner.poll_ready(context)
     }
 
+    /// Authorizes on a blocking thread, since verification may stat and
+    /// reread the key file, then forwards the call with its [`Caller`].
     fn call(&mut self, mut request: Request<B>) -> Self::Future {
-        match self.guard.authorize(request.uri().path(), request.headers(), peer(&request)) {
-            Ok(key) => {
-                request.extensions_mut().insert(Caller::from(&key));
-                Box::pin(self.inner.call(request))
-            },
-            Err(status) => Box::pin(ready(Ok(status.into_http()))),
-        }
+        let guard = self.guard.clone();
+        // The readied service handles this call; a clone takes its place.
+        let ready = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, ready);
+        let path = request.uri().path().to_owned();
+        let presented = bearer(request.headers()).map(str::to_owned);
+        let peer = peer(&request);
+        Box::pin(async move {
+            let decided = tokio::task::spawn_blocking(move || {
+                guard.authorize(&path, presented.as_deref(), peer)
+            })
+            .await;
+            match decided {
+                Ok(Ok(key)) => {
+                    request.extensions_mut().insert(Caller::from(&key));
+                    inner.call(request).await
+                },
+                Ok(Err(status)) => Ok(status.into_http()),
+                Err(error) => {
+                    tracing::error!(%error, "remote authorization did not complete");
+                    Ok(Status::internal("remote authorization did not complete").into_http())
+                },
+            }
+        })
     }
 }

@@ -36,7 +36,7 @@ impl Fixture {
         }
         let peer = Some(SocketAddr::from(([192, 168, 1, 20], 51_000)));
         self.guard
-            .authorize(&format!("/mirmir.v1.Runtime/{method}"), &headers, peer)
+            .authorize(&format!("/mirmir.v1.Runtime/{method}"), bearer(&headers), peer)
             .map_err(|status| status.code())
     }
 }
@@ -99,4 +99,27 @@ fn accepts_any_bearer_case_and_rejects_other_schemes() {
     assert_eq!(bearer(&headers), Some("mmk_x"));
     headers.insert("authorization", HeaderValue::from_static("Basic abc"));
     assert_eq!(bearer(&headers), None);
+}
+
+#[test]
+fn failures_never_lock_out_a_valid_key_from_the_same_network() -> crate::error::Result<()> {
+    let fixture = Fixture::new("throttle");
+    let (_, presented) = fixture.keys.create("office", Scope::Use)?;
+    let wrong = Some("mmk_0011223344556677_wrong");
+    for _ in 0..failures::MAX_FAILURES {
+        assert_eq!(fixture.call("Health", wrong), Err(Code::Unauthenticated));
+    }
+    assert_eq!(fixture.call("Health", wrong), Err(Code::ResourceExhausted));
+    assert!(fixture.call("Health", Some(&presented)).is_ok(), "a valid key still works");
+    Ok(())
+}
+
+#[test]
+fn refuses_a_connection_without_a_peer_address() -> crate::error::Result<()> {
+    let fixture = Fixture::new("peerless");
+    let (_, presented) = fixture.keys.create("ghost", Scope::Use)?;
+    let refused = fixture.guard.authorize("/mirmir.v1.Runtime/Health", Some(&presented), None);
+    assert_eq!(refused.map_err(|status| status.code()).err(), Some(Code::Internal));
+    assert!(fixture.clients.recent().is_empty());
+    Ok(())
 }

@@ -93,7 +93,7 @@ fn client(client: remote::Client) -> proto::RemoteClient {
         key_id: client.key_id,
         key_name: client.key_name,
         scope: scope_to(client.scope).into(),
-        peer_address: client.peer.map(|peer| peer.to_string()).unwrap_or_default(),
+        peer_address: client.peer.to_string(),
         first_seen_unix_ms: client.first_seen_unix_ms,
         last_seen_unix_ms: client.last_seen_unix_ms,
         requests: client.requests,
