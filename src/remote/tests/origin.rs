@@ -18,7 +18,7 @@ struct Remote {
 async fn remote(scope: Scope) -> crate::error::Result<Remote> {
     let (service, root) = service();
     let status = service.remote().enable(Some("127.0.0.1:0"), service.clone()).await?;
-    let listening = status.listening.expect("listener running");
+    let listening = status.listening().cloned().expect("listener running");
     let (_, key) = service.remote().create_key("caller", scope)?;
     let address = listening.address.to_string();
     let client = rpc::connect_remote(&target(&address, &key, listening.fingerprint)).await?;
@@ -48,7 +48,7 @@ async fn change(client: &mut rpc::Client, operation: Change) -> Result<(), tonic
 #[tokio::test]
 async fn a_control_key_cannot_change_server_settings_or_secrets() -> crate::error::Result<()> {
     let mut remote = remote(Scope::Control).await?;
-    let before = remote.service.remote().status().await?.bind;
+    let before = remote.service.remote().status().await?.bind().map(str::to_owned);
     for operation in [
         set("server.remote_bind", "0.0.0.0:7443"),
         set("server.remote_bind", "off"),
@@ -66,7 +66,7 @@ async fn a_control_key_cannot_change_server_settings_or_secrets() -> crate::erro
         assert!(refused.message().contains("local socket"), "{refused}");
     }
     let config = remote.service.remote().status().await?;
-    assert_eq!(config.bind, before, "the listener setting is unchanged");
+    assert_eq!(config.bind(), before.as_deref(), "the listener setting is unchanged");
     let root = &remote.root;
     let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
     assert!(!paths.secrets_file.exists(), "no secret was written");

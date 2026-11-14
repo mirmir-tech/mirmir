@@ -13,7 +13,7 @@ mod origin;
 mod scope;
 mod tls;
 
-pub use access::{KeyStatus, RemoteAccess, Status};
+pub use access::{KeyStatus, ListenerState, Mode, RemoteAccess, Status};
 pub use clients::Client;
 #[cfg(test)]
 pub use connect::presented_fingerprint_within;

@@ -35,7 +35,7 @@ async fn closes_an_open_stream(stop: Stop) -> crate::error::Result<()> {
     let (service, root) = service();
     let remote = service.remote().clone();
     let status = remote.enable(Some("127.0.0.1:0"), service.clone()).await?;
-    let listening = status.listening.expect("listener running");
+    let listening = status.listening().cloned().expect("listener running");
     let (_, key) = remote.create_key("watcher", Scope::Use)?;
     let address = listening.address.to_string();
     let mut client = rpc::connect_remote(&target(&address, &key, listening.fingerprint)).await?;

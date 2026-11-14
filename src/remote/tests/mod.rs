@@ -39,7 +39,7 @@ async fn serves_the_runtime_over_tls_with_pinned_certificates_and_scoped_keys()
     let (service, root) = service();
     let remote = service.remote().clone();
     let status = remote.enable(Some("127.0.0.1:0"), service.clone()).await?;
-    let listening = status.listening.expect("listener running");
+    let listening = status.listening().cloned().expect("listener running");
     let address = listening.address.to_string();
     assert_eq!(presented_fingerprint(&address).await?, listening.fingerprint);
     let (_, chat) = remote.create_key("chat", Scope::Use)?;
@@ -91,7 +91,7 @@ async fn serves_the_runtime_over_tls_with_pinned_certificates_and_scoped_keys()
     );
 
     let disabled = remote.disable().await?;
-    assert!(disabled.listening.is_none() && disabled.bind.is_none());
+    assert!(disabled.listening().is_none() && disabled.bind().is_none());
     remote.shutdown().await;
     std::fs::remove_dir_all(root)?;
     Ok(())
@@ -103,17 +103,17 @@ async fn reports_a_listener_that_cannot_bind() -> crate::error::Result<()> {
     let occupied = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = occupied.local_addr()?.to_string();
     let remote = service.remote().clone();
-    assert!(remote.enable(Some(&address), service.clone()).await.is_err());
+    let refused = remote.enable(Some(&address), service.clone()).await.expect_err("occupied");
+    assert!(refused.to_string().contains(&address), "{refused}");
     let status = remote.status().await?;
-    assert!(status.listening.is_none());
-    assert!(status.error.is_some_and(|error| error.contains(&address)));
-    assert_eq!(status.bind, None, "a failed start is not persisted");
+    assert!(matches!(status.mode, Mode::Off), "a failed start changes nothing: {status:?}");
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
 
 mod deadlines;
 mod origin;
+mod replacement;
 mod requests;
 mod shutdown;
 mod transitions;

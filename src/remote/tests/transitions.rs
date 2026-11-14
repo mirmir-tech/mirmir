@@ -18,13 +18,13 @@ async fn agrees(service: &RuntimeService, root: &Path, key: &str) -> crate::erro
     let status = service.remote().status().await?;
     let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
     let persisted = Store::new(paths).load()?.server.remote_bind;
-    assert_eq!(status.bind, persisted, "the status reports the persisted setting");
+    assert_eq!(status.bind(), persisted.as_deref(), "the status reports the persisted setting");
     assert_eq!(
-        status.bind.is_some(),
-        status.listening.is_some(),
+        status.bind().is_some(),
+        status.listening().is_some(),
         "the listener runs exactly when remote access is on: {status:?}"
     );
-    if let Some(listening) = &status.listening {
+    if let Some(listening) = status.listening() {
         let address = listening.address.to_string();
         assert!(reachable(&address, key, listening.fingerprint).await, "{address} answers");
     }
@@ -49,7 +49,7 @@ async fn an_enable_racing_a_slow_disable_runs_after_it() -> crate::error::Result
     let (service, root) = service();
     let remote = service.remote().clone();
     let first = remote.enable(Some("127.0.0.1:0"), service.clone()).await?;
-    let listening = first.listening.expect("listener running");
+    let listening = first.listening().cloned().expect("listener running");
     let (_, key) = remote.create_key("racer", Scope::Use)?;
     let address = listening.address.to_string();
     let mut client = rpc::connect_remote(&target(&address, &key, listening.fingerprint)).await?;
@@ -62,16 +62,16 @@ async fn an_enable_racing_a_slow_disable_runs_after_it() -> crate::error::Result
         let remote = remote.clone();
         async move { remote.disable().await }
     });
-    while remote.status().await?.listening.is_some() {
+    while remote.status().await?.listening().is_some() {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     let enabled = remote.enable(Some("127.0.0.1:0"), service.clone()).await?;
     let disabled = disabling.await.expect("disable task")?;
 
-    assert!(disabled.bind.is_none() && disabled.listening.is_none(), "{disabled:?}");
-    assert!(enabled.bind.is_some() && enabled.listening.is_some(), "{enabled:?}");
+    assert!(disabled.bind().is_none() && disabled.listening().is_none(), "{disabled:?}");
+    assert!(enabled.bind().is_some() && enabled.listening().is_some(), "{enabled:?}");
     let last = agrees(&service, &root, &key).await?;
-    assert!(last.listening.is_some(), "the later enable wins");
+    assert!(last.listening().is_some(), "the later enable wins");
     assert!(
         !reachable(&address, &key, listening.fingerprint).await,
         "the old listener is gone"
@@ -92,7 +92,7 @@ async fn an_enable_that_cannot_persist_leaves_no_listener() -> crate::error::Res
     block_writes(&config)?;
     assert!(remote.enable(Some(&free), service.clone()).await.is_err());
     let status = agrees(&service, &root, &key).await?;
-    assert!(status.listening.is_none());
+    assert!(status.listening().is_none());
     assert!(
         tokio::net::TcpStream::connect(&free).await.is_err(),
         "nothing listens on {free}"
@@ -113,7 +113,7 @@ async fn a_disable_that_cannot_persist_keeps_the_listener() -> crate::error::Res
     block_writes(&config)?;
     assert!(remote.disable().await.is_err());
     let status = agrees(&service, &root, &key).await?;
-    assert!(status.listening.is_some(), "remote access stays on as persisted");
+    assert!(status.listening().is_some(), "remote access stays on as persisted");
     allow_writes(&config)?;
     remote.shutdown().await;
     std::fs::remove_dir_all(root)?;
@@ -126,7 +126,7 @@ async fn no_listener_starts_after_shutdown() -> crate::error::Result<()> {
     let remote = service.remote().clone();
     remote.shutdown().await;
     assert!(remote.enable(Some("127.0.0.1:0"), service.clone()).await.is_err());
-    assert!(remote.status().await?.listening.is_none());
+    assert!(remote.status().await?.listening().is_none());
     drop(std::fs::remove_dir_all(root));
     Ok(())
 }

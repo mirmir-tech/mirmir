@@ -3,7 +3,7 @@ use tonic::Status;
 use super::{RuntimeService, proto};
 use crate::{
     error::Error,
-    remote::{self, CertificateSource, Scope},
+    remote::{self, CertificateSource, ListenerState, Mode, Scope},
 };
 
 impl RuntimeService {
@@ -45,15 +45,32 @@ impl RuntimeService {
     }
 }
 
+/// The protocol's flat form: an empty bind means off, and at most one of
+/// `listener` and `error` is set.
 fn convert(status: remote::Status) -> proto::RemoteAccessStatus {
+    let (bind, listener, error) = match status.mode {
+        Mode::Off => (String::new(), None, String::new()),
+        Mode::On {
+            bind,
+            listener: ListenerState::Listening(listening),
+        } => {
+            let listener = proto::RemoteListener {
+                address: listening.address.to_string(),
+                certificate_fingerprint: listening.fingerprint.to_string(),
+                certificate_source: certificate_source(listening.source).into(),
+            };
+            (bind, Some(listener), String::new())
+        },
+        Mode::On {
+            bind,
+            listener: ListenerState::Failed(error),
+        } => (bind, None, error),
+        Mode::On { bind, listener: ListenerState::Stopped } => (bind, None, String::new()),
+    };
     proto::RemoteAccessStatus {
-        bind: status.bind.unwrap_or_default(),
-        listener: status.listening.map(|listening| proto::RemoteListener {
-            address: listening.address.to_string(),
-            certificate_fingerprint: listening.fingerprint.to_string(),
-            certificate_source: certificate_source(listening.source).into(),
-        }),
-        error: status.error.unwrap_or_default(),
+        bind,
+        listener,
+        error,
         keys: status.keys.into_iter().map(key).collect(),
         clients: status.clients.into_iter().map(client).collect(),
     }
