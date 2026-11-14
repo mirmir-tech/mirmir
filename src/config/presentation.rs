@@ -110,15 +110,14 @@ fn server_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document:
             config.server.request_timeout_seconds.to_string(),
         ),
         ("server.max_concurrency", config.server.max_concurrency.to_string()),
-        (
-            "server.remote_bind",
-            config.server.remote_bind.clone().unwrap_or_else(|| "off".to_owned()),
-        ),
-        ("server.remote_tls_cert", certificate),
-        ("server.remote_tls_key", key),
     ] {
         push(values, document, key, &value, true, true);
     }
+    // Changed only by `mirmir remote enable` and `disable`, with the listener.
+    let remote = config.server.remote_bind.as_deref().unwrap_or("off");
+    push(values, document, "server.remote_bind", remote, false, false);
+    push(values, document, "server.remote_tls_cert", &certificate, true, true);
+    push(values, document, "server.remote_tls_key", &key, true, true);
 }
 
 fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document: &toml::Value) {

@@ -5,11 +5,34 @@ use toml_edit::{DocumentMut, value};
 
 mod server;
 
-use super::{AppConfig, Store, file::write_text};
+use super::{AppConfig, Store, file::write_text, store::config_writes};
 use crate::error::{Error, Result};
 
+/// Changes only together with the listener, through remote access.
+const REMOTE_BIND: &str = "server.remote_bind";
+
 impl Store {
+    /// Validates and saves one setting. `server.remote_bind` is refused: it
+    /// changes only with `mirmir remote enable` or `disable`, which start and
+    /// stop the listener in the same transition.
     pub(crate) fn set_config_value(&self, key: &str, input: &str) -> Result<()> {
+        if key == REMOTE_BIND {
+            return Err(Error::Config(format!(
+                "`{REMOTE_BIND}` changes together with the listener; use `mirmir remote enable \
+                 [--bind ADDRESS]` or `mirmir remote disable`"
+            )));
+        }
+        self.edit(key, input)
+    }
+
+    /// Persists the remote listener address, or that remote access is off.
+    /// Only remote access calls this, inside its serialized transition.
+    pub(crate) fn set_remote_bind(&self, bind: Option<&str>) -> Result<()> {
+        self.edit(REMOTE_BIND, bind.unwrap_or("off"))
+    }
+
+    fn edit(&self, key: &str, input: &str) -> Result<()> {
+        let _writes = config_writes();
         let raw = if self.paths.config_file.exists() {
             fs::read_to_string(&self.paths.config_file)?
         } else {

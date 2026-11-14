@@ -72,11 +72,58 @@ fn store() -> Store {
 fn sets_and_clears_the_remote_listener() -> Result<()> {
     let store = store();
     store.initialize()?;
-    store.set_config_value("server.remote_bind", "0.0.0.0:7443")?;
+    store.set_remote_bind(Some("0.0.0.0:7443"))?;
     assert_eq!(store.load()?.server.remote_bind.as_deref(), Some("0.0.0.0:7443"));
-    assert!(store.set_config_value("server.remote_bind", "not an address").is_err());
-    store.set_config_value("server.remote_bind", "off")?;
+    assert!(store.set_remote_bind(Some("not an address")).is_err());
+    store.set_remote_bind(None)?;
     assert_eq!(store.load()?.server.remote_bind, None);
+    Ok(())
+}
+
+#[test]
+fn generic_edits_cannot_change_the_remote_listener() -> Result<()> {
+    let store = store();
+    store.initialize()?;
+    for input in ["0.0.0.0:7443", "off"] {
+        let refused = store
+            .set_config_value("server.remote_bind", input)
+            .expect_err("the listener address changes only with the listener");
+        assert!(refused.to_string().contains("mirmir remote enable"), "{refused}");
+    }
+    assert_eq!(store.load()?.server.remote_bind, None);
+    let presented = store.configuration()?;
+    let bind = presented.values.iter().find(|value| value.key == "server.remote_bind");
+    assert!(bind.is_some_and(|value| !value.editable && value.value == "off"));
+    Ok(())
+}
+
+#[test]
+fn concurrent_edits_of_different_keys_all_persist() -> Result<()> {
+    let store = store();
+    store.initialize()?;
+    let keys = [
+        ("runtime.kv_block_size", "32"),
+        ("runtime.kv_blocks", "64"),
+        ("runtime.max_batch_requests", "3"),
+        ("runtime.max_batch_tokens", "512"),
+        ("runtime.decode_priority_burst", "2"),
+        ("runtime.prefill_batch_wait_us", "40"),
+        ("default_model", "chosen"),
+    ];
+    std::thread::scope(|scope| {
+        for (key, value) in keys {
+            let store = store.clone();
+            scope.spawn(move || store.set_config_value(key, value).expect("edit"));
+        }
+    });
+    let config = store.load()?;
+    assert_eq!(config.runtime.kv_block_size, Some(32));
+    assert_eq!(config.runtime.kv_blocks, Some(64));
+    assert_eq!(config.runtime.max_batch_requests, Some(3));
+    assert_eq!(config.runtime.max_batch_tokens, Some(512));
+    assert_eq!(config.runtime.decode_priority_burst, Some(2));
+    assert_eq!(config.runtime.prefill_batch_wait_us, Some(40));
+    assert_eq!(config.default_model.as_deref(), Some("chosen"));
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 use std::{
     fs,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
 use super::{
@@ -9,6 +9,15 @@ use super::{
     schema::{SecretsConfig, validate_schema},
 };
 use crate::error::{Error, Result};
+
+/// Serializes every read/modify/write of `config.toml` and `secrets.toml` in
+/// this process, whichever `Store` instance performs it, so concurrent edits
+/// never overwrite one another.
+static CONFIG_WRITES: Mutex<()> = Mutex::new(());
+
+pub(super) fn config_writes() -> MutexGuard<'static, ()> {
+    CONFIG_WRITES.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -40,6 +49,7 @@ impl Store {
     }
 
     pub fn initialize(&self) -> Result<()> {
+        let _writes = config_writes();
         self.paths.ensure_config_dirs()?;
         if !self.paths.config_file.exists() {
             write_toml(&self.paths.config_file, &AppConfig::default(), false)?;
@@ -59,6 +69,7 @@ impl Store {
     pub fn replace_config(&self, contents: &str) -> Result<()> {
         let config: AppConfig = toml::from_str(contents)?;
         config.validate()?;
+        let _writes = config_writes();
         self.paths.ensure_config_dirs()?;
         write_text(&self.paths.config_file, contents, false)
     }
@@ -67,6 +78,7 @@ impl Store {
         if token.is_empty() {
             return Err(Error::Config("Hugging Face token cannot be empty".to_owned()));
         }
+        let _writes = config_writes();
         self.paths.ensure_config_dirs()?;
         let mut secrets = self.load_secrets()?;
         secrets.hugging_face.token = Some(token.to_owned());
@@ -74,6 +86,7 @@ impl Store {
     }
 
     pub fn remove_hf_token(&self) -> Result<()> {
+        let _writes = config_writes();
         if !self.paths.secrets_file.exists() {
             return Ok(());
         }
@@ -93,6 +106,7 @@ impl Store {
         if key.is_empty() {
             return Err(Error::Config("HTTP API key cannot be empty".to_owned()));
         }
+        let _writes = config_writes();
         self.paths.ensure_config_dirs()?;
         let mut secrets = self.load_secrets()?;
         secrets.server.api_key = Some(key.to_owned());
@@ -100,6 +114,7 @@ impl Store {
     }
 
     pub fn remove_http_api_key(&self) -> Result<()> {
+        let _writes = config_writes();
         if !self.paths.secrets_file.exists() {
             return Ok(());
         }

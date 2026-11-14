@@ -230,7 +230,7 @@ impl RemoteAccess {
     }
 
     fn persist(&self, bind: Option<&str>) -> Result<()> {
-        self.inner.store.set_config_value("server.remote_bind", bind.unwrap_or("off"))
+        self.inner.store.set_remote_bind(bind)
     }
 
     fn configured_bind(&self) -> Result<Option<String>> {
