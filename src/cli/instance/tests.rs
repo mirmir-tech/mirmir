@@ -76,10 +76,22 @@ fn a_remote_server_requires_a_key_and_excludes_local_selection() {
 }
 
 #[test]
-fn adds_the_default_remote_port() {
-    assert_eq!(with_port("host"), "host:7443");
-    assert_eq!(with_port("host:9000"), "host:9000");
-    assert_eq!(with_port("10.0.0.4"), "10.0.0.4:7443");
-    assert_eq!(with_port("::1"), "[::1]:7443");
-    assert_eq!(with_port("[::1]:9000"), "[::1]:9000");
+fn adds_the_default_remote_port() -> crate::error::Result<()> {
+    assert_eq!(with_port("host")?, "host:7443");
+    assert_eq!(with_port("host:9000")?, "host:9000");
+    assert_eq!(with_port("10.0.0.4")?, "10.0.0.4:7443");
+    assert_eq!(with_port("::1")?, "[::1]:7443");
+    assert_eq!(with_port("[::1]:9000")?, "[::1]:9000");
+    Ok(())
+}
+
+#[test]
+fn accepts_the_displayed_endpoint_and_refuses_paths_and_spaces() -> crate::error::Result<()> {
+    assert_eq!(with_port("grpcs://ziemniak.local:7443")?, "ziemniak.local:7443");
+    assert_eq!(with_port(" GRPCS://ziemniak.local ")?, "ziemniak.local:7443");
+    assert_eq!(with_port("grpcs://[::1]:9000")?, "[::1]:9000");
+    for invalid in ["", "grpcs://", "https://host", "host/path", "host name", "grpcs://host/"] {
+        assert!(with_port(invalid).is_err(), "`{invalid}` is refused");
+    }
+    Ok(())
 }

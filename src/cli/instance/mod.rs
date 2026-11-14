@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Args;
 
 use crate::{
-    error::{Error, Result},
+    error::{Error, RemoteError, Result},
     instance::Instance,
     remote::{RemoteTarget, Trust},
 };
@@ -56,24 +56,42 @@ impl TryFrom<InstanceArgs> for Instance {
             Some(fingerprint) => Trust::Pinned(fingerprint.parse()?),
             None => Trust::System,
         };
-        Ok(Self::Remote(RemoteTarget { address: with_port(&address), key, trust }))
+        Ok(Self::Remote(RemoteTarget {
+            address: with_port(&address)?,
+            key,
+            trust,
+        }))
     }
 }
 
-/// Appends the default port unless the address already names one.
-pub fn with_port(address: &str) -> String {
-    let address = address.trim();
+/// Normalizes a `--remote` address: drops an optional `grpcs://` prefix, as
+/// clients display the address, refuses paths and whitespace, and appends the
+/// default port unless the address already names one.
+pub fn with_port(address: &str) -> Result<String> {
+    let given = address.trim();
+    let address = given
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map_or(given, |_| &given[SCHEME.len()..]);
+    if address.is_empty() || address.contains('/') || address.contains(char::is_whitespace) {
+        return Err(Error::Remote(RemoteError::Invalid(format!(
+            "`{given}` is not a HOST[:PORT] server address"
+        ))));
+    }
     let has_port = address
         .strip_prefix('[')
         .map_or_else(|| address.matches(':').count() == 1, |rest| rest.contains("]:"));
-    if has_port {
+    Ok(if has_port {
         address.to_owned()
     } else if address.contains(':') && !address.starts_with('[') {
         format!("[{address}]:{DEFAULT_REMOTE_PORT}")
     } else {
         format!("{address}:{DEFAULT_REMOTE_PORT}")
-    }
+    })
 }
+
+/// The scheme clients show before a remote address.
+const SCHEME: &str = "grpcs://";
 
 #[cfg(test)]
 mod tests;

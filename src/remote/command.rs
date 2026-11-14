@@ -11,7 +11,7 @@ use crate::{
 
 pub async fn run(instance: &Instance, command: RemoteCommand) -> Result<()> {
     if let RemoteCommand::Fingerprint { address } = &command {
-        return output::line(presented_fingerprint(&with_port(address)).await?.to_string());
+        return output::line(presented_fingerprint(&with_port(address)?).await?.to_string());
     }
     let mut connection = instance.connect().await?;
     let reused = connection.reused();
@@ -45,7 +45,7 @@ async fn execute(client: &mut Client, command: RemoteCommand) -> Result<()> {
         },
         RemoteCommand::Key { command } => key(client, command).await,
         RemoteCommand::Fingerprint { address } => {
-            output::line(presented_fingerprint(&with_port(&address)).await?.to_string())
+            output::line(presented_fingerprint(&with_port(&address)?).await?.to_string())
         },
     }
 }
