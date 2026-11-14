@@ -19,7 +19,10 @@ impl App {
         let Some(target) = self.load_target() else {
             return;
         };
-        let request = proto::InspectModelRequest { selector: target.selector.clone() };
+        let request = proto::InspectModelRequest {
+            selector: target.selector.clone(),
+            context: None,
+        };
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();
         drop(tokio::spawn(async move {

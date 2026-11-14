@@ -90,9 +90,12 @@ impl Store {
     ) -> Result<ModelConfig> {
         let key = model_key(repo_id)?;
         self.paths.ensure_config_dirs()?;
-        let generation = self
-            .load_model_config(&key)
-            .map_or_else(|_| GenerationConfig::default(), |model| model.generation);
+        let _writes = super::store::config_writes();
+        // A new snapshot of the repository keeps the saved defaults and context.
+        let (generation, runtime) = self.load_model_config(&key).map_or_else(
+            |_| (GenerationConfig::default(), super::model_runtime::ModelRuntimeConfig::default()),
+            |model| (model.generation, model.runtime),
+        );
         let commit = snapshot
             .file_name()
             .and_then(|value| value.to_str())
@@ -108,7 +111,7 @@ impl Store {
                 commit,
             }),
             generation,
-            runtime: super::model_runtime::ModelRuntimeConfig::default(),
+            runtime,
         };
         write_toml(&self.model_config_path(&key), &model, false)?;
         Ok(model)
@@ -218,6 +221,12 @@ mod tests {
         let options = store.resolve_model("Qwen/Reranker")?.runtime.load_options(true);
         assert_eq!(options.kv_blocks.map(std::num::NonZeroU32::get), Some(512));
         assert!(options.allow_memory_overcommit);
+        // Pulling a new snapshot keeps the saved context.
+        let next = root.join("cache/snapshots/abcdef0123");
+        fs::create_dir_all(&next)?;
+        store.save_hub_model("Qwen/Reranker", "main", next)?;
+        let kept = store.resolve_model("Qwen/Reranker")?.runtime.kv_blocks;
+        assert_eq!(kept.map(std::num::NonZeroU32::get), Some(512));
         Ok(())
     }
 }

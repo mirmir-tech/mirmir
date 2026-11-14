@@ -4,15 +4,15 @@ use tokio::sync::mpsc;
 use super::NativeRuntime;
 use crate::{
     application::{
-        CatalogPort, ConfigurationChange, ConfigurationOutcome, ConfigurationPort, Error,
-        LocalModelInfo, ModelEntry, ModelInfo, ModelInspection, ModelRuntimePort, Result,
-        RuntimeTelemetry, TransferPhase, TransferProgress,
+        CatalogPort, ConfigurationChange, ConfigurationOutcome, ConfigurationPort, ContextChoice,
+        Error, LoadDefaults, LocalModelInfo, ModelDefaults, ModelEntry, ModelInfo, ModelInspection,
+        ModelRuntimePort, Result, RuntimeTelemetry, TransferPhase, TransferProgress,
     },
     catalog::{
         DownloadedModel, Removal, SearchResults, TransferPhase as NativeTransferPhase,
         TransferUpdate as NativeTransferUpdate,
     },
-    config::{ConfigPresentation, GenerationConfig, HubModelConfig, StateRecovery},
+    config::{ConfigPresentation, StateRecovery},
 };
 
 #[tonic::async_trait]
@@ -113,26 +113,20 @@ impl ModelRuntimePort for NativeRuntime {
         self.offers(selector)
     }
 
-    fn inspect_model(&self, selector: &str) -> Result<ModelInspection> {
-        self.inspect_model(selector)
-    }
-
-    fn prepare_load(
+    fn inspect_model(
         &self,
         selector: &str,
-        config_id: &str,
-        hub: Option<HubModelConfig>,
-        generation: Option<GenerationConfig>,
-    ) -> Result<String> {
-        self.prepare_load(selector, config_id, hub, generation)
+        context: Option<ContextChoice>,
+    ) -> Result<ModelInspection> {
+        self.inspect_model(selector, context)
     }
 
-    fn save_generation_defaults(
-        &self,
-        selector: &str,
-        generation: GenerationConfig,
-    ) -> Result<String> {
-        self.save_generation_defaults(selector, generation)
+    fn prepare_load(&self, selector: &str, defaults: LoadDefaults) -> Result<String> {
+        self.prepare_load(selector, defaults)
+    }
+
+    fn save_model_defaults(&self, selector: &str, defaults: ModelDefaults) -> Result<String> {
+        self.save_model_defaults(selector, defaults)
     }
 
     fn load_model(

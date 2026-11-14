@@ -1,16 +1,30 @@
 use std::path::Path;
 
-use super::{GenerationConfig, HubModelConfig, ModelConfig, Store, file::write_toml, model_key};
+use super::{
+    GenerationConfig, HubModelConfig, ModelConfig, Store, file::write_toml, model_key,
+    model_runtime::ModelRuntimeConfig, store::config_writes,
+};
 use crate::error::{Error, Result};
 
+/// The parts of a model's saved configuration one write replaces.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ModelConfigChange {
+    pub generation: Option<GenerationConfig>,
+    pub runtime: Option<ModelRuntimeConfig>,
+}
+
 impl Store {
-    pub fn save_model_generation(
+    /// Saves `change` into the model's configuration, creating it for a
+    /// direct path. Writes are serialized with every other configuration
+    /// edit, so concurrent saves of one model never drop each other's part.
+    pub fn save_model_config(
         &self,
         selector: &str,
         config_id: &str,
         hub: Option<HubModelConfig>,
-        generation: GenerationConfig,
+        change: ModelConfigChange,
     ) -> Result<String> {
+        let _writes = config_writes();
         let direct = Path::new(selector);
         let mut model = if direct.exists() {
             validate_id(config_id, hub.as_ref())?;
@@ -22,7 +36,7 @@ impl Store {
                     path: direct.to_owned(),
                     hub: hub.clone(),
                     generation: GenerationConfig::default(),
-                    runtime: super::model_runtime::ModelRuntimeConfig::default(),
+                    runtime: ModelRuntimeConfig::default(),
                 },
                 Err(error) => return Err(error),
             }
@@ -34,7 +48,12 @@ impl Store {
             };
             self.load_model_config(&key)?
         };
-        model.generation = generation;
+        if let Some(generation) = change.generation {
+            model.generation = generation;
+        }
+        if let Some(runtime) = change.runtime {
+            model.runtime = runtime;
+        }
         if model.hub.is_none() {
             model.hub = hub;
         }
@@ -100,15 +119,30 @@ mod tests {
             commit: "abc123".to_owned(),
         };
 
-        let key = store.save_model_generation(
+        let key = store.save_model_config(
             &model_path.display().to_string(),
             "Qwen--Test",
             Some(hub),
-            generation,
+            ModelConfigChange {
+                generation: Some(generation),
+                runtime: None,
+            },
+        )?;
+        let blocks = std::num::NonZeroU32::new(2_048);
+        // A context saved later keeps the generation defaults, and the reverse.
+        store.save_model_config(
+            &key,
+            &key,
+            None,
+            ModelConfigChange {
+                generation: None,
+                runtime: Some(ModelRuntimeConfig { kv_blocks: blocks }),
+            },
         )?;
         let resolved = store.resolve_model(&key)?;
         assert_eq!(resolved.generation.max_tokens, Some(512));
         assert_eq!(resolved.generation.temperature, Some(0.7));
+        assert_eq!(resolved.runtime.kv_blocks, blocks);
         fs::remove_dir_all(root)?;
         Ok(())
     }

@@ -56,7 +56,6 @@ pub fn safe_context(estimate: ModelMemoryEstimate, budget: u64) -> Option<u64> {
         (budget.saturating_sub(estimate.weight_bytes.saturating_add(estimate.workspace_bytes))
             / estimate.kv_bytes_per_token)
             .min(estimate.model_context_tokens)
-            .min(estimate.cache_capacity_tokens)
     })
 }
 

@@ -29,7 +29,9 @@ impl App {
         let selector = model.clone();
         drop(tokio::spawn(async move {
             let result = crate::tui::string_result(
-                client.inspect_model(proto::InspectModelRequest { selector }).await,
+                client
+                    .inspect_model(proto::InspectModelRequest { selector, context: None })
+                    .await,
             )
             .map(tonic::Response::into_inner)
             .map(Box::new)
@@ -130,6 +132,7 @@ impl App {
         let request = proto::UpdateModelGenerationRequest {
             selector: parameters.model.clone(),
             settings: Some(parameters.settings()),
+            context: None,
         };
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();

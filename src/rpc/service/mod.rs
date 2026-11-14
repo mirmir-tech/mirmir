@@ -78,10 +78,10 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::InspectModelRequest>,
     ) -> Result<Response<proto::InspectModelResponse>, Status> {
-        let selector = self.admitted(request, |message| &message.selector).await?.selector;
+        let request = self.admitted(request, |message| &message.selector).await?;
         let service = self.clone();
         let inspected = status::internal(
-            tokio::task::spawn_blocking(move || service.inspect_model(&selector)).await,
+            tokio::task::spawn_blocking(move || service.inspect_model(&request)).await,
         )??;
         Ok(Response::new(inspected))
     }
@@ -91,12 +91,8 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::UpdateModelGenerationRequest>,
     ) -> Result<Response<proto::UpdateModelGenerationResponse>, Status> {
         let request = self.admitted(request, |message| &message.selector).await?;
-        let settings = request
-            .settings
-            .as_ref()
-            .ok_or_else(|| Status::invalid_argument("generation settings are required"))?;
-        let model_id = self.save_generation_defaults(&request.selector, settings)?;
-        tracing::info!(model = %model_id, "model generation defaults updated");
+        let model_id = self.save_model_defaults(&request)?;
+        tracing::info!(model = %model_id, "model defaults updated");
         Ok(Response::new(proto::UpdateModelGenerationResponse { model_id }))
     }
 

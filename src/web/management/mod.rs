@@ -4,102 +4,29 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use serde::{Deserialize, Serialize};
+mod context;
+mod types;
 
+use self::types::{Accepted, Cancelled, Inspection, Memory, Removed, Settings, Unloaded};
+pub use self::types::{CancelRequest, InspectQuery, LoadRequest, RemoveRequest, SelectorRequest};
 use super::{capabilities::TaskCapabilities, security_headers, session::WebError};
 use crate::{
-    application,
-    config::{GenerationConfig, HubModelConfig},
+    application::{self, LoadDefaults, ModelDefaults},
+    config::HubModelConfig,
     http::ApiState,
 };
 
-#[derive(Deserialize)]
-pub struct InspectQuery {
-    selector: String,
-}
-#[derive(Clone, Deserialize, Serialize)]
-pub struct Settings {
-    max_tokens: u64,
-    temperature: f32,
-    top_p: f32,
-    top_k: u64,
-    repetition_penalty: f32,
-}
-#[derive(Deserialize)]
-pub struct LoadRequest {
-    selector: String,
-    settings: Option<Settings>,
-    #[serde(default)]
-    config_id: String,
-    #[serde(default)]
-    repo_id: String,
-    #[serde(default)]
-    revision: String,
-    #[serde(default)]
-    commit: String,
-    #[serde(default)]
-    force: bool,
-}
-#[derive(Deserialize)]
-pub struct SelectorRequest {
-    selector: String,
-}
-#[derive(Deserialize)]
-pub struct RemoveRequest {
-    repo_id: String,
-}
-#[derive(Deserialize)]
-pub struct CancelRequest {
-    operation_id: String,
-}
-#[derive(Serialize)]
-struct Inspection {
-    settings: Option<Settings>,
-    has_mirmir_overrides: bool,
-    memory: Memory,
-    task: String,
-    capabilities: Option<TaskCapabilities>,
-}
-#[derive(Serialize)]
-struct Memory {
-    required_bytes: u64,
-    available_bytes: Option<u64>,
-    budget_bytes: Option<u64>,
-    #[serde(rename = "memory_source")]
-    source: String,
-    fit: String,
-    max_safe_context_tokens: Option<u64>,
-    configured_cache_tokens: u64,
-}
-#[derive(Serialize)]
-struct Accepted {
-    accepted: bool,
-    operation: &'static str,
-}
-#[derive(Serialize)]
-struct Unloaded {
-    unloaded: bool,
-}
-#[derive(Serialize)]
-struct Removed {
-    removed: bool,
-    freed_bytes: u64,
-}
-#[derive(Serialize)]
-struct Cancelled {
-    found: bool,
-    accepted: bool,
-    state: String,
-}
 pub async fn inspect(
     State(state): State<ApiState>,
     headers: HeaderMap,
     Query(query): Query<InspectQuery>,
 ) -> Result<Response, WebError> {
     state.sessions().authenticate(&headers)?;
+    let choice = context::query(query.context.as_deref())
+        .map_err(|message| WebError::application(application::Error::InvalidContext(message)))?;
     let inspected = state
         .application()
-        .inspect_model(&query.selector)
+        .inspect_model(&query.selector, choice)
         .map_err(WebError::application)?;
     let response = Inspection {
         settings: inspected.settings.map(Settings::from),
@@ -107,6 +34,7 @@ pub async fn inspect(
         memory: Memory::from(inspected.memory),
         task: inspected.task.to_owned(),
         capabilities: Some(TaskCapabilities::from(inspected.capabilities)),
+        context: inspected.context.map(Into::into),
     };
     Ok((security_headers(), Json(response)).into_response())
 }
@@ -117,15 +45,23 @@ pub async fn load(
     Json(request): Json<LoadRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let generation = request.settings.map(Into::into);
     let hub = (!request.repo_id.is_empty()).then_some(HubModelConfig {
         repo_id: request.repo_id,
         revision: request.revision,
         commit: request.commit,
     });
+    let defaults = ModelDefaults {
+        generation: request.settings.map(Into::into),
+        context: request.context.map(Into::into),
+    };
+    let load = LoadDefaults {
+        config_id: request.config_id,
+        hub,
+        defaults,
+    };
     let selector = state
         .application()
-        .prepare_load(&request.selector, &request.config_id, hub, generation)
+        .prepare_load(&request.selector, load)
         .map_err(WebError::application)?;
     let application = state.application().clone();
     drop(tokio::task::spawn_blocking(move || {
@@ -193,42 +129,4 @@ pub async fn cancel(
 
 fn accepted(operation: &'static str) -> Response {
     (security_headers(), Json(Accepted { accepted: true, operation })).into_response()
-}
-
-impl From<libmir::GenerationSettings> for Settings {
-    fn from(settings: libmir::GenerationSettings) -> Self {
-        Self {
-            max_tokens: u64::try_from(settings.max_tokens).unwrap_or(u64::MAX),
-            temperature: settings.temperature,
-            top_p: settings.top_p,
-            top_k: u64::try_from(settings.top_k).unwrap_or(u64::MAX),
-            repetition_penalty: settings.repetition_penalty,
-        }
-    }
-}
-
-impl From<Settings> for GenerationConfig {
-    fn from(settings: Settings) -> Self {
-        Self {
-            max_tokens: usize::try_from(settings.max_tokens).ok(),
-            temperature: Some(settings.temperature),
-            top_p: Some(settings.top_p),
-            top_k: usize::try_from(settings.top_k).ok(),
-            repetition_penalty: Some(settings.repetition_penalty),
-        }
-    }
-}
-
-impl From<crate::application::MemoryReport> for Memory {
-    fn from(memory: crate::application::MemoryReport) -> Self {
-        Self {
-            required_bytes: memory.estimate.required_bytes,
-            available_bytes: memory.available,
-            budget_bytes: memory.budget,
-            source: memory.source,
-            fit: memory.fit.as_str().to_owned(),
-            max_safe_context_tokens: memory.max_safe_context,
-            configured_cache_tokens: memory.estimate.cache_capacity_tokens,
-        }
-    }
 }

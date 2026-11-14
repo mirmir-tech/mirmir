@@ -14,6 +14,8 @@ pub enum Error {
     InvalidModel(String),
     #[error("generation request is invalid: {0}")]
     InvalidRequest(String),
+    #[error("context is invalid: {0}")]
+    InvalidContext(String),
     #[error("insufficient accelerator memory: {0}")]
     MemoryPressure(String),
     #[error("model persistence failed: {0}")]
@@ -47,9 +49,10 @@ impl Error {
     #[must_use]
     pub const fn class(&self) -> ErrorClass {
         match self {
-            Self::InvalidModel(_) | Self::InvalidRequest(_) | Self::Configuration(_) => {
-                ErrorClass::InvalidArgument
-            },
+            Self::InvalidModel(_)
+            | Self::InvalidRequest(_)
+            | Self::InvalidContext(_)
+            | Self::Configuration(_) => ErrorClass::InvalidArgument,
             Self::ModelInUse(_) | Self::ModelAlreadyLoading(_) | Self::ModelLoaded(_) => {
                 ErrorClass::Conflict
             },

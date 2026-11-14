@@ -10,10 +10,10 @@ use libmir::{EmbeddingOutput, EmbeddingRequest, ProgressEvent, RerankOutput, Rer
 
 use crate::{
     application::{
-        Error, LocalModelInfo, ModelEntry, ModelInfo, ModelInspection, ModelRuntimePort, Result,
-        RuntimeTelemetry,
+        ContextChoice, Error, LoadDefaults, LocalModelInfo, ModelDefaults, ModelEntry, ModelInfo,
+        ModelInspection, ModelRuntimePort, Result, RuntimeTelemetry,
     },
-    config::{GenerationConfig, HubModelConfig, StateRecovery},
+    config::StateRecovery,
 };
 
 const HELD: Duration = Duration::from_secs(10);
@@ -76,25 +76,19 @@ impl ModelRuntimePort for Blocked {
         Ok(true)
     }
 
-    fn inspect_model(&self, _selector: &str) -> Result<ModelInspection> {
+    fn inspect_model(
+        &self,
+        _selector: &str,
+        _context: Option<ContextChoice>,
+    ) -> Result<ModelInspection> {
         unused()
     }
 
-    fn prepare_load(
-        &self,
-        _selector: &str,
-        _config_id: &str,
-        _hub: Option<HubModelConfig>,
-        _generation: Option<GenerationConfig>,
-    ) -> Result<String> {
+    fn prepare_load(&self, _selector: &str, _defaults: LoadDefaults) -> Result<String> {
         unused()
     }
 
-    fn save_generation_defaults(
-        &self,
-        _selector: &str,
-        _generation: GenerationConfig,
-    ) -> Result<String> {
+    fn save_model_defaults(&self, _selector: &str, _defaults: ModelDefaults) -> Result<String> {
         unused()
     }
 

@@ -54,6 +54,7 @@ impl LoadDialog {
             revision: self.target.revision.clone(),
             commit: self.target.commit.clone(),
             force: self.force,
+            context: None,
         })
     }
 }

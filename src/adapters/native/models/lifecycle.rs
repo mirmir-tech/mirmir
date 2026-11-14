@@ -90,6 +90,11 @@ impl NativeRuntime {
         Ok(entry)
     }
 
+    /// The loaded model under `key`, without counting this as a use.
+    pub fn peek_resident_model(&self, key: &str) -> Result<Option<libmir::Model>> {
+        Ok(self.lifecycle.state()?.resident.get(key).map(|entry| entry.model.clone()))
+    }
+
     pub fn resident_model(&self, key: &str) -> Result<Option<ModelEntry>> {
         let mut state = self.lifecycle.state()?;
         let Some(entry) = state.resident.get_mut(key) else {
