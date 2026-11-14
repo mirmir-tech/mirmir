@@ -37,6 +37,8 @@ pub async fn serve(paths: Paths, mut config: AppConfig, args: ServeArgs) -> Resu
     let service = RuntimeService::from_application(application.clone(), remote);
     let owner = server::start_service(paths.clone(), service.clone())?;
     tracing::info!(socket = %paths.socket_file.display(), "gRPC server listening");
+    let configured = service.clone();
+    tokio::spawn(async move { configured.remote().start_configured(configured.clone()).await });
     if args.no_http {
         restore_in_background(service.clone());
         shutdown_signal().await?;

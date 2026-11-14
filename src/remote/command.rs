@@ -15,9 +15,18 @@ pub async fn run(instance: &Instance, command: RemoteCommand) -> Result<()> {
     }
     let mut connection = instance.connect().await?;
     let reused = connection.reused();
+    let reads = matches!(
+        command,
+        RemoteCommand::Status | RemoteCommand::Key { command: RemoteKeyCommand::List }
+    );
     let result = execute(&mut connection.client, command).await;
     if result.is_ok() && !reused {
-        output::diagnostic("no server was running; the change applies when `mirmir serve` starts")?;
+        // A server started for one command never opens the remote listener.
+        output::diagnostic(if reads {
+            "no server is running; the remote listener starts with `mirmir serve`"
+        } else {
+            "no server was running; the change applies when `mirmir serve` starts"
+        })?;
     }
     result.and(connection.shutdown().await)
 }

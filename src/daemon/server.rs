@@ -26,6 +26,9 @@ pub fn start(paths: Paths, config: &AppConfig) -> Result<Owner> {
     start_service(paths.clone(), RuntimeService::new(config, Store::new(paths)))
 }
 
+/// Serves `service` on the local socket. The configured remote listener is
+/// not started here: a server a command starts on demand never opens it, and
+/// `mirmir serve` starts it once the socket is up.
 pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Owner> {
     paths.ensure_runtime_dirs()?;
     let guard = InstanceGuard::acquire(&paths.lock_file)?;
@@ -38,8 +41,6 @@ pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Own
     let (shutdown, receiver) = oneshot::channel();
     let sampler = Sampler::start(&service);
     let remote = service.remote().clone();
-    let configured = service.clone();
-    tokio::spawn(async move { configured.remote().start_configured(configured.clone()).await });
     let task = tokio::spawn(async move {
         Server::builder()
             .add_service(rpc::server(service))

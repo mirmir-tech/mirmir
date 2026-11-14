@@ -130,3 +130,27 @@ async fn no_listener_starts_after_shutdown() -> crate::error::Result<()> {
     drop(std::fs::remove_dir_all(root));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_server_started_on_demand_never_opens_the_listener() -> crate::error::Result<()> {
+    let (_, root) = service();
+    let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
+    let store = Store::new(paths.clone());
+    let free = std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.to_string();
+    store.set_remote_bind(Some(&free))?;
+    let connection = crate::daemon::connect_or_start(&paths, &store.load()?).await?;
+    assert!(!connection.reused(), "the command started its own server");
+    let mut client = connection.client.clone();
+    let status = client.get_remote_access(proto::GetRemoteAccessRequest {}).await?.into_inner();
+    assert_eq!(status.bind, free, "remote access is still reported as configured");
+    assert!(status.listener.is_none() && status.error.is_empty(), "{status:?}");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        tokio::net::TcpStream::connect(&free).await.is_err(),
+        "nothing listens on {free}"
+    );
+    drop(client);
+    connection.shutdown().await?;
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
