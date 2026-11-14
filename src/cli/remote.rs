@@ -7,8 +7,9 @@ pub enum RemoteCommand {
     /// Print the TLS listener, certificate fingerprint, API keys and recent
     /// remote clients as JSON.
     Status,
-    /// Start the TLS listener now and on every start; creates a first control
-    /// key when none exists and prints it once.
+    /// Start the TLS listener now and whenever `mirmir serve` starts; the only
+    /// way to set `server.remote_bind`. Creates a first control key when none
+    /// exists and prints it once.
     Enable {
         /// Listen address, for example `0.0.0.0:7443` (the default) or one
         /// interface's IP.
@@ -39,14 +40,16 @@ pub enum RemoteKeyCommand {
         /// A name that identifies the client, for example `studio-mac`.
         #[arg(long)]
         name: String,
-        /// `use` for chat, embeddings and monitoring; `control` also manages
-        /// models and settings.
+        /// `use` for chat, embeddings, reranking and monitoring (these may load
+        /// a known model on demand); `control` also loads, unloads, downloads
+        /// and removes models and changes model and runtime settings.
         #[arg(long, value_enum, default_value_t = Scope::Use)]
         scope: Scope,
     },
     /// List keys with their scope and last use, never their values.
     List,
-    /// Revoke a key by its id; clients using it are refused immediately.
+    /// Revoke a key by its id; its next request is refused, while streams it
+    /// already opened run until they end.
     Revoke {
         /// The key id, as printed by `mirmir remote key list`.
         #[arg(value_name = "ID")]

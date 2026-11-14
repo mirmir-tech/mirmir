@@ -22,7 +22,7 @@ pub struct InstanceArgs {
     #[arg(long, global = true, value_name = "PATH", conflicts_with = "remote")]
     pub socket: Option<PathBuf>,
     /// Attach to another computer's mirmir over TLS at HOST[:PORT] (default
-    /// port 7443); requires a remote API key.
+    /// port 7443; a `grpcs://` prefix is accepted); requires a remote API key.
     #[arg(long, global = true, value_name = "HOST[:PORT]")]
     pub remote: Option<String>,
     /// Remote API key (`mmk_…`) sent with every call; prefer the environment
@@ -30,8 +30,8 @@ pub struct InstanceArgs {
     #[arg(long, global = true, env = "MIRMIR_REMOTE_KEY", hide_env_values = true)]
     pub remote_key: Option<String>,
     /// Pin the server certificate by its SHA-256 fingerprint, as shown by
-    /// `mirmir remote status` on the server; omit it for a CA-issued
-    /// certificate.
+    /// `mirmir remote status` on the server. The CLI keeps no pin, so pass it
+    /// on every run; omit it only for a CA-issued certificate.
     #[arg(long, global = true, env = "MIRMIR_REMOTE_FINGERPRINT", value_name = "SHA256")]
     pub remote_fingerprint: Option<String>,
 }

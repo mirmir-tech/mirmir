@@ -15,6 +15,22 @@ typed `RemoteKeyScope` (`USE`, `CONTROL`). `CreateRemoteKeyResponse.secret` is
 the only time a key's value is sent. Remote calls carry
 `authorization: Bearer mmk_…` metadata. See [remote access](remote-access.md).
 
+`RemoteAccessStatus.bind` is empty when remote access is off. Otherwise at most
+one of `listener` and `error` is set; neither means the listener is configured
+but not running, as on a server a command started on demand. Invalid input to
+these RPCs (a key name, an address) returns `INVALID_ARGUMENT`, a server that
+is shutting down `UNAVAILABLE`, and a listener that cannot start
+`FAILED_PRECONDITION`. `server.remote_bind` changes only through
+`SetRemoteAccess`; `UpdateConfiguration` refuses it with `INVALID_ARGUMENT`.
+
+Over TLS, `UpdateConfiguration` refuses every `server.*` value and every secret
+operation (`SetHfToken`, `RemoveHfToken`, `SetHttpApiKey`, `RemoveHttpApiKey`)
+with `PERMISSION_DENIED`, whatever the key's scope. `ConfigurationSnapshot`
+then has empty `raw_toml`, `config_path` and `secrets_path`, and `server.*`
+values are not `editable`. Model selectors from a remote key must be empty (the
+default model), a loaded model, a configured key or a path `ListLocalModels`
+lists; anything else returns the `INVALID_ARGUMENT` of an unknown model.
+
 ### Telemetry memory pools are typed and explicit
 
 Protocol 1 sent one memory figure with a free-form `memory_source` label, and

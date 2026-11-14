@@ -7,10 +7,11 @@ use crate::application::ConfigurationChange;
 #[serde(rename_all = "snake_case")]
 pub enum Scope {
     /// Chat, embeddings, reranking, model lists, inspection, telemetry and
-    /// activity.
+    /// activity. Chat, embeddings and reranking may load a known model.
     Use,
     /// Everything in `use`, plus loading, unloading, downloading and removing
-    /// models, settings and cancellation.
+    /// models, model and runtime settings and cancellation. Server settings
+    /// and secrets stay local-only; see [`reserved`].
     Control,
 }
 
