@@ -10,7 +10,8 @@ use crate::media::MAX_IMAGE_BYTES;
 /// The status Generate ends with for an image of `size` bytes and no model.
 async fn generate_with_image(client: &mut rpc::Client, size: usize) -> tonic::Status {
     let request = proto::GenerateRequest {
-        model: "review-no-model".to_owned(),
+        // The default model passes admission, so the image checks decide.
+        model: String::new(),
         prompt: "Describe <|mirmir_image|>".to_owned(),
         image: Some(vec![0x89; size]),
         ..Default::default()
@@ -35,7 +36,7 @@ async fn images_beyond_the_default_grpc_limit_reach_generate() -> crate::error::
     let (service, root) = service();
     let remote = service.remote().clone();
     let status = remote.enable(Some("127.0.0.1:0"), service.clone()).await?;
-    let listening = status.listening.expect("listener running");
+    let listening = status.listening().cloned().expect("listener running");
     let (_, key) = remote.create_key("images", Scope::Use)?;
     let address = listening.address.to_string();
     let mut client = rpc::connect_remote(&target(&address, &key, listening.fingerprint)).await?;

@@ -72,6 +72,10 @@ impl ModelRuntimePort for Blocked {
         Ok(Vec::new())
     }
 
+    fn offers(&self, _selector: &str) -> Result<bool> {
+        Ok(true)
+    }
+
     fn inspect_model(&self, _selector: &str) -> Result<ModelInspection> {
         unused()
     }

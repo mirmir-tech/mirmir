@@ -109,6 +109,10 @@ impl ModelRuntimePort for NativeRuntime {
         self.local_models()
     }
 
+    fn offers(&self, selector: &str) -> Result<bool> {
+        self.offers(selector)
+    }
+
     fn inspect_model(&self, selector: &str) -> Result<ModelInspection> {
         self.inspect_model(selector)
     }

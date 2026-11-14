@@ -1,4 +1,5 @@
 mod activity;
+mod admission;
 mod catalog;
 mod configuration;
 mod construction;
@@ -77,7 +78,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::InspectModelRequest>,
     ) -> Result<Response<proto::InspectModelResponse>, Status> {
-        let selector = request.into_inner().selector;
+        let selector = self.admitted(request, |message| &message.selector).await?.selector;
         let service = self.clone();
         let inspected = status::internal(
             tokio::task::spawn_blocking(move || service.inspect_model(&selector)).await,
@@ -89,7 +90,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::UpdateModelGenerationRequest>,
     ) -> Result<Response<proto::UpdateModelGenerationResponse>, Status> {
-        let request = request.into_inner();
+        let request = self.admitted(request, |message| &message.selector).await?;
         let settings = request
             .settings
             .as_ref()
@@ -103,7 +104,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::LoadModelRequest>,
     ) -> Result<Response<Self::LoadModelStream>, Status> {
-        let request = request.into_inner();
+        let request = self.admitted(request, |message| &message.selector).await?;
         let service = self.clone();
         let (sender, receiver) = mpsc::channel(64);
         drop(tokio::task::spawn_blocking(move || {
@@ -148,21 +149,24 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::GenerateRequest>,
     ) -> Result<Response<Self::GenerateStream>, Status> {
-        Ok(Response::new(self.generate_stream(request.into_inner())))
+        let request = self.admitted(request, |message| &message.model).await?;
+        Ok(Response::new(self.generate_stream(request)))
     }
 
     async fn embed(
         &self,
         request: Request<proto::EmbedRequest>,
     ) -> Result<Response<proto::EmbedResponse>, Status> {
-        self.embed_request(request.into_inner()).await.map(Response::new)
+        let request = self.admitted(request, |message| &message.model).await?;
+        self.embed_request(request).await.map(Response::new)
     }
 
     async fn rerank(
         &self,
         request: Request<proto::RerankRequest>,
     ) -> Result<Response<proto::RerankResponse>, Status> {
-        self.rerank_request(request.into_inner()).await.map(Response::new)
+        let request = self.admitted(request, |message| &message.model).await?;
+        self.rerank_request(request).await.map(Response::new)
     }
 
     async fn telemetry(

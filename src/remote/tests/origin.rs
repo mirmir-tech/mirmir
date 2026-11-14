@@ -1,5 +1,6 @@
 //! A remote key reaches the same handlers as the local socket, but never the
-//! server's security settings, its secrets or its file paths.
+//! server's security settings, its secrets, its file paths or directories it
+//! does not offer as models.
 
 use tonic::{Code, Request};
 
@@ -98,5 +99,59 @@ async fn remote_keys_see_no_raw_configuration_or_paths() -> crate::error::Result
         assert!(!(server && value.editable), "{} is local-only", value.key);
     }
     assert!(seen.values.iter().any(|value| value.key == "default_model" && value.editable));
+    remote.finish().await
+}
+
+/// The status a remote `InspectModel` ends with for `selector`.
+async fn inspect(client: &mut rpc::Client, selector: &str) -> tonic::Status {
+    let request = proto::InspectModelRequest { selector: selector.to_owned() };
+    client.inspect_model(request).await.expect_err("no model is inspectable here")
+}
+
+#[tokio::test]
+async fn remote_keys_name_only_models_the_server_offers() -> crate::error::Result<()> {
+    let mut remote = remote(Scope::Control).await?;
+    let directory = remote.root.join("state");
+    let missing = remote.root.join("nothing-here");
+    let present = inspect(&mut remote.client, &directory.display().to_string()).await;
+    let absent = inspect(&mut remote.client, &missing.display().to_string()).await;
+    assert_eq!(present.code(), Code::InvalidArgument, "{present}");
+    assert_eq!(absent.code(), present.code());
+    let anonymous = |status: &tonic::Status, path: &std::path::Path| {
+        status.message().replace(&path.display().to_string(), "<path>")
+    };
+    assert_eq!(anonymous(&present, &directory), anonymous(&absent, &missing));
+
+    let generate = proto::GenerateRequest {
+        model: directory.display().to_string(),
+        prompt: "hello".to_owned(),
+        ..Default::default()
+    };
+    let refused = remote.client.generate(generate).await.expect_err("an unlisted path");
+    assert_eq!(refused.code(), Code::InvalidArgument, "{refused}");
+    let embed = proto::EmbedRequest {
+        model: "/".to_owned(),
+        inputs: vec!["text".to_owned()],
+        ..Default::default()
+    };
+    let refused = remote.client.embed(embed).await.expect_err("the root is no model");
+    assert_eq!(refused.message(), "model request is invalid: /", "{refused}");
+
+    let snapshot = remote.root.join("state").join("hf-hub/models--Owner--Model/snapshots/commit");
+    std::fs::create_dir_all(&snapshot)?;
+    let listed = remote.client.list_local_models(proto::ListLocalModelsRequest {}).await?;
+    let selector = listed
+        .into_inner()
+        .models
+        .into_iter()
+        .find(|model| model.repo_id == "Owner/Model");
+    let selector = selector.expect("the cached snapshot is listed").selector;
+    let offered = remote
+        .client
+        .inspect_model(proto::InspectModelRequest { selector: selector.clone() })
+        .await;
+    if let Err(status) = offered {
+        assert_ne!(status.message(), format!("model request is invalid: {selector}"));
+    }
     remote.finish().await
 }

@@ -237,5 +237,6 @@ fn state(
     }
 }
 
+mod offered;
 #[cfg(all(test, unix))]
 mod tests;
