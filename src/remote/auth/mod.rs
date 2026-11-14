@@ -22,7 +22,7 @@ use tower::{Layer, Service};
 
 use self::failures::Failures;
 use super::{
-    Access, KeyRecord,
+    Access, Caller, KeyRecord,
     clients::Clients,
     keys::KeyStore,
     scope::{method, required},
@@ -155,9 +155,12 @@ where
         self.inner.poll_ready(context)
     }
 
-    fn call(&mut self, request: Request<B>) -> Self::Future {
+    fn call(&mut self, mut request: Request<B>) -> Self::Future {
         match self.guard.authorize(request.uri().path(), request.headers(), peer(&request)) {
-            Ok(_) => Box::pin(self.inner.call(request)),
+            Ok(key) => {
+                request.extensions_mut().insert(Caller::from(&key));
+                Box::pin(self.inner.call(request))
+            },
             Err(status) => Box::pin(ready(Ok(status.into_http()))),
         }
     }

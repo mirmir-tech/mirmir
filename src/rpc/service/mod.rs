@@ -19,7 +19,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::proto;
-use crate::{application::Application, remote::RemoteAccess};
+use crate::{
+    application::Application,
+    remote::{Origin, RemoteAccess},
+};
 
 #[derive(Clone)]
 pub struct RuntimeService {
@@ -178,16 +181,17 @@ impl proto::runtime_server::Runtime for RuntimeService {
 
     async fn get_configuration(
         &self,
-        _request: Request<proto::GetConfigurationRequest>,
+        request: Request<proto::GetConfigurationRequest>,
     ) -> Result<Response<proto::ConfigurationSnapshot>, Status> {
-        Ok(Response::new(configuration::snapshot(self)?))
+        Ok(Response::new(configuration::snapshot(self, &Origin::of(&request))?))
     }
 
     async fn update_configuration(
         &self,
         request: Request<proto::UpdateConfigurationRequest>,
     ) -> Result<Response<proto::UpdateConfigurationResponse>, Status> {
-        Ok(Response::new(configuration::update(self, request.into_inner()).await?))
+        let origin = Origin::of(&request);
+        Ok(Response::new(configuration::update(self, &origin, request.into_inner()).await?))
     }
 
     async fn watch_activity(

@@ -4,17 +4,43 @@ use super::RuntimeService;
 use crate::{
     application::ConfigurationChange,
     config::{ConfigPresentation, SecretPresentation},
+    remote::{self, Origin},
     rpc::proto,
 };
 
-pub(super) fn snapshot(service: &RuntimeService) -> Result<proto::ConfigurationSnapshot, Status> {
-    Ok(convert(
-        service.application.configuration().map_err(super::status::application)?,
-    ))
+pub(super) fn snapshot(
+    service: &RuntimeService,
+    origin: &Origin,
+) -> Result<proto::ConfigurationSnapshot, Status> {
+    let configuration = service.application.configuration().map_err(super::status::application)?;
+    Ok(presented(convert(configuration), origin))
+}
+
+/// What a caller sees of the configuration. Remote keys get neither the raw
+/// file nor the server's file paths, and server settings read as not
+/// editable since only the local socket may change them.
+fn presented(
+    mut snapshot: proto::ConfigurationSnapshot,
+    origin: &Origin,
+) -> proto::ConfigurationSnapshot {
+    if origin.is_remote() {
+        snapshot.raw_toml.clear();
+        snapshot.config_path.clear();
+        snapshot.secrets_path.clear();
+        for value in &mut snapshot.values {
+            let change = ConfigurationChange::SetValue {
+                key: value.key.clone(),
+                value: String::new(),
+            };
+            value.editable &= remote::reserved(&change).is_none();
+        }
+    }
+    snapshot
 }
 
 pub(super) async fn update(
     service: &RuntimeService,
+    origin: &Origin,
     request: proto::UpdateConfigurationRequest,
 ) -> Result<proto::UpdateConfigurationResponse, Status> {
     use proto::update_configuration_request::Operation;
@@ -30,13 +56,22 @@ pub(super) async fn update(
         Some(Operation::RemoveHttpApiKey(_)) => ConfigurationChange::RemoveHttpApiKey,
         None => return Err(Status::invalid_argument("configuration operation is required")),
     };
+    if let Origin::Remote(caller) = origin
+        && let Some(reserved) = remote::reserved(&change)
+    {
+        let what = reserved.description();
+        tracing::warn!(key = %caller.key_name, what, "refused a remote configuration change");
+        return Err(Status::permission_denied(format!(
+            "{what} can be changed only over the server's local socket"
+        )));
+    }
     let outcome = service
         .application
         .update_configuration(change)
         .await
         .map_err(super::status::application)?;
     Ok(proto::UpdateConfigurationResponse {
-        configuration: Some(convert(outcome.configuration)),
+        configuration: Some(presented(convert(outcome.configuration), origin)),
         message: outcome.message,
         restart_required: outcome.restart_required,
     })

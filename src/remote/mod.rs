@@ -9,6 +9,7 @@ pub mod command;
 mod connect;
 mod keys;
 mod listener;
+mod origin;
 mod scope;
 mod tls;
 
@@ -18,7 +19,8 @@ pub use clients::Client;
 pub use connect::presented_fingerprint_within;
 pub use connect::{CONNECT_TIMEOUT, RemoteTarget, Trust, presented_fingerprint, within};
 pub use keys::{KeyRecord, display_prefix};
-pub use scope::{Access, Scope};
+pub use origin::{Caller, Origin};
+pub use scope::{Access, Scope, reserved};
 pub use tls::{CertificateSource, Fingerprint};
 
 #[cfg(test)]
