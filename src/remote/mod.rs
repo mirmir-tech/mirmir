@@ -9,6 +9,7 @@ pub mod command;
 mod connect;
 mod keys;
 mod listener;
+mod lock;
 mod origin;
 mod scope;
 mod tls;

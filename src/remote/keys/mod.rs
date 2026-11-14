@@ -18,11 +18,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use file::{Stamp, WriteLock};
+use file::Stamp;
 pub use secret::display_prefix;
 use serde::{Deserialize, Serialize};
 
-use super::Scope;
+use super::{Scope, lock::FileLock};
 use crate::error::{Error, RemoteError, Result};
 
 const MAX_NAME_CHARS: usize = 64;
@@ -116,7 +116,7 @@ impl KeyStore {
     /// before releasing the locks. Returns whether anything changed.
     fn transact(&self, change: impl FnOnce(&mut Vec<KeyRecord>) -> bool) -> Result<bool> {
         let _writer = self.writer.lock().map_err(|_| poisoned())?;
-        let _file = WriteLock::acquire(&self.path)?;
+        let _file = FileLock::acquire(&self.path)?;
         let (mut stamp, mut keys) = file::load(&self.path)?;
         let changed = change(&mut keys);
         if changed {

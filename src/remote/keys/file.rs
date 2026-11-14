@@ -1,19 +1,14 @@
-//! Persistence of the key file: a fingerprint that detects any replacement,
-//! a cross-process writer lock, and whole-file loads and saves.
+//! Persistence of the key file: a fingerprint that detects any replacement
+//! and whole-file loads and saves.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::SystemTime,
-};
+use std::{fs, path::Path, time::SystemTime};
 
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 use super::KeyRecord;
 use crate::{
     config::{ensure_private_file, write_text},
-    error::{Error, RemoteError, Result},
+    error::Result,
 };
 
 #[derive(Deserialize)]
@@ -70,51 +65,12 @@ pub(super) fn load(path: &Path) -> Result<(Option<Stamp>, Vec<KeyRecord>)> {
 }
 
 /// Atomically replaces the key file and returns the stamp of the new version.
-/// The caller must hold the [`WriteLock`].
+/// The caller must hold the key file's
+/// [`FileLock`](crate::remote::lock::FileLock).
 pub(super) fn save(path: &Path, keys: &[KeyRecord]) -> Result<Option<Stamp>> {
     let rendered = serde_json::to_string_pretty(&RenderedKeyFile { keys })?;
     write_text(path, &rendered, true)?;
     stamp(path)
-}
-
-/// An exclusive advisory lock beside the key file. It serializes complete
-/// read/modify/write transactions across processes; `flock` also excludes
-/// other open file descriptions within this process.
-pub(super) struct WriteLock {
-    file: fs::File,
-}
-
-impl WriteLock {
-    pub(super) fn acquire(path: &Path) -> Result<Self> {
-        let lock = lock_path(path)?;
-        let mut options = fs::OpenOptions::new();
-        options.create(true).truncate(false).read(true).write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let file = options.open(lock)?;
-        FileExt::lock_exclusive(&file)?;
-        Ok(Self { file })
-    }
-}
-
-impl Drop for WriteLock {
-    fn drop(&mut self) {
-        drop(FileExt::unlock(&self.file));
-    }
-}
-
-fn lock_path(path: &Path) -> Result<PathBuf> {
-    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
-        return Err(Error::Remote(RemoteError::Failed(format!(
-            "{} is not a key file path",
-            path.display()
-        ))));
-    };
-    fs::create_dir_all(parent)?;
-    Ok(parent.join(format!(".{}.lock", name.to_string_lossy())))
 }
 
 #[cfg(unix)]

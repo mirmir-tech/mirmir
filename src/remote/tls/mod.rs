@@ -1,6 +1,6 @@
 //! The TLS identity of the remote listener: a configured certificate, or a
 //! self-signed one generated once in the state directory. Clients pin the
-//! self-signed certificate by its SHA-256 fingerprint on first use.
+//! self-signed certificate by its SHA-256 fingerprint.
 
 mod fingerprint;
 
@@ -8,6 +8,7 @@ use std::{fs, path::Path};
 
 pub use fingerprint::Fingerprint;
 
+use super::lock::FileLock;
 use crate::{
     config::{RemoteCertificate, ServerSettings, ensure_private_file, write_text},
     error::Result,
@@ -46,9 +47,17 @@ pub fn identity(state_dir: &Path, settings: &ServerSettings) -> Result<Identity>
     }
 }
 
+/// Reads the generated pair, or generates it under a lock beside the
+/// certificate so concurrent servers never write mismatched halves. The key
+/// is written before the certificate, so a complete pair is never in flux,
+/// and a half pair left by an interrupted generation is replaced.
 fn self_signed(directory: &Path) -> Result<Identity> {
     let certificate = directory.join("certificate.pem");
     let key = directory.join("private-key.pem");
+    if certificate.exists() && key.exists() {
+        return read(&certificate, &key, CertificateSource::SelfSigned, true);
+    }
+    let _generating = FileLock::acquire(&certificate)?;
     if certificate.exists() && key.exists() {
         return read(&certificate, &key, CertificateSource::SelfSigned, true);
     }
@@ -126,6 +135,36 @@ mod tests {
             rejection.to_string().contains("server.remote_tls_key is not set"),
             "{rejection}"
         );
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn concurrent_servers_generate_one_matching_pair() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("mirmir-tls-race-{}", std::process::id()));
+        drop(fs::remove_dir_all(&root));
+        let settings = ServerSettings::default();
+        let identities = std::thread::scope(|scope| {
+            let mut workers = Vec::new();
+            for _ in 0..8 {
+                workers.push(scope.spawn(|| identity(&root, &settings)));
+            }
+            workers
+                .into_iter()
+                .map(|worker| worker.join().expect("worker"))
+                .collect::<Result<Vec<_>>>()
+        })?;
+        let first = &identities[0];
+        for identity in &identities {
+            assert_eq!(identity.fingerprint, first.fingerprint);
+            assert_eq!(identity.private_key, first.private_key);
+        }
+
+        let tls = root.join("remote/tls");
+        fs::remove_file(tls.join("private-key.pem"))?;
+        let replaced = identity(&root, &settings)?;
+        assert_ne!(replaced.fingerprint, first.fingerprint, "a half pair is replaced");
+        assert_eq!(identity(&root, &settings)?.private_key, replaced.private_key);
         fs::remove_dir_all(root)?;
         Ok(())
     }
