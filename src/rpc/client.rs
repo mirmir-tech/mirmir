@@ -15,7 +15,7 @@ use super::{
     proto::{HealthRequest, runtime_client::RuntimeClient},
 };
 use crate::{
-    error::{Error, Result},
+    error::{Error, RemoteError, Result},
     remote::{CONNECT_TIMEOUT, RemoteTarget, within},
 };
 
@@ -45,8 +45,9 @@ pub async fn connect_remote_within(target: &RemoteTarget, limit: Duration) -> Re
 }
 
 async fn establish(target: &RemoteTarget) -> Result<Client> {
-    let header = MetadataValue::try_from(format!("Bearer {}", target.key))
-        .map_err(|_| Error::Remote("the API key contains invalid characters".to_owned()))?;
+    let header = MetadataValue::try_from(format!("Bearer {}", target.key)).map_err(|_| {
+        Error::Remote(RemoteError::Invalid("the API key contains invalid characters".to_owned()))
+    })?;
     let channel = target.channel().await.map_err(|error| remote_failure(target, &error))?;
     let mut client = RuntimeClient::with_interceptor(channel, Credentials(Some(header)));
     let health = client
@@ -71,7 +72,7 @@ fn remote_failure(target: &RemoteTarget, error: &Error) -> Error {
         }
         source = cause.source();
     }
-    Error::Remote(format!("cannot use {}: {detail}", target.address))
+    Error::Remote(RemoteError::Failed(format!("cannot use {}: {detail}", target.address)))
 }
 
 pub async fn connect(socket: &Path) -> Result<Client> {

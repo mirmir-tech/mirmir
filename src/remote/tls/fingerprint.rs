@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use sha2::{Digest, Sha256};
 
-use crate::error::{Error, Result};
+use crate::error::{Error, RemoteError, Result};
 
 /// The SHA-256 of a certificate's DER encoding, the value a client pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,8 +19,14 @@ impl Fingerprint {
     pub fn of_pem(pem: &str) -> Result<Self> {
         let leaf = CertificateDer::pem_slice_iter(pem.as_bytes())
             .next()
-            .ok_or_else(|| Error::Remote("the certificate file holds no certificate".to_owned()))?
-            .map_err(|error| Error::Remote(format!("cannot read the certificate: {error}")))?;
+            .ok_or_else(|| {
+                Error::Remote(RemoteError::Failed(
+                    "the certificate file holds no certificate".to_owned(),
+                ))
+            })?
+            .map_err(|error| {
+                Error::Remote(RemoteError::Failed(format!("cannot read the certificate: {error}")))
+            })?;
         Ok(Self::of_der(&leaf))
     }
 }
@@ -52,8 +58,11 @@ impl FromStr for Fingerprint {
             .unwrap_or(trimmed);
         let digits: String =
             body.chars().filter(|character| !matches!(character, ':' | ' ' | '-')).collect();
-        let invalid =
-            || Error::Remote(format!("`{input}` is not a SHA-256 certificate fingerprint"));
+        let invalid = || {
+            Error::Remote(RemoteError::Invalid(format!(
+                "`{input}` is not a SHA-256 certificate fingerprint"
+            )))
+        };
         if digits.len() != 64 {
             return Err(invalid());
         }

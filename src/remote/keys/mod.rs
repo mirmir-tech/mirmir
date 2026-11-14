@@ -23,7 +23,7 @@ pub use secret::display_prefix;
 use serde::{Deserialize, Serialize};
 
 use super::Scope;
-use crate::error::{Error, Result};
+use crate::error::{Error, RemoteError, Result};
 
 const MAX_NAME_CHARS: usize = 64;
 
@@ -130,12 +130,14 @@ impl KeyStore {
 fn validate_name(name: &str) -> Result<String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > MAX_NAME_CHARS {
-        return Err(Error::Remote(format!(
+        return Err(Error::Remote(RemoteError::Invalid(format!(
             "a key name must have 1 to {MAX_NAME_CHARS} characters"
-        )));
+        ))));
     }
     if name.chars().any(char::is_control) {
-        return Err(Error::Remote("a key name cannot contain control characters".to_owned()));
+        return Err(Error::Remote(RemoteError::Invalid(
+            "a key name cannot contain control characters".to_owned(),
+        )));
     }
     Ok(name.to_owned())
 }
@@ -149,5 +151,5 @@ pub(super) fn now_unix_ms() -> u64 {
 }
 
 fn poisoned() -> Error {
-    Error::Remote("the key store lock is poisoned".to_owned())
+    Error::Remote(RemoteError::Failed("the key store lock is poisoned".to_owned()))
 }

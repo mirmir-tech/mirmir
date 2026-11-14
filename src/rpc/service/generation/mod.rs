@@ -6,8 +6,7 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::{application::GenerationResult, rpc::proto};
 
-#[path = "request.rs"]
-mod request_conversion;
+mod request;
 
 impl RuntimeService {
     pub(crate) fn generate_stream(
@@ -53,7 +52,7 @@ fn run(
     sender: &mpsc::Sender<Result<proto::GenerateEvent, Status>>,
     mut session: crate::application::GenerationSession,
 ) {
-    let chat = match request_conversion::chat_request(request) {
+    let chat = match request::chat_request(request) {
         Ok(chat) => chat,
         Err(status) => {
             session.reject(status.message());

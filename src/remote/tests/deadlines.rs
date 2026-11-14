@@ -71,10 +71,13 @@ async fn a_peer_that_never_answers_health_times_out() -> crate::error::Result<()
         &root.join("state"),
         &crate::config::AppConfig::default().server,
     )?;
-    let certificate = CertificateDer::from_pem_slice(identity.certificate.as_bytes())
-        .map_err(|error| crate::error::Error::Remote(error.to_string()))?;
-    let key = PrivateKeyDer::from_pem_slice(identity.private_key.as_bytes())
-        .map_err(|error| crate::error::Error::Remote(error.to_string()))?;
+    let certificate =
+        CertificateDer::from_pem_slice(identity.certificate.as_bytes()).map_err(|error| {
+            crate::error::Error::Remote(crate::error::RemoteError::Failed(error.to_string()))
+        })?;
+    let key = PrivateKeyDer::from_pem_slice(identity.private_key.as_bytes()).map_err(|error| {
+        crate::error::Error::Remote(crate::error::RemoteError::Failed(error.to_string()))
+    })?;
     let mut config = ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::aws_lc_rs::default_provider(),
     ))

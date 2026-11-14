@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::KeyRecord;
 use crate::{
     config::{ensure_private_file, write_text},
-    error::{Error, Result},
+    error::{Error, RemoteError, Result},
 };
 
 #[derive(Deserialize)]
@@ -108,7 +108,10 @@ impl Drop for WriteLock {
 
 fn lock_path(path: &Path) -> Result<PathBuf> {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
-        return Err(Error::Remote(format!("{} is not a key file path", path.display())));
+        return Err(Error::Remote(RemoteError::Failed(format!(
+            "{} is not a key file path",
+            path.display()
+        ))));
     };
     fs::create_dir_all(parent)?;
     Ok(parent.join(format!(".{}.lock", name.to_string_lossy())))

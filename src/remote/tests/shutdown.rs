@@ -25,9 +25,11 @@ async fn produce_event(service: &RuntimeService) {
 async fn next_event(
     stream: &mut Streaming<proto::ActivityEvent>,
 ) -> crate::error::Result<proto::ActivityEvent> {
-    let event = tokio::time::timeout(PROMPT, stream.message())
-        .await
-        .map_err(|_| crate::error::Error::Remote("no activity event arrived".to_owned()))??;
+    let event = tokio::time::timeout(PROMPT, stream.message()).await.map_err(|_| {
+        crate::error::Error::Remote(crate::error::RemoteError::Failed(
+            "no activity event arrived".to_owned(),
+        ))
+    })??;
     Ok(event.expect("the stream is open"))
 }
 

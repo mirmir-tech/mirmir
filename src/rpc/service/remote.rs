@@ -2,7 +2,7 @@ use tonic::Status;
 
 use super::{RuntimeService, proto};
 use crate::{
-    error::Error,
+    error::{Error, RemoteError},
     remote::{self, CertificateSource, ListenerState, Mode, Scope},
 };
 
@@ -126,8 +126,13 @@ const fn certificate_source(source: CertificateSource) -> proto::RemoteCertifica
 
 fn failure(error: Error) -> Status {
     match error {
-        Error::Config(message) => Status::invalid_argument(message),
-        Error::Remote(message) => Status::failed_precondition(message),
+        Error::Config(message) | Error::Remote(RemoteError::Invalid(message)) => {
+            Status::invalid_argument(message)
+        },
+        Error::Remote(RemoteError::ShuttingDown) => {
+            Status::unavailable(RemoteError::ShuttingDown.to_string())
+        },
+        Error::Remote(RemoteError::Failed(message)) => Status::failed_precondition(message),
         other => Status::internal(other.to_string()),
     }
 }

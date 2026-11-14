@@ -23,7 +23,7 @@ pub enum Error {
         source: Box<Self>,
     },
     #[error("remote access: {0}")]
-    Remote(String),
+    Remote(#[from] RemoteError),
     #[error("TLS error: {0}")]
     Tls(#[from] rustls::Error),
     #[error("certificate generation failed: {0}")]
@@ -56,4 +56,19 @@ pub enum Error {
     Inference(#[from] libmir::Error),
     #[error("numeric conversion failed: {0}")]
     Integer(#[from] std::num::TryFromIntError),
+}
+
+/// A failure of remote access, classified so the server reports a caller's
+/// mistake as an invalid argument and its own state as a precondition.
+#[derive(Debug, Error)]
+pub enum RemoteError {
+    /// A value the caller supplied, such as a key name, address or
+    /// fingerprint, is not acceptable.
+    #[error("{0}")]
+    Invalid(String),
+    #[error("the server is shutting down")]
+    ShuttingDown,
+    /// The server or the connection cannot do what was asked.
+    #[error("{0}")]
+    Failed(String),
 }

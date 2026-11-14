@@ -111,6 +111,33 @@ async fn reports_a_listener_that_cannot_bind() -> crate::error::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn invalid_input_and_shutdown_map_to_their_own_codes() -> crate::error::Result<()> {
+    use rpc::proto::runtime_server::Runtime;
+    let (service, root) = service();
+    let unnamed = proto::CreateRemoteKeyRequest {
+        name: "  ".to_owned(),
+        scope: proto::RemoteKeyScope::Use.into(),
+    };
+    let refused = service.create_remote_key(tonic::Request::new(unnamed)).await;
+    assert_eq!(refused.expect_err("a blank name").code(), Code::InvalidArgument);
+    let invalid = proto::SetRemoteAccessRequest {
+        enabled: true,
+        bind: "nowhere".to_owned(),
+    };
+    let refused = service.set_remote_access(tonic::Request::new(invalid)).await;
+    assert_eq!(refused.expect_err("no address").code(), Code::InvalidArgument);
+    service.remote().shutdown().await;
+    let late = proto::SetRemoteAccessRequest {
+        enabled: true,
+        bind: "127.0.0.1:0".to_owned(),
+    };
+    let refused = service.set_remote_access(tonic::Request::new(late)).await;
+    assert_eq!(refused.expect_err("shutting down").code(), Code::Unavailable);
+    drop(std::fs::remove_dir_all(root));
+    Ok(())
+}
+
 mod deadlines;
 mod origin;
 mod replacement;

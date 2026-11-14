@@ -2,7 +2,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
-use crate::error::{Error, Result};
+use crate::error::{Error, RemoteError, Result};
 
 /// Every presented key reads `mmk_<id>_<secret>`. The id is public and shown
 /// in key lists; only the SHA-256 of the secret is stored.
@@ -66,6 +66,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn fill(bytes: &mut [u8]) -> Result<()> {
-    getrandom::fill(bytes)
-        .map_err(|error| Error::Remote(format!("cannot generate an API key: {error}")))
+    getrandom::fill(bytes).map_err(|error| {
+        Error::Remote(RemoteError::Failed(format!("cannot generate an API key: {error}")))
+    })
 }

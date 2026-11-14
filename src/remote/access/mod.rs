@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 use super::{KeyRecord, Scope, auth::Guard, clients::Clients, keys::KeyStore};
 use crate::{
     config::{DEFAULT_REMOTE_BIND, Store},
-    error::{Error, Result},
+    error::{Error, RemoteError, Result},
     rpc::RuntimeService,
 };
 
@@ -77,7 +77,7 @@ impl RemoteAccess {
     pub async fn enable(&self, bind: Option<&str>, service: RuntimeService) -> Result<Status> {
         let _transition = self.inner.transition.lock().await;
         if matches!(*self.inner.state.lock().await, Slot::Closed) {
-            return Err(Error::Remote("the server is shutting down".to_owned()));
+            return Err(Error::Remote(RemoteError::ShuttingDown));
         }
         let configured = self.configured_bind()?;
         let bind = bind

@@ -18,7 +18,7 @@ use tower::service_fn;
 
 use self::verifier::{Capture, Pinned, provider};
 use super::Fingerprint;
-use crate::error::{Error, Result};
+use crate::error::{Error, RemoteError, Result};
 
 /// A remote server: `host:port`, the API key sent with every call and how its
 /// certificate is trusted.
@@ -59,10 +59,10 @@ pub async fn within<T>(
     attempt: impl Future<Output = Result<T>>,
 ) -> Result<T> {
     tokio::time::timeout(limit, attempt).await.map_err(|_| {
-        Error::Remote(format!(
+        Error::Remote(RemoteError::Failed(format!(
             "{address} did not complete the connection within {limit:?}; check that it serves \
              mirmir remote access (`mirmir remote enable`) on that port"
-        ))
+        )))
     })?
 }
 
@@ -72,7 +72,9 @@ impl RemoteTarget {
         let name = server_name(&self.address)?;
         let address = self.address.clone();
         let endpoint = Endpoint::from_shared(format!("http://{address}")).map_err(|error| {
-            Error::Remote(format!("`{address}` is not a server address: {error}"))
+            Error::Remote(RemoteError::Invalid(format!(
+                "`{address}` is not a server address: {error}"
+            )))
         })?;
         Ok(endpoint
             .connect_timeout(CONNECT_TIMEOUT)
@@ -108,12 +110,16 @@ async fn capture_fingerprint(address: &str) -> Result<Fingerprint> {
         .with_custom_certificate_verifier(Arc::new(Capture::new(seen.clone())))
         .with_no_client_auth();
     config.alpn_protocols = vec![b"h2".to_vec()];
-    let tcp = TcpStream::connect(address)
-        .await
-        .map_err(|error| Error::Remote(format!("cannot reach {address}: {error}")))?;
+    let tcp = TcpStream::connect(address).await.map_err(|error| {
+        Error::Remote(RemoteError::Failed(format!("cannot reach {address}: {error}")))
+    })?;
     TlsConnector::from(Arc::new(config)).connect(server_name(address)?, tcp).await?;
-    let fingerprint = *seen.lock().map_err(|_| Error::Remote("poisoned lock".to_owned()))?;
-    fingerprint.ok_or_else(|| Error::Remote(format!("{address} presented no certificate")))
+    let fingerprint = *seen
+        .lock()
+        .map_err(|_| Error::Remote(RemoteError::Failed("poisoned lock".to_owned())))?;
+    fingerprint.ok_or_else(|| {
+        Error::Remote(RemoteError::Failed(format!("{address} presented no certificate")))
+    })
 }
 
 fn client_config(trust: Trust) -> Result<ClientConfig> {
@@ -129,9 +135,9 @@ fn client_config(trust: Trust) -> Result<ClientConfig> {
             let native = rustls_native_certs::load_native_certs();
             let (added, _ignored) = roots.add_parsable_certificates(native.certs);
             if added == 0 {
-                return Err(Error::Remote(
+                return Err(Error::Remote(RemoteError::Failed(
                     "no system CA certificates found; pass --remote-fingerprint".to_owned(),
-                ));
+                )));
             }
             builder.with_root_certificates(roots).with_no_client_auth()
         },
@@ -146,8 +152,9 @@ fn server_name(address: &str) -> Result<ServerName<'static>> {
         || address.rsplit_once(':').map_or(address, |(host, _)| host),
         |rest| rest.split_once(']').map_or(rest, |(host, _)| host),
     );
-    ServerName::try_from(host.to_owned())
-        .map_err(|error| Error::Remote(format!("`{host}` is not a valid server name: {error}")))
+    ServerName::try_from(host.to_owned()).map_err(|error| {
+        Error::Remote(RemoteError::Invalid(format!("`{host}` is not a valid server name: {error}")))
+    })
 }
 
 #[cfg(test)]

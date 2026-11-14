@@ -12,7 +12,7 @@ use super::{
     tls::Identity,
 };
 use crate::{
-    error::{Error, Result},
+    error::{Error, RemoteError, Result},
     rpc::{self, RuntimeService},
 };
 
@@ -38,9 +38,9 @@ impl Listener {
         guard: Arc<Guard>,
         service: RuntimeService,
     ) -> Result<Self> {
-        let listener = TcpListener::bind(bind)
-            .await
-            .map_err(|error| Error::Remote(format!("cannot listen on {bind}: {error}")))?;
+        let listener = TcpListener::bind(bind).await.map_err(|error| {
+            Error::Remote(RemoteError::Failed(format!("cannot listen on {bind}: {error}")))
+        })?;
         let address = listener.local_addr()?;
         let tls = ServerTlsConfig::new()
             .identity(TonicIdentity::from_pem(&identity.certificate, &identity.private_key));
