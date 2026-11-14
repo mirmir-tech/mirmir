@@ -123,6 +123,12 @@ impl Activity {
         self.events.subscribe()
     }
 
+    /// How many subscribers currently receive activity events.
+    #[cfg(test)]
+    pub fn subscribers(&self) -> usize {
+        self.events.receiver_count()
+    }
+
     pub fn history(&self) -> Vec<ActivityEvent> {
         self.inner
             .lock()

@@ -4,7 +4,20 @@ use libmir::{GenerationRequest, ProgressEvent, ProgressStage};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::{Application, GenerationEvent, Result};
+use super::{Application, GenerationEvent, GenerationSession, Result};
+
+impl GenerationSession {
+    /// Watches `sender` for its receiver to close, which cancels this
+    /// generation even before any output. Keep the watch for as long as the
+    /// producer runs and drop it when the producer completes.
+    #[must_use]
+    pub fn watch_disconnect<T: Send + 'static>(
+        &self,
+        sender: mpsc::Sender<T>,
+    ) -> disconnect::Watch {
+        disconnect::Watch::new(sender, self.cancellation())
+    }
+}
 
 impl Application {
     pub fn generation_stream(
@@ -19,7 +32,7 @@ impl Application {
         drop(sender.try_send(Ok(GenerationEvent::Started {
             operation_id: session.operation_id().to_owned(),
         })));
-        let disconnect = disconnect::Watch::new(sender.clone(), session.cancellation());
+        let disconnect = session.watch_disconnect(sender.clone());
         drop(tokio::task::spawn_blocking(move || {
             let _disconnect = disconnect;
             let cancellation = session.cancellation();

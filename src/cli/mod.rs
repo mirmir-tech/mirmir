@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 mod instance;
-pub use instance::InstanceArgs;
+mod remote;
+pub use instance::{InstanceArgs, with_port};
+pub use remote::{RemoteCommand, RemoteKeyCommand};
 
 /// Run local models, manage their files and configuration, or open the terminal
 /// dashboard.
@@ -46,6 +48,13 @@ pub enum Command {
         /// Configuration operation to perform.
         #[command(subcommand)]
         command: ConfigCommand,
+    },
+    /// Serve this runtime to other computers over TLS with scoped API keys,
+    /// and manage those keys.
+    Remote {
+        /// Remote access operation to perform.
+        #[command(subcommand)]
+        command: RemoteCommand,
     },
 }
 

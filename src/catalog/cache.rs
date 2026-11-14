@@ -19,8 +19,9 @@ pub struct PartialDownload {
     pub downloaded_bytes: u64,
 }
 
-pub fn discover_cached_models() -> Vec<CachedModel> {
-    discover_in(&hf_hub::resolve_cache_dir())
+/// Models in the user's own Hugging Face cache, when the paths name one.
+pub fn discover_external_models(paths: &crate::config::Paths) -> Vec<CachedModel> {
+    paths.external_hub_cache.as_deref().map(discover_in).unwrap_or_default()
 }
 
 pub fn discover_cached_models_in(cache: &Path) -> Vec<CachedModel> {

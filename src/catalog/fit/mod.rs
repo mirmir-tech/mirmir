@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use sysinfo::System;
 
 use super::hub::HubModel;
-use crate::model_format::ModelFormat;
+use crate::model::format::ModelFormat;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 

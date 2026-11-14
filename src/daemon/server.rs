@@ -8,12 +8,13 @@ use super::{guard::InstanceGuard, telemetry::Sampler};
 use crate::{
     config::{AppConfig, Paths, SocketAccess, Store},
     error::Result,
-    rpc::{RuntimeService, proto::runtime_server::RuntimeServer},
+    rpc::{self, RuntimeService},
 };
 
 pub struct Owner {
     paths: Paths,
     shutdown: Option<oneshot::Sender<()>>,
+    remote: crate::remote::RemoteAccess,
     task: JoinHandle<std::result::Result<(), tonic::transport::Error>>,
     sampler: Sampler,
     _guard: InstanceGuard,
@@ -25,6 +26,9 @@ pub fn start(paths: Paths, config: &AppConfig) -> Result<Owner> {
     start_service(paths.clone(), RuntimeService::new(config, Store::new(paths)))
 }
 
+/// Serves `service` on the local socket. The configured remote listener is
+/// not started here: a server a command starts on demand never opens it, and
+/// `mirmir serve` starts it once the socket is up.
 pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Owner> {
     paths.ensure_runtime_dirs()?;
     let guard = InstanceGuard::acquire(&paths.lock_file)?;
@@ -36,9 +40,10 @@ pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Own
     let incoming = UnixListenerStream::new(listener);
     let (shutdown, receiver) = oneshot::channel();
     let sampler = Sampler::start(&service);
+    let remote = service.remote().clone();
     let task = tokio::spawn(async move {
         Server::builder()
-            .add_service(RuntimeServer::new(service))
+            .add_service(rpc::server(service))
             .serve_with_incoming_shutdown(incoming, async {
                 drop(receiver.await);
             })
@@ -47,6 +52,7 @@ pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Own
     Ok(Owner {
         paths,
         shutdown: Some(shutdown),
+        remote,
         task,
         sampler,
         _guard: guard,
@@ -55,6 +61,7 @@ pub(super) fn start_service(paths: Paths, service: RuntimeService) -> Result<Own
 
 impl Owner {
     pub async fn shutdown(mut self) -> Result<()> {
+        self.remote.shutdown().await;
         if let Some(shutdown) = self.shutdown.take() {
             let _shutdown_result = shutdown.send(());
         }

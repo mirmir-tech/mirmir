@@ -8,6 +8,8 @@ use crate::{
     rpc::{self, proto},
 };
 
+pub mod format;
+
 pub async fn run(instance: &Instance, command: ModelCommand) -> Result<()> {
     let mut connection = instance.connect().await?;
     let result = execute(&mut connection.client, command).await;

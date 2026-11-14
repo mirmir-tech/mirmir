@@ -1,0 +1,97 @@
+use std::path::PathBuf;
+
+use clap::Args;
+
+use crate::{
+    error::{Error, RemoteError, Result},
+    instance::Instance,
+    remote::{RemoteTarget, Trust},
+};
+
+/// The port `--remote` uses when the address has none.
+const DEFAULT_REMOTE_PORT: u16 = 7443;
+
+#[derive(Debug, Args)]
+pub struct InstanceArgs {
+    /// Use /run/mirmir/mirmir.sock; clients only attach and never start a
+    /// runtime.
+    #[arg(long, global = true, conflicts_with_all = ["socket", "remote"])]
+    pub system: bool,
+    /// Select a Unix socket; clients only attach and never use local
+    /// configuration.
+    #[arg(long, global = true, value_name = "PATH", conflicts_with = "remote")]
+    pub socket: Option<PathBuf>,
+    /// Attach to another computer's mirmir over TLS at HOST[:PORT] (default
+    /// port 7443; a `grpcs://` prefix is accepted); requires a remote API key.
+    #[arg(long, global = true, value_name = "HOST[:PORT]")]
+    pub remote: Option<String>,
+    /// Remote API key (`mmk_…`) sent with every call; prefer the environment
+    /// variable over the command line.
+    #[arg(long, global = true, env = "MIRMIR_REMOTE_KEY", hide_env_values = true)]
+    pub remote_key: Option<String>,
+    /// Pin the server certificate by its SHA-256 fingerprint, as shown by
+    /// `mirmir remote status` on the server. The CLI keeps no pin, so pass it
+    /// on every run; omit it only for a CA-issued certificate.
+    #[arg(long, global = true, env = "MIRMIR_REMOTE_FINGERPRINT", value_name = "SHA256")]
+    pub remote_fingerprint: Option<String>,
+}
+
+impl TryFrom<InstanceArgs> for Instance {
+    type Error = Error;
+
+    fn try_from(args: InstanceArgs) -> Result<Self> {
+        if args.system {
+            return Ok(Self::System);
+        }
+        if let Some(socket) = args.socket {
+            return Ok(Self::Socket(socket));
+        }
+        let Some(address) = args.remote else {
+            return Ok(Self::Personal);
+        };
+        let key = args.remote_key.filter(|key| !key.trim().is_empty()).ok_or_else(|| {
+            Error::Config("--remote requires --remote-key or MIRMIR_REMOTE_KEY".to_owned())
+        })?;
+        let trust = match args.remote_fingerprint.filter(|value| !value.trim().is_empty()) {
+            Some(fingerprint) => Trust::Pinned(fingerprint.parse()?),
+            None => Trust::System,
+        };
+        Ok(Self::Remote(RemoteTarget {
+            address: with_port(&address)?,
+            key,
+            trust,
+        }))
+    }
+}
+
+/// Normalizes a `--remote` address: drops an optional `grpcs://` prefix, as
+/// clients display the address, refuses paths and whitespace, and appends the
+/// default port unless the address already names one.
+pub fn with_port(address: &str) -> Result<String> {
+    let given = address.trim();
+    let address = given
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map_or(given, |_| &given[SCHEME.len()..]);
+    if address.is_empty() || address.contains('/') || address.contains(char::is_whitespace) {
+        return Err(Error::Remote(RemoteError::Invalid(format!(
+            "`{given}` is not a HOST[:PORT] server address"
+        ))));
+    }
+    let has_port = address
+        .strip_prefix('[')
+        .map_or_else(|| address.matches(':').count() == 1, |rest| rest.contains("]:"));
+    Ok(if has_port {
+        address.to_owned()
+    } else if address.contains(':') && !address.starts_with('[') {
+        format!("[{address}]:{DEFAULT_REMOTE_PORT}")
+    } else {
+        format!("{address}:{DEFAULT_REMOTE_PORT}")
+    })
+}
+
+/// The scheme clients show before a remote address.
+const SCHEME: &str = "grpcs://";
+
+#[cfg(test)]
+mod tests;

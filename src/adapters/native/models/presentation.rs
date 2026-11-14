@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use libmir::{GenerationOverrides, ModelDescriptor, TemplateKind};
 use serde_json::Value;
 
-use crate::{config::GenerationConfig, model_format::ModelFormat};
+use crate::{config::GenerationConfig, model::format::ModelFormat};
 
 pub(super) struct ModelPresentation {
     pub class: String,

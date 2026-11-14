@@ -6,8 +6,7 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::{application::GenerationResult, rpc::proto};
 
-#[path = "generation/request.rs"]
-mod request_conversion;
+mod request;
 
 impl RuntimeService {
     pub(crate) fn generate_stream(
@@ -22,14 +21,28 @@ pub fn stream(
     service: RuntimeService,
     request: proto::GenerateRequest,
 ) -> ReceiverStream<Result<proto::GenerateEvent, Status>> {
-    let (sender, receiver) = mpsc::channel(64);
     let session = service.application.start_generation(&request.model);
+    spawn(service, request, session)
+}
+
+/// Runs `session` on a blocking worker. A client that disconnects cancels it
+/// even before any output; the watch retires when the worker completes.
+fn spawn(
+    service: RuntimeService,
+    request: proto::GenerateRequest,
+    session: crate::application::GenerationSession,
+) -> ReceiverStream<Result<proto::GenerateEvent, Status>> {
+    let (sender, receiver) = mpsc::channel(64);
     drop(sender.try_send(Ok(proto::GenerateEvent {
         event: Some(proto::generate_event::Event::Started(proto::OperationStarted {
             operation_id: session.operation_id().to_owned(),
         })),
     })));
-    drop(tokio::task::spawn_blocking(move || run(&service, &request, &sender, session)));
+    let disconnect = session.watch_disconnect(sender.clone());
+    drop(tokio::task::spawn_blocking(move || {
+        let _disconnect = disconnect;
+        run(&service, &request, &sender, session);
+    }));
     ReceiverStream::new(receiver)
 }
 
@@ -39,7 +52,7 @@ fn run(
     sender: &mpsc::Sender<Result<proto::GenerateEvent, Status>>,
     mut session: crate::application::GenerationSession,
 ) {
-    let chat = match request_conversion::chat_request(request) {
+    let chat = match request::chat_request(request) {
         Ok(chat) => chat,
         Err(status) => {
             session.reject(status.message());
@@ -135,3 +148,6 @@ fn proto_tool_call(call: libmir::ToolCall) -> proto::ChatToolCall {
         }),
     }
 }
+
+#[cfg(test)]
+mod tests;

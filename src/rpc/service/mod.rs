@@ -1,4 +1,5 @@
 mod activity;
+mod admission;
 mod catalog;
 mod configuration;
 mod construction;
@@ -6,6 +7,7 @@ mod dashboard;
 mod generation;
 mod local_models;
 mod models;
+mod remote;
 mod restore;
 mod settings;
 mod status;
@@ -18,11 +20,15 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::proto;
-use crate::application::Application;
+use crate::{
+    application::Application,
+    remote::{Origin, RemoteAccess},
+};
 
 #[derive(Clone)]
 pub struct RuntimeService {
     application: Application,
+    remote: RemoteAccess,
 }
 
 #[tonic::async_trait]
@@ -72,7 +78,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::InspectModelRequest>,
     ) -> Result<Response<proto::InspectModelResponse>, Status> {
-        let selector = request.into_inner().selector;
+        let selector = self.admitted(request, |message| &message.selector).await?.selector;
         let service = self.clone();
         let inspected = status::internal(
             tokio::task::spawn_blocking(move || service.inspect_model(&selector)).await,
@@ -84,7 +90,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::UpdateModelGenerationRequest>,
     ) -> Result<Response<proto::UpdateModelGenerationResponse>, Status> {
-        let request = request.into_inner();
+        let request = self.admitted(request, |message| &message.selector).await?;
         let settings = request
             .settings
             .as_ref()
@@ -98,7 +104,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::LoadModelRequest>,
     ) -> Result<Response<Self::LoadModelStream>, Status> {
-        let request = request.into_inner();
+        let request = self.admitted(request, |message| &message.selector).await?;
         let service = self.clone();
         let (sender, receiver) = mpsc::channel(64);
         drop(tokio::task::spawn_blocking(move || {
@@ -143,21 +149,24 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::GenerateRequest>,
     ) -> Result<Response<Self::GenerateStream>, Status> {
-        Ok(Response::new(self.generate_stream(request.into_inner())))
+        let request = self.admitted(request, |message| &message.model).await?;
+        Ok(Response::new(self.generate_stream(request)))
     }
 
     async fn embed(
         &self,
         request: Request<proto::EmbedRequest>,
     ) -> Result<Response<proto::EmbedResponse>, Status> {
-        self.embed_request(request.into_inner()).await.map(Response::new)
+        let request = self.admitted(request, |message| &message.model).await?;
+        self.embed_request(request).await.map(Response::new)
     }
 
     async fn rerank(
         &self,
         request: Request<proto::RerankRequest>,
     ) -> Result<Response<proto::RerankResponse>, Status> {
-        self.rerank_request(request.into_inner()).await.map(Response::new)
+        let request = self.admitted(request, |message| &message.model).await?;
+        self.rerank_request(request).await.map(Response::new)
     }
 
     async fn telemetry(
@@ -176,16 +185,17 @@ impl proto::runtime_server::Runtime for RuntimeService {
 
     async fn get_configuration(
         &self,
-        _request: Request<proto::GetConfigurationRequest>,
+        request: Request<proto::GetConfigurationRequest>,
     ) -> Result<Response<proto::ConfigurationSnapshot>, Status> {
-        Ok(Response::new(configuration::snapshot(self)?))
+        Ok(Response::new(configuration::snapshot(self, &Origin::of(&request))?))
     }
 
     async fn update_configuration(
         &self,
         request: Request<proto::UpdateConfigurationRequest>,
     ) -> Result<Response<proto::UpdateConfigurationResponse>, Status> {
-        Ok(Response::new(configuration::update(self, request.into_inner()).await?))
+        let origin = Origin::of(&request);
+        Ok(Response::new(configuration::update(self, &origin, request.into_inner()).await?))
     }
 
     async fn watch_activity(
@@ -202,15 +212,37 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::CancelOperationRequest>,
     ) -> Result<Response<proto::CancelOperationResponse>, Status> {
-        let operation_id = request.into_inner().operation_id;
-        let response = activity::cancellation(self.application.cancel_operation(&operation_id));
-        tracing::info!(
-            operation = %operation_id,
-            found = response.found,
-            accepted = response.accepted,
-            state = %response.state,
-            "operation cancellation requested"
-        );
-        Ok(Response::new(response))
+        Ok(Response::new(activity::cancel(
+            &self.application,
+            &request.into_inner().operation_id,
+        )))
+    }
+
+    async fn get_remote_access(
+        &self,
+        _request: Request<proto::GetRemoteAccessRequest>,
+    ) -> Result<Response<proto::RemoteAccessStatus>, Status> {
+        self.remote_status().await.map(Response::new)
+    }
+
+    async fn set_remote_access(
+        &self,
+        request: Request<proto::SetRemoteAccessRequest>,
+    ) -> Result<Response<proto::RemoteAccessStatus>, Status> {
+        self.set_remote(request.into_inner()).await.map(Response::new)
+    }
+
+    async fn create_remote_key(
+        &self,
+        request: Request<proto::CreateRemoteKeyRequest>,
+    ) -> Result<Response<proto::CreateRemoteKeyResponse>, Status> {
+        self.issue_remote_key(&request.into_inner()).map(Response::new)
+    }
+
+    async fn revoke_remote_key(
+        &self,
+        request: Request<proto::RevokeRemoteKeyRequest>,
+    ) -> Result<Response<proto::RevokeRemoteKeyResponse>, Status> {
+        self.withdraw_remote_key(&request.into_inner()).map(Response::new)
     }
 }

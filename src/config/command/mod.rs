@@ -14,7 +14,7 @@ const HF_TOKEN: &str = "hugging_face.token";
 const HTTP_API_KEY: &str = "server.api_key";
 
 pub async fn run(instance: &Instance, command: ConfigCommand) -> Result<()> {
-    if instance.attached_socket().is_some() {
+    if instance.is_attached() {
         if matches!(command, ConfigCommand::Init | ConfigCommand::Edit) {
             return Err(Error::Config(
                 "config init/edit are local operations; use config show/set for an attached server"

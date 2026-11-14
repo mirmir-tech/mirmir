@@ -12,7 +12,7 @@ Use MiRMiR when you want one binary to download and manage models, serve
 applications, chat locally, and observe inference performance directly on your
 own hardware.
 
-## Two views of the same runtime
+## Three views of the same runtime
 
 ### Terminal dashboard
 
@@ -30,6 +30,20 @@ latency, throughput, and K/V cache telemetry into the terminal.
 
 The optional web dashboard exposes the same local runtime, models, settings,
 and telemetry in a browser.
+
+### MiRMiR for Mac
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://mirmir.tech/assets/screenshots/mac-overview-0.6.0-dark-f6ea7fb4.webp">
+  <img alt="MiRMiR for Mac overview with live throughput, time to first token, memory and recent generations" src="https://mirmir.tech/assets/screenshots/mac-overview-0.6.0-light-6bf06191.webp">
+</picture>
+
+[MiRMiR for Mac](https://github.com/mirmir-tech/mirmir-app) is a native SwiftUI
+app in the menu bar for macOS 27 or later on Apple silicon. It includes the
+runtime and runs it sandboxed as its own server, separate from the CLI's (its
+API is on port 18080), and switches
+between this Mac and remote servers over TLS. See the
+[Mac app guide](https://docs.mirmir.tech/user/mac-app.html).
 
 ## Install
 
@@ -55,13 +69,23 @@ start a replacement runtime or fall back to personal configuration. See the
 [system instance guide](docs/system-instance.md) for group access, systemd setup,
 and staging acceptance tests.
 
+Other computers can use a server over TLS with scoped API keys:
+
+```sh
+mirmir remote enable                      # on the server: prints a key and fingerprint
+mirmir --remote server.local --remote-fingerprint 'AB:CD:…' status
+```
+
+See [remote access](docs/remote-access.md) for scopes, certificates and limits.
+
 ## What it provides
 
 - local Hugging Face model discovery, download, inspection, and lifecycle;
 - terminal and browser dashboards backed by the same runtime;
 - streamed text and vision generation;
 - OpenAI-compatible HTTP and SSE endpoints;
-- private gRPC control over a Unix socket;
+- private gRPC control over a Unix socket, and remotely over TLS with scoped
+  API keys;
 - concurrent scheduling, paged K/V cache, and prefix reuse;
 - live latency, throughput, memory, cache, and request telemetry;
 - native Metal and CUDA execution through `libmir`.

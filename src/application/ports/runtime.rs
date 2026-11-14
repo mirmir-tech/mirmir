@@ -17,6 +17,9 @@ pub trait ModelRuntimePort: Send + Sync {
     fn active_models(&self) -> Result<Vec<String>>;
     fn take_state_recovery(&self) -> Result<Option<StateRecovery>>;
     fn local_models(&self) -> Result<Vec<LocalModelInfo>>;
+    /// Whether a remote caller may name `selector`: a configured key, or a
+    /// model path the server lists itself.
+    fn offers(&self, selector: &str) -> Result<bool>;
     fn inspect_model(&self, selector: &str) -> Result<ModelInspection>;
     fn prepare_load(
         &self,

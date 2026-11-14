@@ -91,3 +91,59 @@ fn cached_model_already_configured_through_a_symlink_is_not_listed_twice() -> st
     assert!(listed.is_empty());
     Ok(())
 }
+
+#[test]
+fn resident_cached_vision_model_reports_its_image_input() -> crate::error::Result<()> {
+    let hub = LinkedHub::new()?;
+    let active = hub.store.resolve_model(hub.linked_snapshot.to_str().expect("UTF-8"))?.key;
+    assert_ne!(Path::new(&active), hub.linked_snapshot, "fixture must traverse a symlink");
+    let loaded = ModelInfo {
+        id: active.clone(),
+        path: active.clone(),
+        image_input: true,
+        image_unavailable_reason: String::new(),
+    };
+    let resident = HashMap::from([(active.as_str(), &loaded)]);
+    let mut listed = Vec::new();
+    append_cached(
+        &mut listed,
+        hub.cached(),
+        false,
+        &mut HashSet::new(),
+        &mut HashSet::new(),
+        &resident,
+        &HashSet::new(),
+    );
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].selector, active);
+    assert_eq!(listed[0].state, LocalModelState::Ready);
+    assert!(listed[0].image_input, "a resident vision model must accept images");
+    Ok(())
+}
+
+#[test]
+fn resident_cached_text_model_keeps_its_image_unavailable_reason() -> crate::error::Result<()> {
+    let hub = LinkedHub::new()?;
+    let active = hub.store.resolve_model(hub.linked_snapshot.to_str().expect("UTF-8"))?.key;
+    let loaded = ModelInfo {
+        id: active.clone(),
+        path: active.clone(),
+        image_input: false,
+        image_unavailable_reason: "text-only checkpoint".to_owned(),
+    };
+    let resident = HashMap::from([(active.as_str(), &loaded)]);
+    let mut listed = Vec::new();
+    append_cached(
+        &mut listed,
+        hub.cached(),
+        true,
+        &mut HashSet::new(),
+        &mut HashSet::new(),
+        &resident,
+        &HashSet::new(),
+    );
+    assert_eq!(listed[0].state, LocalModelState::Ready);
+    assert!(!listed[0].image_input);
+    assert_eq!(listed[0].image_unavailable_reason, "text-only checkpoint");
+    Ok(())
+}

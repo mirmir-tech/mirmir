@@ -10,10 +10,10 @@ mod http;
 mod instance;
 mod media;
 mod model;
-mod model_format;
 mod output;
 mod prompt;
 mod protocol;
+mod remote;
 mod rpc;
 mod status;
 mod tui;
@@ -33,14 +33,16 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let selected = Cli::parse();
-    let attached = selected.instance.system || selected.instance.socket.is_some();
+    let attached = selected.instance.system
+        || selected.instance.socket.is_some()
+        || selected.instance.remote.is_some();
     let cli = if !attached || matches!(selected.command.as_ref(), Some(Command::Serve(_))) {
         config::load_dotenv(&std::env::current_dir()?)?;
         Cli::parse()
     } else {
         selected
     };
-    let instance = instance::Instance::from(cli.instance);
+    let instance = instance::Instance::try_from(cli.instance)?;
     init_tracing(matches!(cli.command.as_ref(), Some(Command::Serve(_))))?;
 
     match cli.command {
@@ -53,6 +55,7 @@ async fn run() -> Result<()> {
         Some(Command::Prompt(args)) => prompt::run(&instance, args).await,
         Some(Command::Model { command }) => model::run(&instance, command).await,
         Some(Command::Config { command }) => config::command::run(&instance, command).await,
+        Some(Command::Remote { command }) => remote::command::run(&instance, command).await,
         None => tui::run(&instance).await,
     }
 }

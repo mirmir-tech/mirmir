@@ -1,10 +1,13 @@
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use libmir::KvCacheDType;
 use serde::{Deserialize, Serialize};
 
+pub use self::server::{DEFAULT_REMOTE_BIND, RemoteCertificate, ServerSettings};
 use super::model_runtime::ModelRuntimeConfig;
 use crate::error::{Error, Result};
+
+mod server;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -15,18 +18,6 @@ pub struct AppConfig {
     pub default_model: Option<String>,
     pub runtime: RuntimeSettings,
     pub server: ServerSettings,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ServerSettings {
-    pub http_bind: String,
-    pub allow_remote: bool,
-    pub web_enabled: bool,
-    pub cors_origins: Vec<String>,
-    pub body_limit_bytes: usize,
-    pub request_timeout_seconds: u64,
-    pub max_concurrency: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -127,20 +118,6 @@ impl Default for SecretsConfig {
     }
 }
 
-impl Default for ServerSettings {
-    fn default() -> Self {
-        Self {
-            http_bind: "127.0.0.1:8080".to_owned(),
-            allow_remote: false,
-            web_enabled: false,
-            cors_origins: Vec::new(),
-            body_limit_bytes: crate::media::DEFAULT_IMAGE_REQUEST_BYTES,
-            request_timeout_seconds: 300,
-            max_concurrency: 16,
-        }
-    }
-}
-
 impl AppConfig {
     pub fn validate(&self) -> Result<()> {
         validate_schema(self.schema_version)?;
@@ -174,44 +151,6 @@ impl AppConfig {
         }
         self.runtime.validate_prefill_policies()?;
         self.server.validate()?;
-        Ok(())
-    }
-}
-
-impl ServerSettings {
-    pub fn address(&self) -> Result<SocketAddr> {
-        match self.http_bind.parse() {
-            Ok(address) => Ok(address),
-            Err(error) => Err(Error::Config(format!(
-                "server.http_bind `{}` is invalid: {error}",
-                self.http_bind
-            ))),
-        }
-    }
-
-    #[must_use]
-    pub const fn request_timeout(&self) -> Duration {
-        Duration::from_secs(self.request_timeout_seconds)
-    }
-
-    pub fn validate(&self) -> Result<()> {
-        let address = self.address()?;
-        if !address.ip().is_loopback() && !self.allow_remote {
-            return Err(Error::Config(
-                "server.allow_remote must be true for a non-loopback HTTP bind".to_owned(),
-            ));
-        }
-        if self.web_enabled && !address.ip().is_loopback() {
-            return Err(Error::Config(
-                "server.web_enabled currently requires a loopback HTTP bind".to_owned(),
-            ));
-        }
-        if self.body_limit_bytes == 0 || self.request_timeout_seconds == 0 {
-            return Err(Error::Config("HTTP body limit and timeout must be positive".to_owned()));
-        }
-        if self.max_concurrency == 0 {
-            return Err(Error::Config("server.max_concurrency must be positive".to_owned()));
-        }
         Ok(())
     }
 }

@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::{
     config::{AppConfig, Paths},
     error::{Error, Result},
+    instance::Address,
     rpc,
 };
 
@@ -11,13 +12,13 @@ const CONNECT_RETRY_DELAY: Duration = Duration::from_millis(25);
 
 pub struct Connection {
     pub client: rpc::Client,
-    pub socket: std::path::PathBuf,
+    pub address: Address,
     owner: Option<super::server::Owner>,
 }
 
 impl Connection {
-    pub const fn attached(client: rpc::Client, socket: std::path::PathBuf) -> Self {
-        Self { client, socket, owner: None }
+    pub const fn attached(client: rpc::Client, address: Address) -> Self {
+        Self { client, address, owner: None }
     }
 
     #[must_use]
@@ -36,7 +37,9 @@ impl Connection {
 
 pub async fn connect_or_start(paths: &Paths, config: &AppConfig) -> Result<Connection> {
     match rpc::connect(&paths.socket_file).await {
-        Ok(client) => return Ok(Connection::attached(client, paths.socket_file.clone())),
+        Ok(client) => {
+            return Ok(Connection::attached(client, Address::Socket(paths.socket_file.clone())));
+        },
         Err(error) if retryable(&error) => {},
         Err(error) => return Err(error),
     }
@@ -63,7 +66,7 @@ async fn retry_connect(
                 return Ok(Connection {
                     client,
                     owner,
-                    socket: paths.socket_file.clone(),
+                    address: Address::Socket(paths.socket_file.clone()),
                 });
             },
             Err(error) if retryable(&error) => last_error = Some(error.to_string()),

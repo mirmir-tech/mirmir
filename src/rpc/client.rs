@@ -1,17 +1,79 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
-use tonic::transport::{Channel, Endpoint, Uri};
+use tonic::{
+    Request, Status,
+    metadata::{Ascii, MetadataValue},
+    service::{Interceptor, interceptor::InterceptedService},
+    transport::{Channel, Endpoint, Uri},
+};
 use tower::service_fn;
 
 use super::{
     PROTOCOL_VERSION,
     proto::{HealthRequest, runtime_client::RuntimeClient},
 };
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, RemoteError, Result},
+    remote::{CONNECT_TIMEOUT, RemoteTarget, within},
+};
 
-pub type Client = RuntimeClient<Channel>;
+pub type Client = RuntimeClient<InterceptedService<Channel, Credentials>>;
+
+/// The remote API key sent with every call; local socket clients send none.
+#[derive(Clone, Default)]
+pub struct Credentials(Option<MetadataValue<Ascii>>);
+
+impl Interceptor for Credentials {
+    fn call(&mut self, mut request: Request<()>) -> std::result::Result<Request<()>, Status> {
+        if let Some(value) = &self.0 {
+            request.metadata_mut().insert("authorization", value.clone());
+        }
+        Ok(request)
+    }
+}
+
+/// Connects to a remote server's TLS listener and checks its protocol. TCP,
+/// TLS and the first Health call together get [`CONNECT_TIMEOUT`].
+pub async fn connect_remote(target: &RemoteTarget) -> Result<Client> {
+    connect_remote_within(target, CONNECT_TIMEOUT).await
+}
+
+pub async fn connect_remote_within(target: &RemoteTarget, limit: Duration) -> Result<Client> {
+    within(&target.address, limit, establish(target)).await
+}
+
+async fn establish(target: &RemoteTarget) -> Result<Client> {
+    let header = MetadataValue::try_from(format!("Bearer {}", target.key)).map_err(|_| {
+        Error::Remote(RemoteError::Invalid("the API key contains invalid characters".to_owned()))
+    })?;
+    let channel = target.channel().await.map_err(|error| remote_failure(target, &error))?;
+    let mut client = RuntimeClient::with_interceptor(channel, Credentials(Some(header)));
+    let health = client
+        .health(HealthRequest {})
+        .await
+        .map_err(|status| remote_failure(target, &Error::Status(status)))?
+        .into_inner();
+    validate_protocol(&health.protocol_version)?;
+    Ok(client)
+}
+
+/// A remote failure with its whole cause chain, which names TLS problems such
+/// as a fingerprint mismatch that the transport error alone hides.
+fn remote_failure(target: &RemoteTarget, error: &Error) -> Error {
+    let mut detail = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !detail.contains(&text) {
+            detail.push_str(": ");
+            detail.push_str(&text);
+        }
+        source = cause.source();
+    }
+    Error::Remote(RemoteError::Failed(format!("cannot use {}: {detail}", target.address)))
+}
 
 pub async fn connect(socket: &Path) -> Result<Client> {
     #[cfg(unix)]
@@ -37,7 +99,7 @@ pub async fn connect(socket: &Path) -> Result<Client> {
             }
         }))
         .await?;
-    let mut client = RuntimeClient::new(channel);
+    let mut client = RuntimeClient::with_interceptor(channel, Credentials::default());
     let health = client.health(HealthRequest {}).await?.into_inner();
     validate_protocol(&health.protocol_version)?;
     Ok(client)

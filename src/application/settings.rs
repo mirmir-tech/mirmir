@@ -1,7 +1,17 @@
-use super::{Application, MemoryReport, Result};
+use super::{Application, Error, MemoryReport, Result};
 use crate::config::{GenerationConfig, HubModelConfig};
 
 impl Application {
+    /// Refuses a selector a remote caller may not name with the error an
+    /// unknown model gets, so the refusal reveals nothing about the path.
+    pub fn check_offered(&self, selector: &str) -> Result<()> {
+        if self.runtime.offers(selector)? {
+            Ok(())
+        } else {
+            Err(Error::InvalidModel(selector.to_owned()))
+        }
+    }
+
     pub fn inspect_model(&self, selector: &str) -> Result<ModelInspection> {
         self.runtime.inspect_model(selector)
     }

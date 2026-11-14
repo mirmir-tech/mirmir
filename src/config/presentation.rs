@@ -2,7 +2,7 @@ use std::fs;
 
 use serde::Serialize;
 
-use super::{AppConfig, Store, schema::SecretsConfig};
+use super::{AppConfig, RemoteCertificate, ServerSettings, Store, schema::SecretsConfig};
 use crate::error::Result;
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,6 +99,7 @@ fn values(config: &AppConfig, document: &toml::Value) -> Vec<PresentedValue> {
 
 fn server_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document: &toml::Value) {
     push(values, document, "server.http_bind", &config.server.http_bind, true, true);
+    let (certificate, key) = remote_tls_values(&config.server);
     for (key, value) in [
         ("server.allow_remote", config.server.allow_remote.to_string()),
         ("server.web_enabled", config.server.web_enabled.to_string()),
@@ -112,6 +113,11 @@ fn server_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document:
     ] {
         push(values, document, key, &value, true, true);
     }
+    // Changed only by `mirmir remote enable` and `disable`, with the listener.
+    let remote = config.server.remote_bind.as_deref().unwrap_or("off");
+    push(values, document, "server.remote_bind", remote, false, false);
+    push(values, document, "server.remote_tls_cert", &certificate, true, true);
+    push(values, document, "server.remote_tls_key", &key, true, true);
 }
 
 fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document: &toml::Value) {
@@ -144,6 +150,21 @@ fn runtime_values(values: &mut Vec<PresentedValue>, config: &AppConfig, document
         ("runtime.vision_memory_percent", optional(runtime.vision_memory_percent)),
     ] {
         push(values, document, key, &value, true, true);
+    }
+}
+
+/// Both halves read `self-signed` when neither is set; the unset half of an
+/// incomplete pair reads `missing`, since the listener refuses that pair.
+fn remote_tls_values(server: &ServerSettings) -> (String, String) {
+    let shown = |path: Option<&std::path::Path>| {
+        path.map_or_else(|| "missing".to_owned(), |path| path.display().to_string())
+    };
+    match server.remote_certificate() {
+        Ok(RemoteCertificate::SelfSigned) => ("self-signed".to_owned(), "self-signed".to_owned()),
+        Ok(RemoteCertificate::Configured { .. }) | Err(_) => (
+            shown(server.remote_tls_cert.as_deref()),
+            shown(server.remote_tls_key.as_deref()),
+        ),
     }
 }
 
