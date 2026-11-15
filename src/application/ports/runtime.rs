@@ -2,10 +2,10 @@ use libmir::{EmbeddingOutput, EmbeddingRequest, ProgressEvent, RerankOutput, Rer
 
 use crate::{
     application::{
-        LocalModelInfo, ModelInfo, ModelInspection, Result, models::ModelEntry,
-        telemetry::RuntimeTelemetry,
+        ContextChoice, LoadDefaults, LocalModelInfo, ModelDefaults, ModelInfo, ModelInspection,
+        Result, models::ModelEntry, telemetry::RuntimeTelemetry,
     },
-    config::{GenerationConfig, HubModelConfig, StateRecovery},
+    config::StateRecovery,
 };
 
 pub trait ModelRuntimePort: Send + Sync {
@@ -20,19 +20,13 @@ pub trait ModelRuntimePort: Send + Sync {
     /// Whether a remote caller may name `selector`: a configured key, or a
     /// model path the server lists itself.
     fn offers(&self, selector: &str) -> Result<bool>;
-    fn inspect_model(&self, selector: &str) -> Result<ModelInspection>;
-    fn prepare_load(
+    fn inspect_model(
         &self,
         selector: &str,
-        config_id: &str,
-        hub: Option<HubModelConfig>,
-        generation: Option<GenerationConfig>,
-    ) -> Result<String>;
-    fn save_generation_defaults(
-        &self,
-        selector: &str,
-        generation: GenerationConfig,
-    ) -> Result<String>;
+        context: Option<ContextChoice>,
+    ) -> Result<ModelInspection>;
+    fn prepare_load(&self, selector: &str, defaults: LoadDefaults) -> Result<String>;
+    fn save_model_defaults(&self, selector: &str, defaults: ModelDefaults) -> Result<String>;
     fn load_model(
         &self,
         selector: &str,

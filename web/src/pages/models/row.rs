@@ -72,7 +72,7 @@ pub fn LocalRow(model: Model) -> impl IntoView {
             <td class="model-actions"><div class="model-action-group">
                 <Show when=move || can_unload><button class="open-chat" class:secondary=!is_active on:click=move |_| { state.chat_model.set(selector.get_value()); state.page.set(Page::Chat); }>"Open chat"</button></Show>
                 <Show when=move || can_unload fallback=move || {
-                    view! { <button class="icon-action" data-tooltip="Load model" aria-label="Load model" disabled=busy on:click=move |_| super::dialogs::inspect(stored_model.get_value())><Icon name="load" /><span>"Load"</span></button> }
+                    view! { <button class="icon-action" data-tooltip="Load model" aria-label="Load model" disabled=busy on:click=move |_| super::inspect::inspect(stored_model.get_value())><Icon name="load" /><span>"Load"</span></button> }
                 }>
                     <button class="icon-action" data-tooltip="Unload model" aria-label="Unload model" disabled=busy on:click=move |_| { let target = selector.get_value(); run_action(state, target.clone(), "/models/unload", json!({"selector": target})); }><Icon name="unload" /></button>
                 </Show>

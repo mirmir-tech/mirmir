@@ -1,6 +1,7 @@
 mod activity;
 mod catalog;
 mod configuration;
+mod context;
 mod error;
 mod inference;
 mod models;
@@ -18,17 +19,20 @@ pub use activity::{
     ActivityEvent, ActivityKind, ActivityOutcome, ActivityProgress, ActivityStage, CancelOutcome,
 };
 pub use configuration::{ConfigurationChange, ConfigurationOutcome};
+pub use context::{ContextChoice, ContextLimits, ModelContext};
 pub use error::{Error, ErrorClass, Result};
 pub use inference::{GenerationEvent, GenerationResult, GenerationSession};
 pub use models::{
     Check, LocalModelInfo, LocalModelState, MemoryFit, MemoryReport, ModelEntry, ModelInfo,
-    eviction_can_help, eviction_candidate, rejection, safe_context, state::ModelLifecycle,
+    eviction_can_help, eviction_candidate, fitting_tokens, rejection, safe_context,
+    state::ModelLifecycle,
 };
 pub use ports::{
     CatalogPort, ConfigurationPort, ModelRuntimePort, TransferPhase, TransferProgress,
 };
 pub use settings::{
-    EmbeddingCapabilities, ModelInspection, ModelTaskCapabilities, RerankCapabilities,
+    EmbeddingCapabilities, LoadDefaults, ModelDefaults, ModelInspection, ModelTaskCapabilities,
+    RerankCapabilities,
 };
 use startup::Startup;
 pub use startup::StartupStatus;

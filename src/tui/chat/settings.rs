@@ -8,11 +8,9 @@ use ratatui::{
 
 use super::super::{
     app::{App, ChatSettingsDialog, ChatSettingsStatus},
+    ranges::GENERATION_RANGES,
     theme,
 };
-
-const LABELS: [&str; 6] =
-    ["max tokens", "temperature", "top p", "top k", "repetition penalty", "seed"];
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let Some(dialog) = app.chat_settings_dialog.as_ref() else {
@@ -60,8 +58,9 @@ fn header(frame: &mut Frame<'_>, area: Rect, dialog: &ChatSettingsDialog) {
 }
 
 fn fields(frame: &mut Frame<'_>, area: Rect, dialog: &ChatSettingsDialog) {
-    let items = LABELS.iter().zip(&dialog.fields).map(|(label, value)| {
-        let shown = if *label == "seed" && value.is_empty() {
+    let items = dialog.fields.iter().enumerate().map(|(index, value)| {
+        let label = GENERATION_RANGES.get(index).map_or("seed", |range| range.label);
+        let shown = if label == "seed" && value.is_empty() {
             "auto"
         } else {
             value

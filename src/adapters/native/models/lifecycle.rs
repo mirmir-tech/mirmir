@@ -21,6 +21,13 @@ impl NativeRuntime {
             return Ok(model);
         }
         let _memory = self.lifecycle.memory_gate()?;
+        // A model's first configuration changes its id under this gate
+        // (`rekey_resident`): resolve again, so a load that waited for it
+        // uses the id the save gave and finds a copy loaded meanwhile.
+        let resolved = self
+            .store
+            .resolve_model(selector)
+            .map_err(|error| Error::InvalidModel(error.to_string()))?;
         if let Some(model) = self.resident_model(&resolved.key)? {
             return Ok(model);
         }
@@ -88,6 +95,11 @@ impl NativeRuntime {
         // its memory; let them give some back.
         self.rebalance_kv_memory();
         Ok(entry)
+    }
+
+    /// The loaded model under `key`, without counting this as a use.
+    pub fn peek_resident_model(&self, key: &str) -> Result<Option<libmir::Model>> {
+        Ok(self.lifecycle.state()?.resident.get(key).map(|entry| entry.model.clone()))
     }
 
     pub fn resident_model(&self, key: &str) -> Result<Option<ModelEntry>> {

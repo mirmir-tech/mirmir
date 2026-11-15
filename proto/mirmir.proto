@@ -92,6 +92,33 @@ message LocalModelInfo {
 
 message InspectModelRequest {
   string selector = 1;
+  // Estimate memory for this context instead of the saved one.
+  optional ModelContextChoice context = 2;
+}
+
+// The K/V capacity a model loads with: sized automatically, or a token count
+// rounded up to whole K/V blocks.
+message ModelContextChoice {
+  oneof choice {
+    bool automatic = 1;
+    uint64 tokens = 2;
+  }
+}
+
+// The context a model can be given before it loads.
+message ModelContext {
+  // Tokens per K/V block; a chosen context is a whole number of blocks.
+  uint64 block_tokens = 1;
+  uint64 min_tokens = 2;
+  // The most the model can use: its context length for each of the requests
+  // it serves at once (what automatic sizing is capped at).
+  uint64 max_tokens = 3;
+  // The context saved for this model and used by every load.
+  ModelContextChoice saved = 4;
+  // The context automatic sizing would give it now.
+  uint64 automatic_tokens = 5;
+  // The context it serves with while loaded.
+  optional uint64 resident_tokens = 6;
 }
 
 message GenerationSettings {
@@ -108,6 +135,7 @@ message InspectModelResponse {
   ModelMemoryEstimate memory = 3;
   string task = 4;
   ModelTaskCapabilities capabilities = 5;
+  ModelContext context = 6;
 }
 
 message ModelTaskCapabilities {
@@ -134,6 +162,8 @@ message RerankCapabilities {
 message UpdateModelGenerationRequest {
   string selector = 1;
   GenerationSettings settings = 2;
+  // Saved for the model's next load; at least one of settings and context.
+  optional ModelContextChoice context = 3;
 }
 
 message UpdateModelGenerationResponse {
@@ -161,6 +191,8 @@ message LoadModelRequest {
   string revision = 5;
   string commit = 6;
   bool force = 7;
+  // Saved for the model, then used by this load.
+  optional ModelContextChoice context = 8;
 }
 
 message ModelLifecycleEvent {

@@ -1,4 +1,7 @@
+mod context;
 mod dialogs;
+mod inspect;
+mod memory;
 mod row;
 mod search;
 
@@ -11,7 +14,10 @@ use self::{
 };
 use crate::{
     state::RuntimeState,
-    types::{Model, catalog::Inspection},
+    types::{
+        Model,
+        catalog::{ContextChoice, GenerationSettings, Inspection},
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -20,6 +26,11 @@ pub(super) struct ModelUi {
     pub load_target: RwSignal<Option<Model>>,
     pub inspection: RwSignal<Option<Inspection>>,
     pub inspect_error: RwSignal<Option<String>>,
+    /// Generation parameters as edited; re-inspection leaves them alone.
+    pub settings: RwSignal<GenerationSettings>,
+    pub context: RwSignal<ContextChoice>,
+    /// The latest inspection request; older answers are ignored.
+    pub request: StoredValue<u64>,
     pub remove_target: RwSignal<Option<String>>,
 }
 
@@ -31,6 +42,9 @@ pub fn ModelsPage() -> impl IntoView {
         load_target: RwSignal::new(None),
         inspection: RwSignal::new(None),
         inspect_error: RwSignal::new(None),
+        settings: RwSignal::new(GenerationSettings::default()),
+        context: RwSignal::new(ContextChoice::default()),
+        request: StoredValue::new(0),
         remove_target: RwSignal::new(None),
     };
     provide_context(ui);

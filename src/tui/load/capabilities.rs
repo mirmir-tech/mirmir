@@ -103,6 +103,7 @@ mod tests {
                 rerank: None,
             }),
             status: super::super::super::app::LoadStatus::Editing,
+            context: None,
             fields: std::array::from_fn(|_| String::new()),
             selected: 0,
             has_mirmir_overrides: false,

@@ -108,7 +108,10 @@ async fn remote_keys_see_no_raw_configuration_or_paths() -> crate::error::Result
 
 /// The status a remote `InspectModel` ends with for `selector`.
 async fn inspect(client: &mut rpc::Client, selector: &str) -> tonic::Status {
-    let request = proto::InspectModelRequest { selector: selector.to_owned() };
+    let request = proto::InspectModelRequest {
+        selector: selector.to_owned(),
+        context: None,
+    };
     client.inspect_model(request).await.expect_err("no model is inspectable here")
 }
 
@@ -141,8 +144,11 @@ async fn remote_keys_name_only_models_the_server_offers() -> crate::error::Resul
     let refused = remote.client.embed(embed).await.expect_err("the root is no model");
     assert_eq!(refused.message(), "model request is invalid: /", "{refused}");
 
-    let snapshot = remote.root.join("state").join("hf-hub/models--Owner--Model/snapshots/commit");
-    std::fs::create_dir_all(&snapshot)?;
+    let repo = remote.root.join("state").join("hf-hub/models--Owner--Model");
+    std::fs::create_dir_all(repo.join("snapshots/commit"))?;
+    // A finished download names its snapshot in a revision reference.
+    std::fs::create_dir_all(repo.join("refs"))?;
+    std::fs::write(repo.join("refs/main"), "commit\n")?;
     let listed = remote.client.list_local_models(proto::ListLocalModelsRequest {}).await?;
     let selector = listed
         .into_inner()
@@ -152,7 +158,10 @@ async fn remote_keys_name_only_models_the_server_offers() -> crate::error::Resul
     let selector = selector.expect("the cached snapshot is listed").selector;
     let offered = remote
         .client
-        .inspect_model(proto::InspectModelRequest { selector: selector.clone() })
+        .inspect_model(proto::InspectModelRequest {
+            selector: selector.clone(),
+            context: None,
+        })
         .await;
     if let Err(status) = offered {
         assert_ne!(status.message(), format!("model request is invalid: {selector}"));

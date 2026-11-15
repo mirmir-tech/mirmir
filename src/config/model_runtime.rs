@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Runtime settings of one model that take the place of `[runtime]`.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModelRuntimeConfig {
     /// K/V cache blocks for this model alone, for models such as rerankers

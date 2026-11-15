@@ -10,6 +10,19 @@ use crate::{
 
 pub mod format;
 
+/// Parses `--context`: `automatic`, or the number of tokens to give a model.
+pub fn context(value: &str) -> std::result::Result<proto::ModelContextChoice, String> {
+    use proto::model_context_choice::Choice;
+    let choice = match value {
+        "automatic" => Choice::Automatic(true),
+        tokens => match tokens.parse::<u64>() {
+            Ok(tokens) if tokens > 0 => Choice::Tokens(tokens),
+            _ => return Err("expected `automatic` or a positive token count".to_owned()),
+        },
+    };
+    Ok(proto::ModelContextChoice { choice: Some(choice) })
+}
+
 pub async fn run(instance: &Instance, command: ModelCommand) -> Result<()> {
     let mut connection = instance.connect().await?;
     let result = execute(&mut connection.client, command).await;
@@ -23,9 +36,9 @@ async fn execute(client: &mut rpc::Client, command: ModelCommand) -> Result<()> 
                 client.list_local_models(proto::ListLocalModelsRequest {}).await?.into_inner();
             output::json(&response)
         },
-        ModelCommand::Inspect { selector } => {
+        ModelCommand::Inspect { selector, context } => {
             let response = client
-                .inspect_model(proto::InspectModelRequest { selector })
+                .inspect_model(proto::InspectModelRequest { selector, context })
                 .await?
                 .into_inner();
             output::json(&response)
@@ -70,9 +83,14 @@ async fn execute(client: &mut rpc::Client, command: ModelCommand) -> Result<()> 
                 output::line("model was not downloaded")
             }
         },
-        ModelCommand::Load { selector, force } => {
+        ModelCommand::Load { selector, force, context } => {
             let mut stream = client
-                .load_model(proto::LoadModelRequest { selector, force, ..Default::default() })
+                .load_model(proto::LoadModelRequest {
+                    selector,
+                    force,
+                    context,
+                    ..Default::default()
+                })
                 .await?
                 .into_inner();
             let mut loaded = None;

@@ -86,6 +86,9 @@ pub enum ModelCommand {
         /// to inspect.
         #[arg(value_name = "SELECTOR")]
         selector: String,
+        /// Estimate memory for this context: `automatic` or a token count.
+        #[arg(long, value_name = "TOKENS", value_parser = crate::model::context)]
+        context: Option<crate::rpc::proto::ModelContextChoice>,
     },
     /// Search the Hugging Face catalog and report compatibility and memory fit
     /// as JSON.
@@ -127,6 +130,9 @@ pub enum ModelCommand {
         /// may still fail.
         #[arg(long)]
         force: bool,
+        /// Save this context for the model, then load: `automatic` or tokens.
+        #[arg(long, value_name = "TOKENS", value_parser = crate::model::context)]
+        context: Option<crate::rpc::proto::ModelContextChoice>,
     },
     /// Unload a model from accelerator memory and disable automatic
     /// restoration.

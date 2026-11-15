@@ -5,7 +5,9 @@ mod residency;
 pub mod state;
 
 use libmir::{Model, ModelDescriptor};
-pub use preflight::{Check, MemoryFit, MemoryReport, eviction_can_help, rejection, safe_context};
+pub use preflight::{
+    Check, MemoryFit, MemoryReport, eviction_can_help, fitting_tokens, rejection, safe_context,
+};
 use residency::ModelResidency;
 pub use residency::eviction_candidate;
 

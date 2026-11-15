@@ -1,8 +1,11 @@
+mod context;
+
 use tonic::Status;
 
+use self::context::{choice, model_context};
 use super::RuntimeService;
 use crate::{
-    application::{ModelInspection, ModelTaskCapabilities},
+    application::{LoadDefaults, ModelDefaults, ModelInspection, ModelTaskCapabilities},
     config::{GenerationConfig, HubModelConfig},
     rpc::proto,
 };
@@ -10,33 +13,60 @@ use crate::{
 impl RuntimeService {
     pub(super) fn inspect_model(
         &self,
-        selector: &str,
+        request: &proto::InspectModelRequest,
     ) -> Result<proto::InspectModelResponse, Status> {
+        let context = request.context.as_ref().map(choice).transpose()?;
         self.application
-            .inspect_model(selector)
+            .inspect_model(&request.selector, context)
             .map(inspection)
             .map_err(super::status::application)
     }
 
     pub(super) fn prepare_load(&self, request: &proto::LoadModelRequest) -> Result<String, Status> {
-        let generation = request.settings.as_ref().map(config).transpose()?;
         let hub = (!request.repo_id.is_empty()).then(|| HubModelConfig {
             repo_id: request.repo_id.clone(),
             revision: request.revision.clone(),
             commit: request.commit.clone(),
         });
+        let defaults = ModelDefaults {
+            generation: request.settings.as_ref().map(config).transpose()?,
+            context: request.context.as_ref().map(choice).transpose()?,
+        };
+        let load = LoadDefaults {
+            config_id: request.config_id.clone(),
+            hub,
+            defaults,
+        };
         self.application
-            .prepare_load(&request.selector, &request.config_id, hub, generation)
+            .prepare_load(&request.selector, load)
             .map_err(super::status::application)
     }
 
-    pub(super) fn save_generation_defaults(
-        &self,
-        selector: &str,
-        settings: &proto::GenerationSettings,
+    /// Saves on the blocking pool: a first configuration waits for the
+    /// memory gate a running load holds, and that load's progress stream
+    /// needs the async workers to drain.
+    pub(super) async fn save_model_defaults(
+        self,
+        request: proto::UpdateModelGenerationRequest,
     ) -> Result<String, Status> {
+        super::status::internal(
+            tokio::task::spawn_blocking(move || self.save_defaults_now(&request)).await,
+        )?
+    }
+
+    fn save_defaults_now(
+        &self,
+        request: &proto::UpdateModelGenerationRequest,
+    ) -> Result<String, Status> {
+        let defaults = ModelDefaults {
+            generation: request.settings.as_ref().map(config).transpose()?,
+            context: request.context.as_ref().map(choice).transpose()?,
+        };
+        if defaults.generation.is_none() && defaults.context.is_none() {
+            return Err(Status::invalid_argument("generation settings or a context are required"));
+        }
         self.application
-            .save_generation_defaults(selector, config(settings)?)
+            .save_model_defaults(&request.selector, defaults)
             .map_err(super::status::application)
     }
 }
@@ -48,6 +78,7 @@ fn inspection(value: ModelInspection) -> proto::InspectModelResponse {
         memory: Some(memory_estimate(value.memory)),
         task: value.task.to_owned(),
         capabilities: Some(capabilities(value.capabilities)),
+        context: value.context.map(model_context),
     }
 }
 

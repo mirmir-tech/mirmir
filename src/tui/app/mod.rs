@@ -21,7 +21,7 @@ pub use chat::{
 pub use configuration::{ConfigurationEdit, ConfigurationTarget};
 #[cfg(test)]
 pub use load::LoadTarget;
-pub use load::{LoadDialog, LoadStatus};
+pub use load::{ContextChoice, ContextControl, LoadDialog, LoadRow, LoadStatus};
 pub use navigation::{NavigationState, WORKSPACE_PREFIX, WORKSPACE_TABS};
 pub use removal::RemoveDialog;
 pub(super) use telemetry::RefreshSnapshot;
@@ -140,6 +140,7 @@ pub struct App {
     pending_removal: Option<RemoveDialog>,
     lifecycle_rx: Option<mpsc::Receiver<Result<proto::ModelLifecycleEvent, String>>>,
     settings_rx: Option<mpsc::Receiver<Result<proto::InspectModelResponse, String>>>,
+    context_rx: Option<mpsc::Receiver<Result<proto::InspectModelResponse, String>>>,
     chat_rx: Option<mpsc::Receiver<Result<proto::GenerateEvent, String>>>,
     chat_settings_rx: Option<mpsc::Receiver<Result<ChatSettingsEvent, String>>>,
     activity_rx: Option<mpsc::Receiver<Result<proto::ActivityEvent, String>>>,
@@ -213,6 +214,7 @@ impl App {
             pending_removal: None,
             lifecycle_rx: None,
             settings_rx: None,
+            context_rx: None,
             chat_rx: None,
             chat_settings_rx: None,
             activity_rx: None,

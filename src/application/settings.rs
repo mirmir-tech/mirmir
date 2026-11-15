@@ -1,4 +1,4 @@
-use super::{Application, Error, MemoryReport, Result};
+use super::{Application, ContextChoice, Error, MemoryReport, ModelContext, Result};
 use crate::config::{GenerationConfig, HubModelConfig};
 
 impl Application {
@@ -12,26 +12,23 @@ impl Application {
         }
     }
 
-    pub fn inspect_model(&self, selector: &str) -> Result<ModelInspection> {
-        self.runtime.inspect_model(selector)
-    }
-
-    pub fn prepare_load(
+    /// Inspects a model; `context` estimates memory for that context instead
+    /// of the one saved for the model.
+    pub fn inspect_model(
         &self,
         selector: &str,
-        config_id: &str,
-        hub: Option<HubModelConfig>,
-        generation: Option<GenerationConfig>,
-    ) -> Result<String> {
-        self.runtime.prepare_load(selector, config_id, hub, generation)
+        context: Option<ContextChoice>,
+    ) -> Result<ModelInspection> {
+        self.runtime.inspect_model(selector, context)
     }
 
-    pub fn save_generation_defaults(
-        &self,
-        selector: &str,
-        generation: GenerationConfig,
-    ) -> Result<String> {
-        self.runtime.save_generation_defaults(selector, generation)
+    pub fn prepare_load(&self, selector: &str, defaults: LoadDefaults) -> Result<String> {
+        self.runtime.prepare_load(selector, defaults)
+    }
+
+    /// Saves a model's generation defaults and context for its next load.
+    pub fn save_model_defaults(&self, selector: &str, defaults: ModelDefaults) -> Result<String> {
+        self.runtime.save_model_defaults(selector, defaults)
     }
 }
 
@@ -41,6 +38,23 @@ pub struct ModelInspection {
     pub memory: MemoryReport,
     pub task: &'static str,
     pub capabilities: ModelTaskCapabilities,
+    /// `None` for models without a K/V cache, such as embedding models.
+    pub context: Option<ModelContext>,
+}
+
+/// What a client saves for a model, each part only when it changes it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ModelDefaults {
+    pub generation: Option<GenerationConfig>,
+    pub context: Option<ContextChoice>,
+}
+
+/// What a load saves for its model first, and where a direct path is kept.
+#[derive(Clone, Debug, Default)]
+pub struct LoadDefaults {
+    pub config_id: String,
+    pub hub: Option<HubModelConfig>,
+    pub defaults: ModelDefaults,
 }
 
 pub struct ModelTaskCapabilities {

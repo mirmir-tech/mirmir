@@ -19,13 +19,26 @@ pub struct PartialDownload {
     pub downloaded_bytes: u64,
 }
 
+/// Whose cache a directory is: mirmir writes a revision reference only
+/// once every file of a download is in place; another tool's cache follows
+/// its own conventions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Cache {
+    Managed,
+    External,
+}
+
 /// Models in the user's own Hugging Face cache, when the paths name one.
 pub fn discover_external_models(paths: &crate::config::Paths) -> Vec<CachedModel> {
-    paths.external_hub_cache.as_deref().map(discover_in).unwrap_or_default()
+    paths
+        .external_hub_cache
+        .as_deref()
+        .map(|cache| discover_in(cache, Cache::External))
+        .unwrap_or_default()
 }
 
 pub fn discover_cached_models_in(cache: &Path) -> Vec<CachedModel> {
-    discover_in(cache)
+    discover_in(cache, Cache::Managed)
 }
 
 pub fn discover_partial_downloads_in(cache: &Path) -> Vec<PartialDownload> {
@@ -40,20 +53,20 @@ pub fn discover_partial_downloads_in(cache: &Path) -> Vec<PartialDownload> {
     downloads
 }
 
-fn discover_in(cache: &Path) -> Vec<CachedModel> {
+fn discover_in(cache: &Path, kind: Cache) -> Vec<CachedModel> {
     let Ok(entries) = fs::read_dir(cache) else {
         return Vec::new();
     };
     let mut models = entries
         .flatten()
-        .filter_map(|entry| cached_model(&entry.path()))
+        .filter_map(|entry| cached_model(&entry.path(), kind))
         .collect::<Vec<_>>();
     models.sort_by(|left, right| left.repo_id.cmp(&right.repo_id));
     models
 }
 
-fn cached_model(repo_path: &Path) -> Option<CachedModel> {
-    if has_incomplete(repo_path) {
+fn cached_model(repo_path: &Path, kind: Cache) -> Option<CachedModel> {
+    if has_incomplete(repo_path) || (kind == Cache::Managed && !has_reference(repo_path)) {
         return None;
     }
     let repo_id = repo_id(repo_path)?;
@@ -70,6 +83,18 @@ fn cached_model(repo_path: &Path) -> Option<CachedModel> {
     })
 }
 
+/// A revision reference naming one of the repository's snapshots.
+fn has_reference(repo_path: &Path) -> bool {
+    fs::read_dir(repo_path.join("refs")).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            fs::read_to_string(entry.path()).is_ok_and(|commit| {
+                let commit = commit.trim();
+                !commit.is_empty() && repo_path.join("snapshots").join(commit).is_dir()
+            })
+        })
+    })
+}
+
 fn has_incomplete(repo_path: &Path) -> bool {
     fs::read_dir(repo_path.join("blobs")).is_ok_and(|entries| {
         entries.flatten().any(|entry| {
@@ -80,7 +105,7 @@ fn has_incomplete(repo_path: &Path) -> bool {
 
 fn partial_download(repo_path: &Path) -> Option<PartialDownload> {
     let repo_id = repo_id(repo_path)?;
-    cached_model(repo_path).is_none().then(|| PartialDownload {
+    cached_model(repo_path, Cache::Managed).is_none().then(|| PartialDownload {
         repo_id,
         downloaded_bytes: directory_size(&repo_path.join("blobs")),
     })
@@ -131,64 +156,4 @@ fn newest_snapshot(snapshots: &Path) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn discovers_main_snapshot_from_standard_hub_layout() -> std::io::Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "mirmir-hf-cache-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("cache")
-        ));
-        let repo = root.join("models--Qwen--Test");
-        fs::create_dir_all(repo.join("snapshots/abc123"))?;
-        fs::create_dir_all(repo.join("refs"))?;
-        fs::write(repo.join("refs/main"), "abc123\n")?;
-
-        let models = discover_in(&root);
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].repo_id, "Qwen/Test");
-        assert_eq!(models[0].revision, "main");
-        assert_eq!(models[0].commit, "abc123");
-        assert_eq!(models[0].repo_path, repo);
-        assert_eq!(models[0].snapshot, repo.join("snapshots/abc123"));
-        fs::remove_dir_all(root)?;
-        Ok(())
-    }
-
-    #[test]
-    fn exposes_discovery_for_a_managed_cache() -> std::io::Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "mirmir-managed-cache-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("cache")
-        ));
-        fs::create_dir_all(root.join("models--Org--Unsupported/snapshots/deadbeef"))?;
-
-        let models = discover_cached_models_in(&root);
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].repo_id, "Org/Unsupported");
-        fs::remove_dir_all(root)?;
-        Ok(())
-    }
-
-    #[test]
-    fn discovers_incomplete_managed_downloads() -> std::io::Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "mirmir-partial-cache-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("cache")
-        ));
-        let partial = root.join("models--Org--Partial/blobs/model.incomplete");
-        fs::create_dir_all(partial.parent().unwrap_or(&root))?;
-        fs::write(&partial, b"partial")?;
-
-        let downloads = discover_partial_downloads_in(&root);
-        assert_eq!(downloads.len(), 1);
-        assert_eq!(downloads[0].repo_id, "Org/Partial");
-        assert_eq!(downloads[0].downloaded_bytes, 7);
-        fs::remove_dir_all(root)?;
-        Ok(())
-    }
-}
+mod tests;

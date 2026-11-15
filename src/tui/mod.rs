@@ -7,6 +7,7 @@ mod help;
 mod load;
 mod models;
 mod overview;
+mod ranges;
 mod render;
 mod terminal;
 #[cfg(test)]

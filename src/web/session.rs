@@ -211,6 +211,12 @@ impl WebError {
         Self::new(StatusCode::BAD_REQUEST, message, "invalid_request")
     }
 
+    /// Blocking work that panicked or was cancelled.
+    #[expect(clippy::needless_pass_by_value, reason = "map_err boundary consumes the error")]
+    pub fn join(error: tokio::task::JoinError) -> Self {
+        Self::internal(error.to_string())
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, message, "web_internal")
     }

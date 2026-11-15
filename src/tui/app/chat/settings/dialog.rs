@@ -1,6 +1,10 @@
-use crate::rpc::proto;
+use crate::{
+    rpc::proto,
+    tui::ranges::{FieldRange, GENERATION_FIELDS, generation_ranges},
+};
 
-pub const CHAT_FIELD_COUNT: usize = 6;
+/// The generation fields followed by the one-off seed.
+pub const CHAT_FIELD_COUNT: usize = GENERATION_FIELDS + 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatSettingsStatus {
@@ -18,6 +22,8 @@ pub struct ChatParameters {
     pub top_k: u64,
     pub repetition_penalty: f32,
     pub seed: Option<u64>,
+    /// The most tokens a request can generate for this model, when known.
+    pub token_limit: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +33,7 @@ pub struct ChatSettingsDialog {
     pub selected: usize,
     pub save_default: bool,
     pub persisted: bool,
+    pub token_limit: Option<u64>,
     pub status: ChatSettingsStatus,
     pub error: Option<String>,
 }
@@ -39,6 +46,7 @@ impl ChatSettingsDialog {
             selected: 0,
             save_default: false,
             persisted: false,
+            token_limit: None,
             status: ChatSettingsStatus::Inspecting,
             error: None,
         }
@@ -51,23 +59,30 @@ impl ChatSettingsDialog {
             selected: 0,
             save_default: false,
             persisted: false,
+            token_limit: parameters.token_limit,
             status: ChatSettingsStatus::Editing,
             error: None,
         }
     }
 
+    /// The generation ranges, with max tokens bounded by the model's limit.
+    pub fn ranges(&self) -> [FieldRange; GENERATION_FIELDS] {
+        generation_ranges(self.token_limit)
+    }
+
+    /// The parameters with every generation value clamped to its range.
     pub(super) fn parameters(&self) -> Result<ChatParameters, String> {
-        let parameters = ChatParameters {
+        let [tokens, temperature, top_p, top_k, penalty] = self.ranges();
+        Ok(ChatParameters {
             model: self.model.clone(),
-            max_tokens: parse(&self.fields[0], "max tokens")?,
-            temperature: parse(&self.fields[1], "temperature")?,
-            top_p: parse(&self.fields[2], "top p")?,
-            top_k: parse(&self.fields[3], "top k")?,
-            repetition_penalty: parse(&self.fields[4], "repetition penalty")?,
+            max_tokens: tokens.clamped(&self.fields[0])?,
+            temperature: temperature.clamped(&self.fields[1])?,
+            top_p: top_p.clamped(&self.fields[2])?,
+            top_k: top_k.clamped(&self.fields[3])?,
+            repetition_penalty: penalty.clamped(&self.fields[4])?,
             seed: optional(&self.fields[5], "seed")?,
-        };
-        parameters.validate()?;
-        Ok(parameters)
+            token_limit: self.token_limit,
+        })
     }
 }
 
@@ -80,19 +95,6 @@ impl ChatParameters {
             top_k: self.top_k,
             repetition_penalty: self.repetition_penalty,
         }
-    }
-
-    fn validate(&self) -> Result<(), String> {
-        if self.max_tokens == 0 || self.repetition_penalty <= 0.0 {
-            return Err("max tokens and repetition penalty must be positive".to_owned());
-        }
-        if !self.temperature.is_finite() || self.temperature < 0.0 {
-            return Err("temperature must be finite and non-negative".to_owned());
-        }
-        if !self.top_p.is_finite() || !(0.0..=1.0).contains(&self.top_p) {
-            return Err("top p must be between 0 and 1".to_owned());
-        }
-        Ok(())
     }
 }
 
@@ -127,11 +129,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validates_ranges_and_optional_seed() {
+    fn clamps_ranges_and_keeps_optional_seed() {
         let mut dialog = ChatSettingsDialog::inspecting("model".to_owned());
         dialog.fields = ["128", "0.7", "0.9", "40", "1.1", ""].map(str::to_owned);
         assert_eq!(dialog.parameters().expect("valid settings").seed, None);
+        dialog.fields[0] = "100000".to_owned();
         dialog.fields[2] = "1.1".to_owned();
+        dialog.token_limit = Some(8_192);
+        let parameters = dialog.parameters().expect("clamped settings");
+        assert_eq!(parameters.max_tokens, 8_192);
+        assert_eq!(parameters.top_p.to_string(), "1");
+        dialog.fields[1] = ".".to_owned();
         assert!(dialog.parameters().is_err());
     }
 

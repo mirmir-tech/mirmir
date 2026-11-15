@@ -51,12 +51,17 @@ pub fn rejection(estimate: ModelMemoryEstimate, budget: u64) -> String {
     )
 }
 
+/// The longest single request that fits `budget`.
 pub fn safe_context(estimate: ModelMemoryEstimate, budget: u64) -> Option<u64> {
+    fitting_tokens(estimate, budget).map(|tokens| tokens.min(estimate.model_context_tokens))
+}
+
+/// The K/V capacity, in tokens, that fits `budget` beside the weights and
+/// workspace, whatever the requests sharing it.
+pub fn fitting_tokens(estimate: ModelMemoryEstimate, budget: u64) -> Option<u64> {
     (estimate.kv_bytes_per_token > 0).then(|| {
-        (budget.saturating_sub(estimate.weight_bytes.saturating_add(estimate.workspace_bytes))
-            / estimate.kv_bytes_per_token)
-            .min(estimate.model_context_tokens)
-            .min(estimate.cache_capacity_tokens)
+        budget.saturating_sub(estimate.weight_bytes.saturating_add(estimate.workspace_bytes))
+            / estimate.kv_bytes_per_token
     })
 }
 

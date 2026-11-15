@@ -24,7 +24,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         draw_loading(frame, dialog, app.animation_tick);
         return;
     }
-    let area = centered(frame.area(), 74, 20);
+    let area = centered(frame.area(), 84, 20);
     frame.render_widget(Clear, area);
     frame.render_widget(
         Block::bordered()
@@ -44,7 +44,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     .split(inner);
     header(frame, rows[0], dialog);
     slider::draw(frame, rows[1], dialog);
-    progress(frame, rows[2], dialog);
+    progress(frame, rows[2], dialog, app.context_refreshing());
     error(frame, rows[3], dialog);
     hint(frame, rows[4], dialog);
 }
@@ -158,10 +158,10 @@ fn header(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
     );
 }
 
-fn progress(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
+fn progress(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog, refreshing: bool) {
     let (ratio, label) = match dialog.status {
         LoadStatus::Inspecting => (0.0, "inspecting model configuration".to_owned()),
-        LoadStatus::Editing => memory_summary(dialog),
+        LoadStatus::Editing => memory_summary(dialog, refreshing),
         LoadStatus::Loading => dialog.progress.as_ref().map_or_else(
             || (0.0, "starting model load".to_owned()),
             |event| {

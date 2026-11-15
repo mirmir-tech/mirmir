@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use super::{
-    app::{App, ChatSettingsStatus, ChatStatus, LoadStatus, Screen},
+    app::{App, ChatSettingsStatus, ChatStatus, LoadDialog, LoadStatus, Screen},
     theme,
 };
 
@@ -38,7 +38,7 @@ fn candidates(app: &App) -> Vec<Shortcut> {
         if dialog.status == ChatSettingsStatus::Editing {
             items.extend([
                 ("↑/↓ / Tab", "field"),
-                ("type", "edit"),
+                ("←/→ / type", "value"),
                 ("Enter", "apply"),
                 ("s", "save default"),
             ]);
@@ -58,7 +58,7 @@ fn candidates(app: &App) -> Vec<Shortcut> {
         ];
     }
     if let Some(dialog) = &app.load_dialog {
-        return load(dialog.status);
+        return load(dialog);
     }
     let mut items = vec![("Esc", "quit")];
     if app.screen != Screen::Chat || app.chat_input.is_empty() {
@@ -73,9 +73,9 @@ fn candidates(app: &App) -> Vec<Shortcut> {
     items
 }
 
-fn load(status: LoadStatus) -> Vec<Shortcut> {
+fn load(dialog: &LoadDialog) -> Vec<Shortcut> {
     let mut items = vec![("Esc", "quit")];
-    match status {
+    match dialog.status {
         LoadStatus::Inspecting => items.push(("x", "cancel")),
         LoadStatus::Editing => items.extend([
             ("x", "cancel"),
@@ -85,6 +85,9 @@ fn load(status: LoadStatus) -> Vec<Shortcut> {
             ("f", "force"),
         ]),
         LoadStatus::Loading => {},
+    }
+    if dialog.status == LoadStatus::Editing && dialog.context.is_some() {
+        items.insert(4, ("a", "auto context"));
     }
     items
 }

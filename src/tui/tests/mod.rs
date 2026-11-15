@@ -4,6 +4,7 @@ mod configuration;
 mod dashboard;
 mod fixtures;
 mod help;
+mod load;
 mod models;
 mod restore;
 mod screenshot;
@@ -92,6 +93,7 @@ fn renders_stage_only_during_model_loading() -> Result<(), std::convert::Infalli
         task: "generation".to_owned(),
         capabilities: None,
         status: super::app::LoadStatus::Loading,
+        context: None,
         fields: ["2048", "0.7", "0.9", "40", "1.1"].map(str::to_owned),
         selected: 0,
         has_mirmir_overrides: true,
