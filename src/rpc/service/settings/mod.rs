@@ -42,7 +42,19 @@ impl RuntimeService {
             .map_err(super::status::application)
     }
 
-    pub(super) fn save_model_defaults(
+    /// Saves on the blocking pool: a first configuration waits for the
+    /// memory gate a running load holds, and that load's progress stream
+    /// needs the async workers to drain.
+    pub(super) async fn save_model_defaults(
+        self,
+        request: proto::UpdateModelGenerationRequest,
+    ) -> Result<String, Status> {
+        super::status::internal(
+            tokio::task::spawn_blocking(move || self.save_defaults_now(&request)).await,
+        )?
+    }
+
+    fn save_defaults_now(
         &self,
         request: &proto::UpdateModelGenerationRequest,
     ) -> Result<String, Status> {

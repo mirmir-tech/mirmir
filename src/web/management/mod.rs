@@ -59,10 +59,13 @@ pub async fn load(
         hub,
         defaults,
     };
-    let selector = state
-        .application()
-        .prepare_load(&request.selector, load)
-        .map_err(WebError::application)?;
+    // Saving a first configuration waits for the memory gate a running
+    // load holds; keep that wait off the async workers.
+    let application = state.application().clone();
+    let selector = request.selector;
+    let prepared =
+        tokio::task::spawn_blocking(move || application.prepare_load(&selector, load)).await;
+    let selector = prepared.map_err(WebError::join)?.map_err(WebError::application)?;
     let application = state.application().clone();
     drop(tokio::task::spawn_blocking(move || {
         drop(application.load_model(&selector, request.force, &mut |_| {}));
@@ -76,9 +79,10 @@ pub async fn unload(
     Json(request): Json<SelectorRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let unloaded = state
-        .application()
-        .unload_model(&request.selector)
+    let application = state.application().clone();
+    let unloaded = tokio::task::spawn_blocking(move || application.unload_model(&request.selector))
+        .await
+        .map_err(WebError::join)?
         .map_err(WebError::application)?;
     Ok((security_headers(), Json(Unloaded { unloaded })).into_response())
 }

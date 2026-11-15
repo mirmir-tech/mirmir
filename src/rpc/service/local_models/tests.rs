@@ -18,6 +18,9 @@ fn lists_an_unconfigured_managed_snapshot_with_its_load_error() -> std::io::Resu
     let snapshot = cache.join("models--Org--Unsupported/snapshots/a");
     std::fs::create_dir_all(&snapshot)?;
     std::fs::write(snapshot.join("config.json"), "{}")?;
+    // Complete: its download wrote the revision reference last.
+    std::fs::create_dir_all(cache.join("models--Org--Unsupported/refs"))?;
+    std::fs::write(cache.join("models--Org--Unsupported/refs/main"), "a\n")?;
 
     let models = service.local_models().expect("local models should be listed");
     let model = models.iter().find(|model| model.repo_id == "Org/Unsupported").unwrap();

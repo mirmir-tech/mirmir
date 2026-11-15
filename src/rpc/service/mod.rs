@@ -91,7 +91,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::UpdateModelGenerationRequest>,
     ) -> Result<Response<proto::UpdateModelGenerationResponse>, Status> {
         let request = self.admitted(request, |message| &message.selector).await?;
-        let model_id = self.save_model_defaults(&request)?;
+        let model_id = self.clone().save_model_defaults(request).await?;
         tracing::info!(model = %model_id, "model defaults updated");
         Ok(Response::new(proto::UpdateModelGenerationResponse { model_id }))
     }
@@ -114,10 +114,12 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::UnloadModelRequest>,
     ) -> Result<Response<proto::UnloadModelResponse>, Status> {
         let selector = request.into_inner().selector;
-        match self.unload(&selector) {
-            Ok(unloaded) => Ok(Response::new(proto::UnloadModelResponse { unloaded })),
-            Err(error) => Err(error),
-        }
+        // Unloading waits for the memory gate, which a load may hold.
+        let service = self.clone();
+        let unloaded = status::internal(
+            tokio::task::spawn_blocking(move || service.unload(&selector)).await,
+        )??;
+        Ok(Response::new(proto::UnloadModelResponse { unloaded }))
     }
 
     async fn search_models(
