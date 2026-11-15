@@ -21,6 +21,13 @@ impl NativeRuntime {
             return Ok(model);
         }
         let _memory = self.lifecycle.memory_gate()?;
+        // A model's first configuration changes its id under this gate
+        // (`rekey_resident`): resolve again, so a load that waited for it
+        // uses the id the save gave and finds a copy loaded meanwhile.
+        let resolved = self
+            .store
+            .resolve_model(selector)
+            .map_err(|error| Error::InvalidModel(error.to_string()))?;
         if let Some(model) = self.resident_model(&resolved.key)? {
             return Ok(model);
         }

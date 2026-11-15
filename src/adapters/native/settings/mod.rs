@@ -84,6 +84,14 @@ impl NativeRuntime {
         defaults: ModelDefaults,
     ) -> Result<String> {
         let (config_id, hub) = self.identity(selector, config_id, hub)?;
+        // A first configuration gives a model loaded by its path a new id.
+        // Under the memory gate a load in progress publishes its copy first
+        // and is moved below, and a waiting load resolves the new id after.
+        let _memory = if self.store.resolve_model(selector)?.key == config_id {
+            None
+        } else {
+            Some(self.lifecycle.memory_gate()?)
+        };
         let resolved = self.store.resolve_model(selector)?;
         let generation = defaults.generation.unwrap_or(resolved.generation);
         let descriptor = ModelDescriptor::inspect(&resolved.path, overrides(generation))?;
@@ -97,7 +105,6 @@ impl NativeRuntime {
             .transpose()?;
         let change = ModelConfigChange { generation: defaults.generation, runtime };
         let saved = self.store.save_model_config(selector, &config_id, hub, change)?;
-        // A first configuration gives a model loaded by its path a new id.
         self.rekey_resident(&resolved.key, &saved)?;
         Ok(saved)
     }
