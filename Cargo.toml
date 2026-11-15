@@ -103,3 +103,10 @@ module_name_repetitions = "allow"
 [profile.app]
 inherits = "release"
 strip = "symbols"
+
+# The server shipped in release disk images: whole-program optimization trims
+# about a fifth of the binary at three times the build time.
+[profile.app-lto]
+inherits = "app"
+lto = "fat"
+codegen-units = 1
