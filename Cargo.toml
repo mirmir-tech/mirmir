@@ -97,3 +97,9 @@ multiple_crate_versions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
+
+# The server Mirmir for Mac bundles: release code without its symbol table,
+# which only names functions in backtraces (about 9 MB of the 53 MB helper).
+[profile.app]
+inherits = "release"
+strip = "symbols"

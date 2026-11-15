@@ -60,3 +60,9 @@ pedantic = { level = "deny", priority = -1 }
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
+
+# The dashboard ships inside the server and to every browser that opens it:
+# without symbols its wasm is about 2 MB instead of 14 MB, nearly all of it
+# function names.
+[profile.release]
+strip = "symbols"
