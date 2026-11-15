@@ -70,8 +70,9 @@ impl NativeRuntime {
         });
         let reserve = self.library.config().memory.hard_reserve_bytes(&memory);
         // Measured K/V caches of resident models hold memory they give back
-        // to a new load, down to their minimum share; it is not gone.
-        let reclaimable = self.library.reclaimable_kv_bytes()?;
+        // to a new load, down to their minimum share; it is not gone. A
+        // reload's own cache is not among them: `released_bytes` frees it.
+        let reclaimable = preview.reclaimable_bytes;
         let budget = available.map(|free| free.saturating_add(reclaimable).saturating_sub(reserve));
         let capacity = memory.total_bytes.map(|total| total.saturating_sub(reserve));
         let fit = match budget {

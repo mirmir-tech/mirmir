@@ -96,7 +96,10 @@ impl NativeRuntime {
             })
             .transpose()?;
         let change = ModelConfigChange { generation: defaults.generation, runtime };
-        Ok(self.store.save_model_config(selector, &config_id, hub, change)?)
+        let saved = self.store.save_model_config(selector, &config_id, hub, change)?;
+        // A first configuration gives a model loaded by its path a new id.
+        self.rekey_resident(&resolved.key, &saved)?;
+        Ok(saved)
     }
 
     /// The configuration a model's defaults are saved under. A configured
