@@ -1,6 +1,6 @@
 [package]
 name = "mirmir"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Native local model runtime, TUI, CLI, and OpenAI-compatible server"
@@ -67,13 +67,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libmir = { version = "0.6.1", default-features = false, features = ["cpu", "metal"] }
+libmir = { version = "0.6.2", default-features = false, features = ["cpu", "metal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libmir = { version = "0.6.1", default-features = false, features = ["cpu", "cuda"] }
+libmir = { version = "0.6.2", default-features = false, features = ["cpu", "cuda"] }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "linux")))'.dependencies]
-libmir = { version = "0.6.1", default-features = false }
+libmir = { version = "0.6.2", default-features = false }
 
 [build-dependencies]
 prost-build = "0.14"
@@ -97,3 +97,16 @@ multiple_crate_versions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
+
+# The server Mirmir for Mac bundles: release code without its symbol table,
+# which only names functions in backtraces (about 9 MB of the 53 MB helper).
+[profile.app]
+inherits = "release"
+strip = "symbols"
+
+# The server shipped in release disk images: whole-program optimization trims
+# about a fifth of the binary at three times the build time.
+[profile.app-lto]
+inherits = "app"
+lto = "fat"
+codegen-units = 1
