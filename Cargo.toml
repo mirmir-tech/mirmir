@@ -68,9 +68,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [features]
 default = ["gpu-telemetry"]
-# Apple silicon GPU utilization, temperature and power (libmir's
-# `metal-telemetry`, which reads private macOS interfaces). The Mac App Store
-# build of mirmir-app turns default features off to leave it out.
+# Apple silicon GPU temperature and power (libmir's `metal-telemetry`, which
+# reads private macOS interfaces). Without it, GPU utilization comes from public
+# IOKit properties. The Mac App Store build of mirmir-app turns default
+# features off to leave it out.
 gpu-telemetry = ["libmir/metal-telemetry"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
