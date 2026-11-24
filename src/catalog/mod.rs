@@ -19,7 +19,7 @@ pub use cache::{
     discover_partial_downloads_in,
 };
 pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate};
-pub use fit::{CatalogModel, Confidence, MachineMemory};
+pub use fit::{CatalogModel, CatalogVariant, Confidence, MachineMemory};
 pub use hub::HubFacts;
 pub use preflight::RemoteHeaderPreflight;
 use queue::TransferQueue;
@@ -36,6 +36,12 @@ pub struct Catalog {
     active_transfers: Arc<Mutex<HashSet<String>>>,
     transfer_queue: TransferQueue,
     preflight_cache: preflight::Cache,
+}
+
+/// A GGUF repository's variants with their listed sizes.
+pub struct ModelVariants {
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
 }
 
 pub struct SearchResults {
@@ -83,8 +89,13 @@ impl Catalog {
             .map(|candidate| fit::evaluate(candidate, memory))
             .collect::<Vec<_>>();
         for model in &mut models {
-            model.downloaded =
-                self.store.hub_model_downloaded(&model.id)? || managed.contains(&model.id);
+            for variant in &mut model.variants {
+                variant.downloaded =
+                    self.store.hub_model_downloaded(&format!("{}:{}", model.id, variant.name))?;
+            }
+            model.downloaded = self.store.hub_model_downloaded(&model.id)?
+                || managed.contains(&model.id)
+                || model.variants.iter().any(|variant| variant.downloaded);
             model.local_source = if model.downloaded {
                 "mirmir"
             } else if partial.contains(&model.id) {
@@ -95,7 +106,7 @@ impl Catalog {
                 "remote"
             };
         }
-        let mut models = search_preflight::inspect(self, models, memory).await;
+        search_preflight::enrich(self, &mut models).await;
         models.sort_by(fit::compare);
         Ok(SearchResults {
             models,

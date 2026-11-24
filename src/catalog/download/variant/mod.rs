@@ -30,7 +30,10 @@ use crate::{
 pub(super) fn repository(files: &[ListedFile]) -> GgufRepository {
     let files = files
         .iter()
-        .map(|file| RepoFile { path: file.path.clone(), size: file.size })
+        .map(|file| RepoFile {
+            path: file.path.clone(),
+            size: Some(file.size),
+        })
         .collect::<Vec<_>>();
     GgufRepository::from_files(&files)
 }
@@ -44,23 +47,23 @@ pub(super) fn gguf_only(files: &[ListedFile], repository: &GgufRepository) -> bo
             .any(|file| file.path.to_ascii_lowercase().ends_with(".safetensors"))
 }
 
-/// Refuses a repository of GGUF variants pulled without one, naming them.
-pub(in crate::catalog) async fn refuse_gguf_repository(
+/// The variant a pull of a GGUF repository without one takes, by the
+/// catalog's rule (`Q4_K_M`, else the largest that fits `memory`, else the
+/// smallest); `None` for a repository that is not GGUF variants only.
+pub(in crate::catalog) async fn default_variant(
     store: &Store,
     reference: &HubReference,
     revision: Option<&str>,
-) -> Result<()> {
+    memory: crate::catalog::MachineMemory,
+) -> Result<Option<HubReference>> {
     let files =
         resumable::listing(store, reference.repository(), revision.unwrap_or("main")).await?;
     let gguf = repository(&files);
-    if gguf_only(&files, &gguf) {
-        return Err(Error::Config(format!(
-            "`{reference}` holds one GGUF file per quantization; pull one as \
-             `{reference}:VARIANT`, from {}",
-            gguf.names()
-        )));
+    if !gguf_only(&files, &gguf) {
+        return Ok(None);
     }
-    Ok(())
+    let (_, default) = crate::catalog::fit::variants(&gguf, None, memory);
+    default.map(|name| reference.with_variant(&name)).transpose()
 }
 
 /// Admits the variant from its remote header before it downloads.
@@ -88,7 +91,7 @@ pub(in crate::catalog) async fn check_variant(
         model = %reference,
         revision,
         shards = variant.shards.len(),
-        bytes = variant.bytes(),
+        bytes = ?variant.bytes(),
         vision_tower = gguf.vision.is_some(),
         metal_compatibility = contract.admission(libmir::BackendTarget::Metal).status.as_str(),
         cuda_compatibility = contract.admission(libmir::BackendTarget::Cuda).status.as_str(),
@@ -171,7 +174,10 @@ pub(super) async fn pull(
 fn gguf_bytes(wanted: &[String], gguf: &GgufRepository) -> u64 {
     let vision = gguf.vision.iter();
     let files = gguf.variants.iter().flat_map(|variant| variant.shards.iter()).chain(vision);
-    files.filter(|file| wanted.contains(&file.path)).map(|file| file.size).sum()
+    files
+        .filter(|file| wanted.contains(&file.path))
+        .filter_map(|file| file.size)
+        .sum()
 }
 
 /// The variant's directory: a link per file into `snapshot`, recreated.

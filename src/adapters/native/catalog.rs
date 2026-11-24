@@ -1,7 +1,7 @@
 use super::NativeRuntime;
 use crate::{
     application::Result,
-    catalog::{MachineMemory, Removal, SearchResults},
+    catalog::{MachineMemory, ModelVariants, Removal, SearchResults},
 };
 
 impl NativeRuntime {
@@ -11,11 +11,17 @@ impl NativeRuntime {
         limit: usize,
         cursor: Option<&str>,
     ) -> Result<SearchResults> {
-        let memory = self.library.memory_snapshot().map_or_else(
-            |_| MachineMemory::detect(),
-            |memory| MachineMemory::from_runtime(&memory),
-        );
-        Ok(self.catalog.search(query, limit, memory, cursor).await?)
+        Ok(self.catalog.search(query, limit, self.catalog_memory(), cursor).await?)
+    }
+
+    pub async fn catalog_variants(&self, repo_id: &str) -> Result<ModelVariants> {
+        Ok(self.catalog.variants(repo_id, self.catalog_memory()).await?)
+    }
+
+    fn catalog_memory(&self) -> MachineMemory {
+        self.library
+            .memory_snapshot()
+            .map_or_else(|_| MachineMemory::detect(), |memory| MachineMemory::from_runtime(&memory))
     }
 
     pub async fn remove_download(&self, repo_id: &str) -> Result<Removal> {

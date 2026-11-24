@@ -13,7 +13,7 @@ impl App {
         let Some(model) = self.selected_catalog_model() else {
             return;
         };
-        if model.downloaded {
+        if self.catalog_downloaded(model) {
             self.action_message = Some("model is already downloaded".to_owned());
             return;
         }
@@ -27,12 +27,12 @@ impl App {
                 Some("this remote weight format cannot be inspected by libmir".to_owned());
             return;
         }
-        if model.memory_fit == "does_not_fit" {
+        if self.catalog_fit(model) == "does_not_fit" {
             self.action_message =
                 Some("estimated model memory exceeds the current device budget".to_owned());
             return;
         }
-        let repo_id = model.id.clone();
+        let repo_id = self.pull_target(model);
         self.start_pull_repo(client, repo_id);
     }
 

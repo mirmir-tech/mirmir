@@ -13,9 +13,7 @@ pub(super) use gguf::inspect as inspect_gguf;
 use hf_hub::{repository::RepoTreeEntry, split_id};
 use libmir::{RemoteModelContract, TensorCatalog, safetensors_header_len};
 pub use metadata::RemoteModelMetadata;
-pub(super) use presentation::{
-    apply as apply_to_model, apply_gguf, failure as apply_failure, reject_gguf,
-};
+pub(super) use presentation::{apply as apply_to_model, failure as apply_failure};
 
 use super::download;
 use crate::{

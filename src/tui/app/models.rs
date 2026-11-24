@@ -23,6 +23,8 @@ impl App {
                 self.handle_list_navigation(key.code);
                 self.load_more_if_needed(client);
             },
+            KeyCode::Left => self.cycle_variant(-1),
+            KeyCode::Right => self.cycle_variant(1),
             KeyCode::Enter if self.catalog.is_empty() => self.queue_search(client, false),
             KeyCode::Enter => self.activate_selected_model(client).await,
             KeyCode::Backspace => {
@@ -136,7 +138,8 @@ impl App {
             self.catalog_filter == CatalogFilter::All
                 || model.downloaded
                 || model.local_source != "remote"
-                || (model.compatibility != "unsupported" && model.memory_fit != "does_not_fit")
+                || (model.compatibility != "unsupported"
+                    && self.catalog_fit(model) != "does_not_fit")
         })
     }
 
@@ -156,6 +159,8 @@ impl App {
         match key.code {
             KeyCode::Char('/') => self.editing_search = true,
             KeyCode::Char('i' | 'I') => self.toggle_incompatible_models(),
+            KeyCode::Left if self.searching_models() => self.cycle_variant(-1),
+            KeyCode::Right if self.searching_models() => self.cycle_variant(1),
             KeyCode::Enter => self.activate_selected_model(client).await,
             KeyCode::Char('d') => self.start_pull(client),
             KeyCode::Char('x' | 'X') => self.cancel_selected_model_operation(client).await,
@@ -207,11 +212,13 @@ impl App {
         &self,
         catalog: &proto::CatalogModel,
     ) -> Option<&proto::LocalModelInfo> {
-        self.local_models.iter().find(|local| local.repo_id == catalog.id)
+        let target = self.pull_target(catalog);
+        self.local_models.iter().find(|local| local.repo_id == target)
     }
 
     pub(super) fn reset_search_results(&mut self) {
         self.catalog.clear();
+        self.catalog_variants.clear();
         self.catalog_selected = 0;
         self.catalog_error = None;
         self.catalog_next_cursor = None;

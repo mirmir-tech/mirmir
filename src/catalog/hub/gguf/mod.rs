@@ -3,14 +3,15 @@
 //! the variants share. Multi-token prediction modules (`mtp-*`) are separate
 //! models and are left out.
 
+mod quantization;
 #[cfg(test)]
 mod tests;
 
-/// One file of a repository listing.
+/// One file of a repository listing; Hub search lists files without sizes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoFile {
     pub path: String,
-    pub size: u64,
+    pub size: Option<u64>,
 }
 
 /// One quantization of the model: its label and shards, in order.
@@ -21,15 +22,29 @@ pub struct GgufVariant {
 }
 
 impl GgufVariant {
+    /// The shards' bytes, when the listing gave every size.
     #[must_use]
-    pub fn bytes(&self) -> u64 {
+    pub fn bytes(&self) -> Option<u64> {
         self.shards.iter().map(|shard| shard.size).sum()
+    }
+
+    /// The bits per weight its label names.
+    #[must_use]
+    pub fn bits_per_weight(&self) -> Option<f64> {
+        quantization::bits_per_weight(&self.name)
+    }
+
+    /// Its size estimated for a model of `parameters` weights.
+    #[must_use]
+    pub fn estimated_bytes(&self, parameters: u64) -> Option<u64> {
+        self.bits_per_weight().map(|bits| quantization::bytes(parameters, bits))
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GgufRepository {
-    /// Smallest first.
+    /// Fewest bits per weight first, then unknown types by name; the same
+    /// order whether the files came with sizes or not.
     pub variants: Vec<GgufVariant>,
     /// The vision tower: F16 when offered, then BF16, then F32.
     pub vision: Option<RepoFile>,
@@ -42,7 +57,7 @@ impl GgufRepository {
         let gguf = files.iter().filter(|file| file.path.to_ascii_lowercase().ends_with(".gguf"));
         let (towers, text): (Vec<_>, Vec<_>) = gguf
             .filter(|file| !basename(&file.path).to_ascii_lowercase().starts_with("mtp"))
-            .partition(|file| basename(&file.path).to_ascii_lowercase().starts_with("mmproj"));
+            .partition(|file| basename(&file.path).to_ascii_lowercase().contains("mmproj"));
         let mut groups: Vec<(String, Vec<RepoFile>)> = Vec::new();
         for file in text {
             let stem = unsharded(&file.path);
@@ -68,7 +83,10 @@ impl GgufRepository {
                 GgufVariant { name, shards }
             })
             .collect::<Vec<_>>();
-        variants.sort_by_key(GgufVariant::bytes);
+        variants.sort_by(|left, right| {
+            let bits = |variant: &GgufVariant| variant.bits_per_weight().unwrap_or(f64::INFINITY);
+            bits(left).total_cmp(&bits(right)).then_with(|| left.name.cmp(&right.name))
+        });
         Self { variants, vision: vision(towers) }
     }
 
@@ -81,6 +99,16 @@ impl GgufRepository {
                     basename(&unsharded(&shard.path)).eq_ignore_ascii_case(name)
                 })
         })
+    }
+
+    /// The variant to download when none is named, as llama.cpp's `-hf`
+    /// takes `Q4_K_M`; without it the largest that `fits`, else the smallest.
+    pub fn default_variant(&self, fits: impl Fn(&GgufVariant) -> bool) -> Option<&GgufVariant> {
+        self.variants
+            .iter()
+            .find(|variant| variant.name.eq_ignore_ascii_case("Q4_K_M"))
+            .or_else(|| self.variants.iter().rev().find(|variant| fits(variant)))
+            .or_else(|| self.variants.first())
     }
 
     /// The variants' names, smallest first, for messages.
@@ -115,7 +143,8 @@ fn unsharded(path: &str) -> String {
 }
 
 /// The quantization label of a file stem: from its first token naming a
-/// GGML type (`Q4_K_M`, `UD-IQ2_M`, `BF16`), else the whole stem.
+/// GGML type (`Q4_K_M`, `UD-IQ2_M`, `BF16`), else a type glued to a token by
+/// `_`, else the whole stem.
 fn label(stem: &str) -> String {
     let tokens = stem.split(['-', '.']).collect::<Vec<_>>();
     let mut offset = 0;
@@ -126,7 +155,15 @@ fn label(stem: &str) -> String {
         }
         offset += token.len() + 1;
     }
-    stem.to_owned()
+    // A type glued to the name by `_` (`gemma-4-E4B_q4_0-it`) is the type.
+    tokens
+        .iter()
+        .find_map(|token| {
+            let (index, _) =
+                token.match_indices('_').find(|&(index, _)| quantization(&token[index + 1..]))?;
+            Some(token[index + 1..].to_owned())
+        })
+        .unwrap_or_else(|| stem.to_owned())
 }
 
 fn quantization(token: &str) -> bool {

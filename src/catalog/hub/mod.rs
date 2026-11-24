@@ -5,6 +5,22 @@ use std::collections::BTreeMap;
 
 pub use facts::{Features, HubFacts};
 pub use gguf::{GgufRepository, GgufVariant, RepoFile};
+
+impl HubModel {
+    /// The GGUF variants its files offer; empty for other repositories.
+    #[must_use]
+    pub fn gguf_variants(&self) -> GgufRepository {
+        let files = self
+            .siblings
+            .iter()
+            .map(|sibling| RepoFile {
+                path: sibling.rfilename.clone(),
+                size: None,
+            })
+            .collect::<Vec<_>>();
+        GgufRepository::from_files(&files)
+    }
+}
 use serde::Deserialize;
 
 use crate::error::Result;
@@ -29,6 +45,27 @@ pub struct HubModel {
     pub safetensors: Option<SafeTensors>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// GGUF metadata the Hub reads from a GGUF repository's files.
+    #[serde(default)]
+    pub gguf: Option<HubGguf>,
+    /// The repository's files, without sizes.
+    #[serde(default)]
+    pub siblings: Vec<Sibling>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct HubGguf {
+    /// Parameters of the model.
+    #[serde(default)]
+    pub total: Option<u64>,
+    /// `general.architecture`.
+    #[serde(default)]
+    pub architecture: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Sibling {
+    pub rfilename: String,
 }
 
 pub struct HubPage {
@@ -75,7 +112,7 @@ pub async fn search(
     })
 }
 
-const fn search_parameters<'a>(query: &'a str, limit: &'a str) -> [(&'static str, &'a str); 11] {
+const fn search_parameters<'a>(query: &'a str, limit: &'a str) -> [(&'static str, &'a str); 13] {
     [
         ("search", query),
         ("sort", "downloads"),
@@ -88,6 +125,8 @@ const fn search_parameters<'a>(query: &'a str, limit: &'a str) -> [(&'static str
         ("expand[]", "gated"),
         ("expand[]", "tags"),
         ("expand[]", "library_name"),
+        ("expand[]", "gguf"),
+        ("expand[]", "siblings"),
     ]
 }
 

@@ -23,4 +23,13 @@ impl RuntimeService {
     pub(super) fn unload(&self, selector: &str) -> Result<bool, Status> {
         self.application.unload_model(selector).map_err(super::status::application)
     }
+
+    /// Unloads off the async runtime: unloading waits for the memory gate,
+    /// which a load may hold.
+    pub(super) async fn unload_blocking(&self, selector: String) -> Result<bool, Status> {
+        let service = self.clone();
+        super::status::internal(
+            tokio::task::spawn_blocking(move || service.unload(&selector)).await,
+        )?
+    }
 }

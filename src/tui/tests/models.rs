@@ -172,3 +172,62 @@ fn catalog_model(id: &str, local_source: &str) -> CatalogModel {
         ..Default::default()
     }
 }
+
+fn variant(
+    name: &str,
+    size_kind: &str,
+    required: u64,
+    fit: &str,
+) -> crate::rpc::proto::CatalogVariant {
+    crate::rpc::proto::CatalogVariant {
+        name: name.to_owned(),
+        size_kind: size_kind.to_owned(),
+        weight_bytes: Some(required / 2),
+        required_bytes: Some(required),
+        memory_fit: fit.to_owned(),
+        downloaded: false,
+    }
+}
+
+/// A GGUF repository is one row showing its default quantization; ←/→
+/// choose another, whose size and fit the row shows and whose `repo:VARIANT`
+/// a download pulls.
+#[test]
+fn search_chooses_a_gguf_repositorys_quantization() -> Result<(), std::convert::Infallible> {
+    let mut app = App::new(true);
+    app.screen = Screen::Models;
+    app.search_query = "gemma".to_owned();
+    app.editing_search = true;
+    let mut model = catalog_model("ggml-org/gemma-4-E4B-it-GGUF", "remote");
+    model.compatibility = "unknown".to_owned();
+    model.variants = vec![
+        variant("Q4_0", "estimated", 6_000_000_000, "fits"),
+        variant("Q8_0", "estimated", 10_000_000_000, "tight"),
+        variant("BF16", "exact", 17_000_000_000, "does_not_fit"),
+    ];
+    model.default_variant = Some("Q4_0".to_owned());
+    app.catalog.push(model);
+
+    let text = rendered(&mut app, 140, 36)?;
+    assert!(text.contains("ggml-org/gemma-4-E4B-it-GGUF ‹Q4_0›"));
+    // `~` marks a size estimated before the files are listed.
+    assert!(text.contains("~5.58 GiB"));
+    assert!(text.contains("FITS") && text.contains("←/→"));
+    app.cycle_variant(1);
+    let text = rendered(&mut app, 140, 36)?;
+    assert!(text.contains("‹Q8_0›") && text.contains("TIGHT"));
+    assert_eq!(app.pull_target(&app.catalog[0]), "ggml-org/gemma-4-E4B-it-GGUF:Q8_0");
+    // Downloaded since the search, from any client: the local list says so.
+    let downloaded =
+        local_model("ggml-org--gemma-4-E4B-it-GGUF--Q8_0", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0");
+    app.local_models.push(downloaded);
+    assert!(rendered(&mut app, 140, 36)?.contains("DOWNLOADED"));
+    // The last quantization stays chosen past the end.
+    app.cycle_variant(1);
+    app.cycle_variant(1);
+    assert_eq!(
+        app.chosen_variant(&app.catalog[0]).map(|variant| variant.name.as_str()),
+        Some("BF16")
+    );
+    Ok(())
+}

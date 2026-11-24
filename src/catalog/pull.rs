@@ -3,8 +3,10 @@
 use libmir::{BackendTarget, CancellationToken};
 
 use super::{
-    Catalog, DownloadedModel, Removal, TransferPhase, TransferUpdate, discover_cached_models_in,
-    download,
+    Catalog, DownloadedModel, MachineMemory, ModelVariants, Removal, TransferPhase, TransferUpdate,
+    discover_cached_models_in, download, fit,
+    hub::{GgufRepository, RepoFile},
+    resumable,
 };
 use crate::{
     config::HubReference,
@@ -12,6 +14,23 @@ use crate::{
 };
 
 impl Catalog {
+    /// `repo_id`'s GGUF variants with the sizes of their listed files.
+    pub async fn variants(&self, repo_id: &str, memory: MachineMemory) -> Result<ModelVariants> {
+        let reference = repo_id.parse::<HubReference>()?;
+        let files = resumable::listing(&self.store, reference.repository(), "main").await?;
+        let files = files
+            .into_iter()
+            .map(|file| RepoFile { path: file.path, size: Some(file.size) })
+            .collect::<Vec<_>>();
+        let (mut variants, default_variant) =
+            fit::variants(&GgufRepository::from_files(&files), None, memory);
+        for variant in &mut variants {
+            let id = format!("{}:{}", reference.repository(), variant.name);
+            variant.downloaded = self.store.hub_model_downloaded(&id)?;
+        }
+        Ok(ModelVariants { variants, default_variant })
+    }
+
     pub async fn pull(
         &self,
         repo_id: &str,
@@ -47,7 +66,31 @@ impl Catalog {
         )
         .await;
         let _permit = self.transfer_queue.acquire(cancellation).await?;
-        let reference = repo_id.parse::<HubReference>()?;
+        let mut reference = repo_id.parse::<HubReference>()?;
+        // A GGUF repository pulled without a variant takes the catalog's
+        // default one.
+        if reference.variant().is_none()
+            && let Some(chosen) = download::default_variant(
+                &self.store,
+                &reference,
+                revision,
+                MachineMemory::detect(),
+            )
+            .await?
+        {
+            if self.store.hub_model_downloaded(&chosen.to_string())? {
+                return Err(Error::Config(format!("model `{chosen}` is already downloaded")));
+            }
+            download::send(
+                &updates,
+                TransferPhase::Checking,
+                0,
+                None,
+                format!("choosing {chosen}, the default of {reference}"),
+            )
+            .await;
+            reference = chosen;
+        }
         if reference.variant().is_some() {
             download::send(
                 &updates,
@@ -58,7 +101,8 @@ impl Catalog {
             )
             .await;
             download::check_variant(&self.store, &self.client, &reference, revision).await?;
-            return download::pull(&self.store, repo_id, revision, updates, cancellation).await;
+            let chosen = reference.to_string();
+            return download::pull(&self.store, &chosen, revision, updates, cancellation).await;
         }
         download::send(
             &updates,
@@ -68,7 +112,6 @@ impl Catalog {
             "validating remote SafeTensors headers".to_owned(),
         )
         .await;
-        download::refuse_gguf_repository(&self.store, &reference, revision).await?;
         let preflight = self.preflight_headers(repo_id, revision).await?;
         let model_type = preflight
             .metadata

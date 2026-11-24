@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use libmir::EncodingKind;
 
-use super::*;
-use crate::catalog::hub::{HubConfig, SafeTensors};
+use super::{variants::VariantSize, *};
+use crate::catalog::hub::{HubConfig, HubGguf, SafeTensors, Sibling};
 
 /// An uninspected remote model, for the fields a test sets.
 impl Default for CatalogModel {
@@ -31,6 +31,8 @@ impl Default for CatalogModel {
             preflight_bytes: None,
             preflight_error: None,
             features: Features::default(),
+            variants: Vec::new(),
+            default_variant: None,
         }
     }
 }
@@ -56,6 +58,8 @@ fn model(dtype: &str, parameters: u64) -> HubModel {
             parameters: BTreeMap::from([(dtype.to_owned(), parameters)]),
         }),
         tags: vec!["safetensors".to_owned()],
+        gguf: None,
+        siblings: Vec::new(),
     }
 }
 
@@ -138,13 +142,17 @@ fn ranks_admission_before_memory_fit() {
 }
 
 /// A GGUF repository has no `SafeTensors` metadata; its tag, in any case,
-/// still makes it a GGUF model awaiting admission.
+/// still makes it a GGUF model awaiting admission. (One without GGUF files
+/// offers nothing to download and is unsupported.)
 #[test]
 fn remote_gguf_awaits_admission_like_safetensors() {
     let mut gguf = model("BF16", 1_000_000_000);
     gguf.safetensors = None;
     gguf.library_name = None;
     gguf.tags = vec!["GGUF".to_owned(), "Conversational".to_owned()];
+    gguf.siblings = vec![Sibling {
+        rfilename: "model-Q4_K_M.gguf".to_owned(),
+    }];
     let facts = gguf.facts();
     assert_eq!(facts.container, Some(WeightContainer::Gguf));
     assert_eq!(facts.encoding, Some(EncodingKind::Ggml));
@@ -160,4 +168,40 @@ fn remote_gguf_awaits_admission_like_safetensors() {
     assert_eq!(result.encoding, "GGML");
     assert_eq!(result.metal_compatibility, AdmissionStatus::Unknown);
     assert_eq!(result.cuda_compatibility, AdmissionStatus::Unknown);
+}
+
+fn gguf(architecture: &str) -> HubModel {
+    let files = ["README.md", "m-Q8_0.gguf", "m-Q4_K_M.gguf", "m-Q2_K.gguf", "mmproj-m-F16.gguf"];
+    HubModel {
+        id: "owner/m-GGUF".to_owned(),
+        library_name: Some("gguf".to_owned()),
+        safetensors: None,
+        tags: vec!["gguf".to_owned()],
+        gguf: Some(HubGguf {
+            total: Some(8_000_000_000),
+            architecture: Some(architecture.to_owned()),
+        }),
+        siblings: files
+            .iter()
+            .map(|&rfilename| Sibling { rfilename: rfilename.to_owned() })
+            .collect(),
+        ..model("BF16", 1)
+    }
+}
+
+/// A GGUF repository is one row whose variants come from its files, sized
+/// from the parameter count, with `Q4_K_M` as the default it is sized by.
+#[test]
+fn lists_a_gguf_repositorys_variants_in_one_row() {
+    let memory = MachineMemory { budget: Some(64 * GIB), ..NO_MEMORY };
+    let result = evaluate(gguf("gemma4"), memory);
+    let names = result.variants.iter().map(|variant| variant.name.as_str()).collect::<Vec<_>>();
+    assert_eq!(names, ["Q2_K", "Q4_K_M", "Q8_0"]);
+    assert_eq!(result.default_variant.as_deref(), Some("Q4_K_M"));
+    // 8 billion weights at 4.9 bits.
+    assert_eq!(result.variants[1].size, VariantSize::Estimated(4_900_000_000));
+    assert_eq!(result.weight_bytes, Some(4_900_000_000));
+    assert_eq!(result.memory_fit, MemoryFit::Fits);
+    assert_eq!(result.compatibility, AdmissionStatus::Unknown);
+    assert_eq!(evaluate(gguf("bert"), memory).compatibility, AdmissionStatus::Unsupported);
 }

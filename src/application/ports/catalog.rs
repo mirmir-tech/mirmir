@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     application::Result,
-    catalog::{DownloadedModel, Removal, SearchResults},
+    catalog::{DownloadedModel, ModelVariants, Removal, SearchResults},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +46,8 @@ pub trait CatalogPort: Send + Sync {
         limit: usize,
         cursor: Option<&str>,
     ) -> Result<SearchResults>;
+
+    async fn variants(&self, repo_id: &str) -> Result<ModelVariants>;
 
     async fn remove(&self, repo_id: &str) -> Result<Removal>;
 

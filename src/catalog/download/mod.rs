@@ -3,7 +3,7 @@ mod variant;
 use hf_hub::HFClient;
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
-pub(super) use variant::{check_variant, refuse_gguf_repository};
+pub(super) use variant::{check_variant, default_variant};
 
 use super::{cache::discover_external_models, resumable};
 use crate::{

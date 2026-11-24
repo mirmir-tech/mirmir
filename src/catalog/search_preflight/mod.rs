@@ -8,26 +8,14 @@ use super::{Catalog, CatalogModel, preflight};
 const CONCURRENCY: usize = 4;
 const SEARCH_BUDGET: Duration = Duration::from_secs(4);
 
-mod gguf;
-
-/// Inspects the remote rows' headers within the search budget: a GGUF
-/// repository becomes one row per variant, a `SafeTensors` one is admitted
-/// from its headers.
-pub(super) async fn inspect(
-    catalog: &Catalog,
-    models: Vec<CatalogModel>,
-    memory: super::MachineMemory,
-) -> Vec<CatalogModel> {
-    let (repositories, mut models): (Vec<_>, Vec<_>) = models
-        .into_iter()
-        .partition(|model| model.container == Some(WeightContainer::Gguf));
-    let (variants, ()) =
-        tokio::join!(gguf::expand(catalog, repositories, memory), enrich(catalog, &mut models));
-    models.extend(variants);
-    models
+/// Inspects the remote `SafeTensors` rows' headers within the search budget;
+/// a GGUF row lists its variants already, and its header is admitted when
+/// one is chosen.
+pub(super) async fn enrich(catalog: &Catalog, models: &mut [CatalogModel]) {
+    inspect_headers(catalog, models).await;
 }
 
-async fn enrich(catalog: &Catalog, models: &mut [CatalogModel]) {
+async fn inspect_headers(catalog: &Catalog, models: &mut [CatalogModel]) {
     let candidates = models
         .iter()
         .enumerate()

@@ -1,4 +1,7 @@
-use super::{Activity, CatalogModel, CatalogResults, Features, Model, Overview};
+use super::{
+    Activity, CatalogModel, CatalogResults, CatalogVariant, Features, Model, ModelVariants,
+    Overview,
+};
 use crate::{
     application, catalog,
     model::format::{container_name, legacy_library},
@@ -119,6 +122,30 @@ impl From<catalog::CatalogModel> for CatalogModel {
                 model.features.thinking,
                 model.features.vision,
             ),
+            variants: model.variants.into_iter().map(CatalogVariant::from).collect(),
+            default_variant: model.default_variant,
+        }
+    }
+}
+
+impl From<catalog::CatalogVariant> for CatalogVariant {
+    fn from(variant: catalog::CatalogVariant) -> Self {
+        Self {
+            name: variant.name,
+            size_kind: variant.size.kind().to_owned(),
+            weight_bytes: variant.size.bytes(),
+            required_bytes: variant.required_bytes,
+            memory_fit: variant.memory_fit.as_str().to_owned(),
+            downloaded: variant.downloaded,
+        }
+    }
+}
+
+impl From<catalog::ModelVariants> for ModelVariants {
+    fn from(listed: catalog::ModelVariants) -> Self {
+        Self {
+            variants: listed.variants.into_iter().map(CatalogVariant::from).collect(),
+            default_variant: listed.default_variant,
         }
     }
 }

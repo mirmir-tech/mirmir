@@ -9,8 +9,8 @@ use crate::{
         ModelRuntimePort, Result, RuntimeTelemetry, TransferPhase, TransferProgress,
     },
     catalog::{
-        DownloadedModel, Removal, SearchResults, TransferPhase as NativeTransferPhase,
-        TransferUpdate as NativeTransferUpdate,
+        DownloadedModel, ModelVariants, Removal, SearchResults,
+        TransferPhase as NativeTransferPhase, TransferUpdate as NativeTransferUpdate,
     },
     config::{ConfigPresentation, StateRecovery},
 };
@@ -24,6 +24,10 @@ impl CatalogPort for NativeRuntime {
         cursor: Option<&str>,
     ) -> Result<SearchResults> {
         self.search_catalog(query, limit, cursor).await
+    }
+
+    async fn variants(&self, repo_id: &str) -> Result<ModelVariants> {
+        self.catalog_variants(repo_id).await
     }
 
     async fn remove(&self, repo_id: &str) -> Result<Removal> {

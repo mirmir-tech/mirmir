@@ -41,38 +41,6 @@ pub(in crate::catalog) fn apply(model: &mut CatalogModel, preflight: &RemoteHead
     );
 }
 
-/// A GGUF variant admitted from its `fetched` header bytes; its encoding
-/// stays the variant's own, since one variant's header stands for all.
-pub(in crate::catalog) fn apply_gguf(
-    model: &mut CatalogModel,
-    contract: &RemoteModelContract,
-    fetched: u64,
-) {
-    model.preflight_bytes = Some(fetched);
-    let (metal, cuda) = admit(model, contract);
-    model.reason = format!(
-        "{}; GGUF header inspected in {fetched} bytes, Metal {}, CUDA {}",
-        crate::catalog::fit::reason(model.compatibility, model.memory_fit),
-        metal.as_str(),
-        cuda.as_str()
-    );
-}
-
-/// A GGUF variant whose header libmir refuses, such as for its tokenizer.
-pub(in crate::catalog) fn reject_gguf(
-    model: &mut CatalogModel,
-    error: &libmir::Error,
-    fetched: u64,
-) {
-    model.preflight_bytes = Some(fetched);
-    model.preflight_error = Some(error.to_string());
-    model.compatibility = AdmissionStatus::Unsupported;
-    model.metal_compatibility = AdmissionStatus::Unsupported;
-    model.cuda_compatibility = AdmissionStatus::Unsupported;
-    model.confidence = Confidence::High;
-    model.reason = format!("GGUF header was rejected: {error}");
-}
-
 /// Records each backend's admission and the best of them.
 fn admit(
     model: &mut CatalogModel,

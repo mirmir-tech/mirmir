@@ -36,19 +36,22 @@ pub(in crate::catalog) async fn inspect(
     let mut fetched = 0;
     for shard in &variant.shards {
         let url = file_url(&base, repo_id, revision, &shard.path)?;
+        let size = shard
+            .size
+            .ok_or_else(|| Error::Config(format!("{} was listed without a size", shard.path)))?;
         let mut bytes = Vec::new();
-        let mut wanted = FIRST_BYTES.min(shard.size);
+        let mut wanted = FIRST_BYTES.min(size);
         let header = loop {
             let start = bytes.len();
             let end = usize::try_from(wanted)?.saturating_sub(1);
             bytes.extend(range::fetch(client, token, url.clone(), start, end).await?);
-            match GgufHeader::parse(&bytes, Some(shard.size)) {
+            match GgufHeader::parse(&bytes, Some(size)) {
                 Ok(header) => break header,
                 Err(ParseError::Truncated { needed })
-                    if needed <= MAX_HEADER_BYTES && wanted < shard.size =>
+                    if needed <= MAX_HEADER_BYTES && wanted < size =>
                 {
                     // Fetch what the parser asks for, at least doubling.
-                    wanted = needed.max(wanted.saturating_mul(2)).min(shard.size);
+                    wanted = needed.max(wanted.saturating_mul(2)).min(size);
                 },
                 Err(ParseError::Truncated { needed }) => {
                     return Err(Error::Config(format!(

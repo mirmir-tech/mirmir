@@ -10,6 +10,7 @@ mod removal;
 mod restore;
 mod telemetry;
 mod transfer;
+mod variants;
 mod viewport;
 
 use std::collections::VecDeque;
@@ -95,6 +96,8 @@ pub struct App {
     pub catalog: Vec<proto::CatalogModel>,
     pub catalog_selected: usize,
     pub catalog_filter: CatalogFilter,
+    /// Variants picked with ←/→, by repository; others use their default.
+    pub catalog_variants: std::collections::HashMap<String, String>,
     pub catalog_error: Option<String>,
     pub catalog_next_cursor: Option<String>,
     pub memory_source: String,
@@ -169,6 +172,7 @@ impl App {
             catalog: Vec::new(),
             catalog_selected: 0,
             catalog_filter: CatalogFilter::Compatible,
+            catalog_variants: std::collections::HashMap::new(),
             catalog_error: None,
             catalog_next_cursor: None,
             memory_source: "not sampled".to_owned(),

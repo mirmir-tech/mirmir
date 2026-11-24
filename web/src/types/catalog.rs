@@ -21,6 +21,28 @@ pub struct CatalogModel {
     pub tool_use: bool,
     pub thinking: bool,
     pub vision: bool,
+    /// A GGUF repository's quantizations, fewest bits first.
+    #[serde(default)]
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
+}
+
+/// One quantization of a GGUF repository; it downloads as `id:name`.
+#[derive(Clone, Default, Deserialize)]
+pub struct CatalogVariant {
+    pub name: String,
+    /// `exact`, `estimated` or `unknown`.
+    pub size_kind: String,
+    pub weight_bytes: Option<u64>,
+    pub memory_fit: String,
+    pub downloaded: bool,
+}
+
+/// A repository's variants with the sizes of their listed files.
+#[derive(Clone, Default, Deserialize)]
+pub struct ModelVariants {
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]

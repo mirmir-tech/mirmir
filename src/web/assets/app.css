@@ -264,6 +264,10 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .catalog-table th:nth-child(5), .catalog-table td:nth-child(5) { width: 15%; }
 .models-table th:last-child, .models-table td:last-child,
 .catalog-table th:last-child, .catalog-table td:last-child { width: 10%; text-align: right; white-space: nowrap; }
+/* Room for a quantization and its size in a GGUF row's select. */
+.catalog-table th:nth-child(1), .catalog-table td:nth-child(1) { width: 30%; }
+.catalog-table th:nth-child(2), .catalog-table td:nth-child(2) { width: 20%; }
+.catalog-table td:nth-child(2) small { display: block; margin-top: 4px; }
 .model-name { display: grid; gap: 2px; }
 .model-name strong { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .model-name small { overflow: hidden; text-overflow: ellipsis; }
@@ -271,6 +275,8 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .type-pill { display: inline-flex; max-width: 100%; padding: 4px 8px; overflow: hidden; border: 1px solid var(--mir-color-border); border-radius: 999px; color: var(--mir-color-muted); font: var(--mir-text-label) var(--mir-font-mono); letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .type-pill.mlx { border-color: rgb(121 215 255 / 48%); background: rgb(121 215 255 / 7%); color: var(--mir-color-glacier); }
 .type-pill.gguf { border-color: rgb(232 177 90 / 48%); background: rgb(232 177 90 / 7%); color: var(--mir-color-warning); }
+.variant-select { width: 100%; max-width: 100%; padding: 4px 22px 4px 8px; border: 1px solid rgb(232 177 90 / 48%); border-radius: 999px; background: rgb(232 177 90 / 7%); color: var(--mir-color-warning); font: var(--mir-text-label) var(--mir-font-mono); letter-spacing: .02em; text-overflow: ellipsis; cursor: pointer; }
+.variant-select:focus { box-shadow: var(--mir-focus-ring); color: var(--mir-color-ink); }
 .type-pill.transformers { border-color: rgb(196 139 58 / 55%); background: rgb(196 139 58 / 8%); color: #dca85f; }
 .type-pill.safetensors { border-color: rgb(97 214 163 / 46%); background: rgb(97 214 163 / 7%); color: var(--mir-color-success); }
 .type-pill.sentence-transformers { border-color: rgb(174 133 255 / 48%); background: rgb(174 133 255 / 7%); color: #ae85ff; }

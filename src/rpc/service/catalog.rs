@@ -5,7 +5,7 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::{
     application::TransferProgress,
-    catalog::SearchResults,
+    catalog::{CatalogVariant, SearchResults},
     model::format::{container_name, legacy_library},
     rpc::proto,
 };
@@ -47,7 +47,38 @@ fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
         tool_use: model.features.tool_use,
         thinking: model.features.thinking,
         vision: model.features.vision,
+        variants: model.variants.into_iter().map(variant).collect(),
+        default_variant: model.default_variant,
     }
+}
+
+fn variant(variant: CatalogVariant) -> proto::CatalogVariant {
+    proto::CatalogVariant {
+        name: variant.name,
+        size_kind: variant.size.kind().to_owned(),
+        weight_bytes: variant.size.bytes(),
+        required_bytes: variant.required_bytes,
+        memory_fit: variant.memory_fit.as_str().to_owned(),
+        downloaded: variant.downloaded,
+    }
+}
+
+pub async fn variants(
+    service: &RuntimeService,
+    request: proto::ListModelVariantsRequest,
+) -> Result<proto::ListModelVariantsResponse, Status> {
+    if request.repo_id.trim().is_empty() {
+        return Err(Status::invalid_argument("repository id cannot be empty"));
+    }
+    let listed = service
+        .application
+        .catalog_variants(request.repo_id.trim())
+        .await
+        .map_err(super::status::application)?;
+    Ok(proto::ListModelVariantsResponse {
+        variants: listed.variants.into_iter().map(variant).collect(),
+        default_variant: listed.default_variant,
+    })
 }
 
 pub async fn search(

@@ -10,21 +10,20 @@ use super::{
     super::{app::App, theme},
     bytes,
 };
+use crate::rpc::proto::{CatalogModel, CatalogVariant};
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = title(app);
     let rows = app.visible_catalog_models().map(|model| {
+        let variant = app.chosen_variant(model);
+        let downloaded = app.catalog_downloaded(model);
         Row::new(vec![
-            Cell::from(if model.gated {
-                format!("🔒 {}", model.id)
-            } else {
-                model.id.clone()
-            }),
-            Cell::from(format_label(model)),
-            Cell::from(model.estimated_required_bytes.map_or_else(|| "—".to_owned(), bytes)),
+            Cell::from(name(model, variant)),
+            Cell::from(format_label(model, variant)),
+            Cell::from(size(model, variant)),
             Cell::from(features(model.tool_use, model.thinking, model.vision)),
-            Cell::from(status(model)),
-            Cell::from(if is_local(model) {
+            Cell::from(status(app.catalog_fit(model), downloaded)),
+            Cell::from(if downloaded {
                 "✓ downloaded"
             } else {
                 "↓ download"
@@ -58,8 +57,50 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-fn format_label(model: &crate::rpc::proto::CatalogModel) -> String {
-    let value = if model.encoding.is_empty() || model.encoding == "Unknown" {
+/// The repository, with the chosen quantization of a GGUF one between the
+/// ←/→ marks that change it.
+fn name(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+    let lock = if model.gated {
+        "🔒 "
+    } else {
+        ""
+    };
+    match variant {
+        Some(variant) if model.variants.len() > 1 => {
+            format!("{lock}{} ‹{}›", model.id, variant.name)
+        },
+        Some(variant) => format!("{lock}{} · {}", model.id, variant.name),
+        None => format!("{lock}{}", model.id),
+    }
+}
+
+/// What the download needs; `~` marks a size estimated before its files
+/// are listed.
+fn size(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+    let (required, estimated) = variant
+        .map_or((model.estimated_required_bytes, false), |variant| {
+            (variant.required_bytes, variant.size_kind == "estimated")
+        });
+    required.map_or_else(
+        || "—".to_owned(),
+        |required| {
+            format!(
+                "{}{}",
+                if estimated {
+                    "~"
+                } else {
+                    ""
+                },
+                bytes(required)
+            )
+        },
+    )
+}
+
+fn format_label(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+    let value = if variant.is_some() {
+        "GGUF"
+    } else if model.encoding.is_empty() || model.encoding == "Unknown" {
         &model.ecosystem
     } else {
         &model.encoding
@@ -79,11 +120,11 @@ fn title(app: &App) -> String {
     }
 }
 
-fn status(model: &crate::rpc::proto::CatalogModel) -> Line<'static> {
-    let (value, color) = if is_local(model) {
+fn status(fit: &str, downloaded: bool) -> Line<'static> {
+    let (value, color) = if downloaded {
         ("DOWNLOADED", theme::SUCCESS)
     } else {
-        match model.memory_fit.as_str() {
+        match fit {
             "fits" => ("FITS", theme::SUCCESS),
             "tight" => ("TIGHT", theme::SIGNAL),
             "does_not_fit" => ("NO FIT", theme::DANGER),
@@ -91,10 +132,6 @@ fn status(model: &crate::rpc::proto::CatalogModel) -> Line<'static> {
         }
     };
     Line::from(Span::styled(format!(" {value} "), Style::new().fg(color).bg(theme::RAISED)))
-}
-
-fn is_local(model: &crate::rpc::proto::CatalogModel) -> bool {
-    model.downloaded || matches!(model.local_source.as_str(), "mirmir" | "hf_cache")
 }
 
 fn features(tools: bool, thinking: bool, vision: bool) -> Line<'static> {

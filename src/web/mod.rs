@@ -20,7 +20,7 @@ use axum::{
 pub use chat::chat;
 pub use configuration::{configuration, update_configuration};
 pub use management::{cancel, inspect, load, remove, unload};
-pub use operations::{pull, search};
+pub use operations::{pull, search, variants};
 use serde::Serialize;
 pub use session::Sessions;
 pub use socket::updates;

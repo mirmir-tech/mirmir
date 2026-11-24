@@ -1,11 +1,12 @@
 mod estimate;
+mod variants;
 
 use std::cmp::Ordering;
 
-pub(super) use estimate::reason;
 pub use estimate::{Confidence, MemoryFit};
 use libmir::{AdmissionStatus, WeightContainer};
 use sysinfo::System;
+pub use variants::{CatalogVariant, variants};
 
 use super::hub::{Features, HubModel};
 use crate::model::format::{Ecosystem, ModelFormat};
@@ -44,6 +45,12 @@ pub struct CatalogModel {
     pub preflight_bytes: Option<u64>,
     pub preflight_error: Option<String>,
     pub features: Features,
+    /// A GGUF repository's quantizations, fewest bits first; empty for
+    /// other repositories.
+    pub variants: Vec<CatalogVariant>,
+    /// The variant a download without one takes; the row's size and fit
+    /// are its own.
+    pub default_variant: Option<String>,
 }
 
 impl MachineMemory {
@@ -90,8 +97,20 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     let model_class = model.model_class();
     let facts = model.facts();
     let format = ModelFormat::remote(model.library_name.as_deref(), facts);
-    let compatibility = compatibility(&model, facts.container);
-    let weight_bytes = weights(&model);
+    let gguf = model.gguf_variants();
+    let (variants, default_variant) = if facts.container == Some(WeightContainer::Gguf) {
+        let parameters = model.gguf.as_ref().and_then(|gguf| gguf.total);
+        variants::variants(&gguf, parameters, memory)
+    } else {
+        (Vec::new(), None)
+    };
+    let architecture = model.gguf.as_ref().and_then(|gguf| gguf.architecture.as_deref());
+    let compatibility = match facts.container {
+        Some(WeightContainer::Gguf) => variants::compatibility(architecture, &gguf),
+        Some(WeightContainer::SafeTensors) | None => compatibility(&model, facts.container),
+    };
+    let chosen = variants.iter().find(|variant| Some(&variant.name) == default_variant.as_ref());
+    let weight_bytes = chosen.map_or_else(|| weights(&model), |variant| variant.size.bytes());
     let required_bytes = weight_bytes.map(required);
     let memory_fit = MemoryFit::of(required_bytes, memory.budget);
     let confidence = if required_bytes.is_some() && memory.budget.is_some() {
@@ -133,35 +152,8 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         preflight_bytes: None,
         preflight_error: None,
         features: Features { tool_use, thinking, vision },
-    }
-}
-
-/// One GGUF variant of a catalog repository, `id` `owner/name:VARIANT`,
-/// with its own weights and memory fit.
-#[must_use]
-pub fn variant(
-    repository: &CatalogModel,
-    id: String,
-    name: &str,
-    weight_bytes: u64,
-    memory: MachineMemory,
-) -> CatalogModel {
-    let required_bytes = required(weight_bytes);
-    let memory_fit = MemoryFit::of(Some(required_bytes), memory.budget);
-    CatalogModel {
-        id,
-        weight_bytes: Some(weight_bytes),
-        required_bytes: Some(required_bytes),
-        budget_bytes: memory.budget,
-        memory_fit,
-        confidence: if memory.budget.is_some() {
-            Confidence::Medium
-        } else {
-            Confidence::Low
-        },
-        reason: estimate::reason(repository.compatibility, memory_fit),
-        encoding: name.to_owned(),
-        ..repository.clone()
+        variants,
+        default_variant,
     }
 }
 
@@ -172,8 +164,7 @@ pub fn compare(left: &CatalogModel, right: &CatalogModel) -> Ordering {
         .then_with(|| left.id.cmp(&right.id))
 }
 
-/// GGUF repositories publish no `SafeTensors` metadata; their admission
-/// waits for the download like any other checkpoint's.
+/// A `SafeTensors` repository's admission waits for its headers.
 const fn compatibility(model: &HubModel, container: Option<WeightContainer>) -> AdmissionStatus {
     match container {
         Some(WeightContainer::Gguf) => AdmissionStatus::Unknown,

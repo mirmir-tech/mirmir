@@ -76,6 +76,25 @@ pub struct Model {
     pub features: Features,
 }
 
+/// One quantization of a GGUF repository; pull it as `id:name`.
+#[derive(Serialize)]
+pub struct CatalogVariant {
+    pub name: String,
+    /// `exact`, `estimated` or `unknown`.
+    pub size_kind: String,
+    pub weight_bytes: Option<u64>,
+    pub required_bytes: Option<u64>,
+    pub memory_fit: String,
+    pub downloaded: bool,
+}
+
+/// A GGUF repository's variants with the sizes of their listed files.
+#[derive(Serialize)]
+pub struct ModelVariants {
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct CatalogResults {
     pub models: Vec<CatalogModel>,
@@ -111,6 +130,8 @@ pub struct CatalogModel {
     pub preflight_error: Option<String>,
     #[serde(flatten)]
     pub features: Features,
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
 }
 
 #[derive(Serialize)]

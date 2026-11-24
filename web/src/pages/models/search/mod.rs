@@ -2,15 +2,15 @@ use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
-use super::{ModelUi, row::cancel};
+mod row;
+
+use row::CatalogRow;
+
+use super::ModelUi;
 use crate::{
     api,
-    components::{FeaturePills, Icon, StatePill, TypePill},
-    state::{RuntimeState, bytes},
-    types::{
-        Activity, Model,
-        catalog::{CatalogModel, CatalogResults},
-    },
+    state::RuntimeState,
+    types::{Model, catalog::CatalogResults},
 };
 
 #[component]
@@ -86,50 +86,6 @@ pub fn SearchPopup() -> impl IntoView {
     }
 }
 
-#[component]
-fn CatalogRow(model: CatalogModel) -> impl IntoView {
-    let state = expect_context::<RuntimeState>();
-    let id = StoredValue::new(model.id.clone());
-    let reason = StoredValue::new(model.reason.clone());
-    let stored_model = StoredValue::new(model.clone());
-    let downloaded = model.downloaded;
-    let fit = if downloaded {
-        "downloaded".to_owned()
-    } else {
-        model.memory_fit.clone()
-    };
-    let operation = move || pull_activity(state, &id.get_value());
-    let busy = move || state.busy.get().contains_key(&id.get_value());
-    let display_state = move || {
-        if operation().is_some() || busy() {
-            "downloading".to_owned()
-        } else {
-            fit.clone()
-        }
-    };
-    let detail = move || operation().map_or_else(|| reason.get_value(), |item| item.detail);
-    let progress = move || {
-        operation().and_then(|item| {
-            item.current
-                .zip(item.total)
-                .map(|(current, total)| 100.0 * current as f64 / total.max(1) as f64)
-        })
-    };
-    let format = if model.encoding.is_empty() || model.encoding == "Unknown" {
-        model.ecosystem.clone()
-    } else {
-        model.encoding.clone()
-    };
-    let format_detail = format!("{} · {}", model.ecosystem, model.container);
-    view! { <tr><td><span class="model-name"><strong>{model.id.clone()}</strong><small>{reason.get_value()}</small></span></td><td><TypePill value=format /><small>{format_detail}</small></td><td class="model-size">{model.estimated_weight_bytes.map_or_else(|| "—".to_owned(), bytes)}</td><td><FeaturePills tool_use=model.tool_use thinking=model.thinking vision=model.vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
-        <Show when=move || operation().is_some_and(|item| item.cancellable) fallback=move || view! {
-            <button class="icon-action" class:downloaded=downloaded disabled=move || downloaded || busy() data-tooltip=if downloaded { "Downloaded" } else { "Download model" } aria-label=if downloaded { "Downloaded" } else { "Download model" } on:click=move |_| start_download(state, &stored_model.get_value())><Icon name=if downloaded { "downloaded" } else { "download" } /></button>
-        }>
-            <button class="icon-action" data-tooltip="Cancel download" aria-label="Cancel download" on:click=move |_| if let Some(item) = operation() { cancel(state, item.operation_id); }><Icon name="cancel" /></button>
-        </Show>
-    </td></tr> }
-}
-
 fn load_more(
     state: RuntimeState,
     query: RwSignal<String>,
@@ -163,70 +119,28 @@ fn load_more(
     });
 }
 
-fn pull_activity(state: RuntimeState, id: &str) -> Option<Activity> {
-    state.activities.get().into_iter().find(|item| {
-        item.target == id
-            && item.kind == "pull"
-            && matches!(item.state.as_str(), "queued" | "running" | "cancelling")
-    })
-}
-
+/// Marks what the server lists as downloaded: a repository, or a GGUF
+/// repository's variants by their `id:name`.
 fn sync_downloaded(results: &mut CatalogResults, local: &[Model]) {
+    let on_server =
+        |id: &str| local.iter().any(|item| item.repo_id == id && item.state != "downloading");
     for model in &mut results.models {
-        model.downloaded =
-            local.iter().any(|item| item.repo_id == model.id && item.state != "downloading");
-    }
-}
-
-fn start_download(state: RuntimeState, model: &CatalogModel) {
-    let repo_id = model.id.clone();
-    let inserted = !state.models.get_untracked().iter().any(|item| item.repo_id == repo_id);
-    if inserted {
-        state.models.update(|items| items.push(download_placeholder(model)));
-    }
-    state.set_busy(&repo_id, Some("/models/pull"));
-    spawn_local(async move {
-        let body = serde_json::json!({"repo_id": repo_id, "revision": null});
-        match api::post::<serde_json::Value, _>(state, "/models/pull", &body).await {
-            Ok(_) => state.notify(format!("Download accepted for {repo_id}"), false),
-            Err(error) => {
-                state.set_busy(&repo_id, None);
-                if inserted {
-                    state.models.update(|items| items.retain(|item| item.repo_id != repo_id));
-                }
-                state.notify(error, true);
-            },
+        for variant in &mut model.variants {
+            variant.downloaded = on_server(&format!("{}:{}", model.id, variant.name));
         }
-    });
-}
-
-fn download_placeholder(model: &CatalogModel) -> Model {
-    Model {
-        id: model.id.clone(),
-        repo_id: model.id.clone(),
-        revision: "main".to_owned(),
-        state: "downloading".to_owned(),
-        selector: model.id.clone(),
-        ecosystem: model.ecosystem.clone(),
-        container: model.container.clone(),
-        encoding: model.encoding.clone(),
-        metal_compatibility: model.metal_compatibility.clone(),
-        cuda_compatibility: model.cuda_compatibility.clone(),
-        size_bytes: model.estimated_weight_bytes.unwrap_or_default(),
-        tool_use: model.tool_use,
-        thinking: model.thinking,
-        vision: model.vision,
-        ..Default::default()
+        model.downloaded =
+            on_server(&model.id) || model.variants.iter().any(|variant| variant.downloaded);
     }
 }
 
-fn does_not_fit(state: &str) -> bool {
+pub(super) fn does_not_fit(state: &str) -> bool {
     matches!(state, "does_not_fit" | "does-not-fit")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::catalog::{CatalogModel, CatalogVariant};
 
     #[test]
     fn local_model_refresh_marks_matching_catalog_result_as_downloaded() {
@@ -245,5 +159,30 @@ mod tests {
         sync_downloaded(&mut results, &[local]);
 
         assert!(results.models[0].downloaded);
+    }
+
+    #[test]
+    fn a_downloaded_variant_marks_its_repository() {
+        let variant = |name: &str| CatalogVariant {
+            name: name.to_owned(),
+            ..Default::default()
+        };
+        let mut results = CatalogResults {
+            models: vec![CatalogModel {
+                id: "org/m-GGUF".to_owned(),
+                variants: vec![variant("Q4_K_M"), variant("Q8_0")],
+                ..Default::default()
+            }],
+            next_cursor: None,
+        };
+        let local = Model {
+            repo_id: "org/m-GGUF:Q8_0".to_owned(),
+            ..Default::default()
+        };
+
+        sync_downloaded(&mut results, &[local]);
+
+        let model = &results.models[0];
+        assert!(model.downloaded && !model.variants[0].downloaded && model.variants[1].downloaded);
     }
 }

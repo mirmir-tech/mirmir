@@ -53,6 +53,7 @@ fn candidates(app: &App) -> Vec<Shortcut> {
             ("Esc", "close"),
             ("type", "search"),
             ("↑/↓", "select"),
+            ("←/→", "quantization"),
             ("Enter", "action"),
             ("PgUp/PgDn", "page"),
         ];
@@ -102,6 +103,7 @@ fn screen(app: &App) -> Vec<Shortcut> {
             ("l/u", "load/unload"),
             ("r", "remove"),
             ("i", "filter"),
+            ("←/→", "quantization"),
             ("x", "cancel"),
         ],
         Screen::Chat if app.chat_status == ChatStatus::Generating => {
