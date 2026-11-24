@@ -15,7 +15,7 @@ pub struct CatalogModel {
     pub estimated_weight_bytes: Option<u64>,
     pub ecosystem: String,
     pub container: String,
-    pub encoding: String,
+    pub encoding: Option<String>,
     pub metal_compatibility: String,
     pub cuda_compatibility: String,
     pub tool_use: bool,

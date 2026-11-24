@@ -68,7 +68,8 @@ pub struct Model {
     pub library: String,
     pub ecosystem: String,
     pub container: String,
-    pub encoding: String,
+    /// Absent when nothing names the weights' encoding.
+    pub encoding: Option<String>,
     pub metal_compatibility: String,
     pub cuda_compatibility: String,
     pub size_bytes: u64,
@@ -123,7 +124,8 @@ pub struct CatalogModel {
     pub library: String,
     pub ecosystem: String,
     pub container: String,
-    pub encoding: String,
+    /// Absent when nothing names the weights' encoding.
+    pub encoding: Option<String>,
     pub metal_compatibility: String,
     pub cuda_compatibility: String,
     pub preflight_bytes: Option<u64>,

@@ -36,7 +36,7 @@ impl From<LocalModelInfo> for proto::LocalModelInfo {
             library: legacy_library(value.container, &value.ecosystem).to_owned(),
             ecosystem: value.ecosystem.name().to_owned(),
             container: container_name(value.container).to_owned(),
-            encoding: value.encoding.label(),
+            encoding: value.encoding.known_label(),
             metal_compatibility: value.metal_compatibility.as_str().to_owned(),
             cuda_compatibility: value.cuda_compatibility.as_str().to_owned(),
             size_bytes: value.size_bytes,

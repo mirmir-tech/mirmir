@@ -95,6 +95,12 @@ impl ModelEncoding {
         }
     }
 
+    /// The label, unless nothing names the encoding.
+    #[must_use]
+    pub fn known_label(&self) -> Option<String> {
+        (*self != Self::Unknown).then(|| self.label())
+    }
+
     /// The protocol spelling: `Q4_K 74% · Q6_K 25%` for a GGUF type mix.
     #[must_use]
     pub fn label(&self) -> String {

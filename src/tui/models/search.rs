@@ -100,10 +100,8 @@ fn size(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
 fn format_label(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
     let value = if variant.is_some() {
         "GGUF"
-    } else if model.encoding.is_empty() || model.encoding == "Unknown" {
-        &model.ecosystem
     } else {
-        &model.encoding
+        model.encoding.as_deref().unwrap_or(&model.ecosystem)
     };
     value.to_ascii_uppercase()
 }

@@ -55,7 +55,7 @@ pub struct Model {
     pub load_unavailable_reason: String,
     pub ecosystem: String,
     pub container: String,
-    pub encoding: String,
+    pub encoding: Option<String>,
     pub metal_compatibility: String,
     pub cuda_compatibility: String,
     pub size_bytes: u64,

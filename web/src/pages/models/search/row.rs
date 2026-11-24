@@ -24,10 +24,8 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
     let gguf = !model.variants.is_empty();
     let format = if gguf {
         "GGUF".to_owned()
-    } else if model.encoding.is_empty() || model.encoding == "Unknown" {
-        model.ecosystem.clone()
     } else {
-        model.encoding.clone()
+        model.encoding.clone().unwrap_or_else(|| model.ecosystem.clone())
     };
     let format_detail = format!("{} · {}", model.ecosystem, model.container);
     let (id, reason) = (model.id.clone(), model.reason.clone());

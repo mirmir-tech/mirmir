@@ -90,11 +90,7 @@ pub fn LocalRow(model: Model) -> impl IntoView {
 }
 
 fn format_label(model: &Model) -> String {
-    if model.encoding.is_empty() || model.encoding == "Unknown" {
-        model.ecosystem.clone()
-    } else {
-        model.encoding.clone()
-    }
+    model.encoding.clone().unwrap_or_else(|| model.ecosystem.clone())
 }
 
 pub fn run_action(
