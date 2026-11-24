@@ -100,10 +100,12 @@ pub enum ModelCommand {
         #[arg(long, default_value_t = 20)]
         limit: u32,
     },
-    /// Download every file from a Hugging Face model repository into the
-    /// managed cache.
+    /// Download a Hugging Face model repository into the managed cache; from
+    /// a repository of GGUF files, one quantization and its vision tower.
     Pull {
-        /// Hugging Face repository in OWNER/MODEL form.
+        /// Hugging Face repository in OWNER/MODEL form; a GGUF repository
+        /// takes the quantization as OWNER/MODEL:VARIANT (for example
+        /// `unsloth/Qwen3-8B-GGUF:Q4_K_M`), as `model search` lists them.
         #[arg(value_name = "REPO_ID")]
         repo_id: String,
         /// Branch, tag, or commit to download instead of the repository default
@@ -115,7 +117,7 @@ pub enum ModelCommand {
     /// unloaded.
     Remove {
         /// Hugging Face repository ID whose managed or external cached files
-        /// should be removed.
+        /// should be removed; OWNER/MODEL:VARIANT removes one GGUF variant.
         #[arg(value_name = "REPO_ID")]
         repo_id: String,
     },

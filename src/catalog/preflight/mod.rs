@@ -1,4 +1,5 @@
 mod cache;
+mod gguf;
 mod index;
 mod metadata;
 mod presentation;
@@ -8,10 +9,13 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 pub(super) use cache::Cache;
 use futures_util::TryStreamExt;
+pub(super) use gguf::inspect as inspect_gguf;
 use hf_hub::{repository::RepoTreeEntry, split_id};
 use libmir::{RemoteModelContract, TensorCatalog, safetensors_header_len};
 pub use metadata::RemoteModelMetadata;
-pub(super) use presentation::{apply as apply_to_model, failure as apply_failure};
+pub(super) use presentation::{
+    apply as apply_to_model, apply_gguf, failure as apply_failure, reject_gguf,
+};
 
 use super::download;
 use crate::{

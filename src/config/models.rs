@@ -44,9 +44,11 @@ impl Store {
             selector.to_owned()
         };
         let model = self.load_model_config(&key)?;
+        // A downloaded GGUF variant loads from its import.
+        let path = self.checkpoint(&model.path).unwrap_or(model.path);
         Ok(ResolvedModel {
             key: model.id,
-            path: model.path,
+            path,
             generation: model.generation,
             runtime: model.runtime,
         })
@@ -84,13 +86,16 @@ impl Store {
         Ok(models)
     }
 
+    /// Records a downloaded Hub model: `reference` (`owner/name[:VARIANT]`)
+    /// at `commit` of `revision`, loading from `path`.
     pub fn save_hub_model(
         &self,
-        repo_id: &str,
+        reference: &str,
         revision: &str,
-        snapshot: std::path::PathBuf,
+        commit: &str,
+        path: std::path::PathBuf,
     ) -> Result<ModelConfig> {
-        let key = model_key(repo_id)?;
+        let key = model_key(reference)?;
         self.paths.ensure_config_dirs()?;
         let _writes = super::store::config_writes();
         // A new snapshot of the repository keeps the saved defaults and context.
@@ -98,19 +103,14 @@ impl Store {
             |_| (GenerationConfig::default(), super::model_runtime::ModelRuntimeConfig::default()),
             |model| (model.generation, model.runtime),
         );
-        let commit = snapshot
-            .file_name()
-            .and_then(|value| value.to_str())
-            .ok_or_else(|| Error::Config("Hub snapshot has no commit directory".to_owned()))?
-            .to_owned();
         let model = ModelConfig {
             schema_version: super::schema::SCHEMA_VERSION,
             id: key.clone(),
-            path: snapshot,
+            path,
             hub: Some(HubModelConfig {
-                repo_id: repo_id.to_owned(),
+                repo_id: reference.to_owned(),
                 revision: revision.to_owned(),
-                commit,
+                commit: commit.to_owned(),
             }),
             generation,
             runtime,
@@ -148,20 +148,9 @@ impl Store {
     }
 }
 
-pub fn model_key(repo_id: &str) -> Result<String> {
-    let parts = repo_id.split('/').collect::<Vec<_>>();
-    let valid_part = |part: &&str| {
-        !part.is_empty()
-            && *part != "."
-            && *part != ".."
-            && part
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || "-_.".contains(character))
-    };
-    if !(1..=2).contains(&parts.len()) || !parts.iter().all(valid_part) {
-        return Err(Error::Config(format!("invalid Hugging Face repository id `{repo_id}`")));
-    }
-    Ok(parts.join("--"))
+/// The file-system key of a Hub reference, `owner/name[:VARIANT]`.
+pub fn model_key(reference: &str) -> Result<String> {
+    Ok(reference.parse::<super::HubReference>()?.key())
 }
 
 #[cfg(test)]
@@ -192,7 +181,7 @@ mod tests {
         ));
         let snapshot = root.join("cache/snapshots/0123456789");
         fs::create_dir_all(&snapshot)?;
-        let model = store.save_hub_model("Qwen/Test", "main", snapshot.clone())?;
+        let model = store.save_hub_model("Qwen/Test", "main", "0123456789", snapshot.clone())?;
         assert_eq!(model.hub.as_ref().map(|hub| hub.commit.as_str()), Some("0123456789"));
         assert!(store.hub_model_downloaded("Qwen/Test")?);
         assert_eq!(store.resolve_model("Qwen/Test")?.key, "Qwen--Test");
@@ -214,7 +203,7 @@ mod tests {
         ));
         let snapshot = root.join("cache/snapshots/0123456789");
         fs::create_dir_all(&snapshot)?;
-        store.save_hub_model("Qwen/Reranker", "main", snapshot)?;
+        store.save_hub_model("Qwen/Reranker", "main", "0123456789", snapshot)?;
         let path = store.model_config_path("Qwen--Reranker");
         let written = fs::read_to_string(&path)?;
         assert!(!written.contains("[runtime]"));
@@ -226,7 +215,7 @@ mod tests {
         // Pulling a new snapshot keeps the saved context.
         let next = root.join("cache/snapshots/abcdef0123");
         fs::create_dir_all(&next)?;
-        store.save_hub_model("Qwen/Reranker", "main", next)?;
+        store.save_hub_model("Qwen/Reranker", "main", "abcdef0123", next)?;
         let kept = store.resolve_model("Qwen/Reranker")?.runtime.kv_blocks;
         assert_eq!(kept.map(std::num::NonZeroU32::get), Some(512));
         Ok(())

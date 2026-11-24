@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod known;
+
 use super::{super::NativeRuntime, presentation};
 use crate::{
     application::{LocalModelInfo, LocalModelState, ModelInfo, Result},
@@ -29,10 +31,7 @@ impl NativeRuntime {
             .iter()
             .map(|(selector, entry)| (selector.as_str(), &entry.info))
             .collect::<Resident<'_>>();
-        let mut known_repos = configs
-            .iter()
-            .filter_map(|config| config.hub.as_ref().map(|hub| hub.repo_id.clone()))
-            .collect::<HashSet<_>>();
+        let mut known_repos = known::repositories(&configs);
         let mut known_paths =
             configs.iter().map(|config| canonical(&config.path)).collect::<HashSet<_>>();
         let mut listed = configs
@@ -155,7 +154,8 @@ fn configured(
         revision: String::new(),
         commit: String::new(),
     });
-    let details = presentation::inspect(&config.path, config.generation);
+    let checkpoint = runtime.store.checkpoint(&config.path).unwrap_or_else(|_| config.path.clone());
+    let details = presentation::inspect(&checkpoint, config.generation);
     info(
         config.id.clone(),
         hub.repo_id,
@@ -164,8 +164,7 @@ fn configured(
         config.path.display().to_string(),
         state(&config.id, &config.path, details.loadable, models, loading),
         config.id.clone(),
-        config.hub.is_some()
-            && canonical(&config.path).starts_with(canonical(&runtime.store.paths().hub_cache_dir)),
+        config.hub.is_some() && known::managed(&config.path, runtime.store.paths()),
         recent.get(&config.id).copied(),
         &details,
         models.get(config.id.as_str()).copied(),

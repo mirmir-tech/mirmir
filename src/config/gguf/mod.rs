@@ -22,15 +22,28 @@ struct Source {
 }
 
 impl Store {
+    /// The checkpoint `path` loads from: its GGUF import, or `path` itself.
+    pub fn checkpoint(&self, path: &Path) -> Result<PathBuf> {
+        let canonical = fs::canonicalize(path)?;
+        Ok(self.gguf_import(&canonical)?.unwrap_or(canonical))
+    }
+
     /// The directory a GGUF `path` loads from, imported or refreshed when
     /// the import is missing or older than its source; `None` when `path` is
     /// not a GGUF model. `path` is canonical: a `.gguf` file, or a directory
     /// of GGUF files without a `config.json`.
-    pub(super) fn gguf_import(&self, path: &Path) -> Result<Option<PathBuf>> {
+    pub(crate) fn gguf_import(&self, path: &Path) -> Result<Option<PathBuf>> {
         let Some(source) = source(path)? else {
             return Ok(None);
         };
-        let directory = self.paths.gguf_imports_dir.join(folder_key(&path.with_extension("")));
+        // A file imports under its stem; a directory keeps its whole name,
+        // whose dots (`Qwen2.5`) are not an extension.
+        let name = if path.is_file() {
+            path.with_extension("")
+        } else {
+            path.to_path_buf()
+        };
+        let directory = self.paths.gguf_imports_dir.join(folder_key(&name));
         if !current(&directory, &source)? {
             write(&source, &directory)?;
         }

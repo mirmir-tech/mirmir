@@ -17,13 +17,16 @@ use crate::{
     error::{Error, Result},
 };
 
-pub async fn snapshot(
-    store: &Store,
-    repo_id: &str,
-    revision: &str,
-    updates: &mpsc::Sender<TransferUpdate>,
-    cancellation: &CancellationToken,
-) -> Result<PathBuf> {
+/// One file of a repository revision, as the download needs it.
+#[derive(Debug, Clone)]
+pub struct ListedFile {
+    pub path: String,
+    pub etag: String,
+    pub size: u64,
+}
+
+/// Every file of `repo_id` at `revision`.
+pub async fn listing(store: &Store, repo_id: &str, revision: &str) -> Result<Vec<ListedFile>> {
     let hf = client(store)?;
     let (owner, name) = split_id(repo_id);
     let repository = hf.model(owner, name);
@@ -34,7 +37,7 @@ pub async fn snapshot(
                 RepoTreeEntry::File { oid, size, path, lfs, xet_hash, .. } => {
                     let etag =
                         xet_hash.or_else(|| lfs.and_then(|value| value.sha256)).unwrap_or(oid);
-                    Some((path, etag, size))
+                    Some(ListedFile { path, etag, size })
                 },
                 RepoTreeEntry::Directory { .. } => None,
             })
@@ -44,16 +47,40 @@ pub async fn snapshot(
     if files.is_empty() {
         return Err(Error::Config(format!("model `{repo_id}` contains no files")));
     }
-    let commit = resolve_commit(&repository, revision, &files).await?;
+    Ok(files)
+}
+
+/// The commit `revision` of `repo_id` names, read from the metadata of the
+/// first of `files` that reports it.
+pub async fn commit(
+    store: &Store,
+    repo_id: &str,
+    revision: &str,
+    files: &[ListedFile],
+) -> Result<String> {
+    let hf = client(store)?;
+    let (owner, name) = split_id(repo_id);
+    resolve_commit(&hf.model(owner, name), revision, files).await
+}
+
+/// Downloads `files` of `repo_id` at `commit` of `revision` into its
+/// snapshot, which it returns.
+pub async fn snapshot(
+    store: &Store,
+    (repo_id, revision, commit): (&str, &str, String),
+    files: Vec<ListedFile>,
+    updates: &mpsc::Sender<TransferUpdate>,
+    cancellation: &CancellationToken,
+) -> Result<PathBuf> {
     let metadata = files
         .into_iter()
-        .map(|(filename, etag, file_size)| hf_hub::repository::FileMetadataInfo {
-            location: Some(download_url(repo_id, revision, &filename)),
-            filename,
-            etag,
+        .map(|file| hf_hub::repository::FileMetadataInfo {
+            location: Some(download_url(repo_id, revision, &file.path)),
+            filename: file.path,
+            etag: file.etag,
             commit_hash: commit.clone(),
             xet_hash: None,
-            file_size,
+            file_size: file.size,
         })
         .collect::<Vec<_>>();
     let root = store.paths().hub_cache_dir.join(format!("models--{}", model_key(repo_id)?));
@@ -83,12 +110,12 @@ pub async fn snapshot(
 async fn resolve_commit(
     repository: &hf_hub::HFRepository<hf_hub::RepoTypeModel>,
     revision: &str,
-    files: &[(String, String, u64)],
+    files: &[ListedFile],
 ) -> Result<String> {
-    for (filename, _, _) in files {
+    for file in files {
         if let Ok(value) = repository
             .get_file_metadata()
-            .filepath(filename)
+            .filepath(&file.path)
             .revision(revision)
             .send()
             .await

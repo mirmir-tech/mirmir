@@ -1,8 +1,10 @@
 mod facts;
+mod gguf;
 
 use std::collections::BTreeMap;
 
 pub use facts::{Features, HubFacts};
+pub use gguf::{GgufRepository, GgufVariant, RepoFile};
 use serde::Deserialize;
 
 use crate::error::Result;

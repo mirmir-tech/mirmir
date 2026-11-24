@@ -1,4 +1,4 @@
-use libmir::{AdmissionStatus, BackendTarget};
+use libmir::{AdmissionStatus, BackendTarget, RemoteModelContract};
 
 use super::RemoteHeaderPreflight;
 use crate::catalog::{CatalogModel, Confidence};
@@ -20,19 +20,9 @@ pub(in crate::catalog) fn apply(model: &mut CatalogModel, preflight: &RemoteHead
         }
         return;
     };
-    let metal = contract.admission(BackendTarget::Metal).status;
-    let cuda = contract.admission(BackendTarget::Cuda).status;
+    let (metal, cuda) = admit(model, contract);
     model.features.vision = contract.vision().is_some();
-    let overall = best_status(metal, cuda);
-    model.compatibility = overall;
-    model.metal_compatibility = metal;
-    model.cuda_compatibility = cuda;
     model.encoding = contract.checkpoint_encoding().label();
-    model.confidence = if overall == AdmissionStatus::Unknown {
-        Confidence::Medium
-    } else {
-        Confidence::High
-    };
     let vision = contract.vision().map_or_else(String::new, |vision| {
         let processor = if vision.processor().is_some() {
             "ready"
@@ -49,6 +39,57 @@ pub(in crate::catalog) fn apply(model: &mut CatalogModel, preflight: &RemoteHead
         cuda.as_str(),
         vision
     );
+}
+
+/// A GGUF variant admitted from its `fetched` header bytes; its encoding
+/// stays the variant's own, since one variant's header stands for all.
+pub(in crate::catalog) fn apply_gguf(
+    model: &mut CatalogModel,
+    contract: &RemoteModelContract,
+    fetched: u64,
+) {
+    model.preflight_bytes = Some(fetched);
+    let (metal, cuda) = admit(model, contract);
+    model.reason = format!(
+        "{}; GGUF header inspected in {fetched} bytes, Metal {}, CUDA {}",
+        crate::catalog::fit::reason(model.compatibility, model.memory_fit),
+        metal.as_str(),
+        cuda.as_str()
+    );
+}
+
+/// A GGUF variant whose header libmir refuses, such as for its tokenizer.
+pub(in crate::catalog) fn reject_gguf(
+    model: &mut CatalogModel,
+    error: &libmir::Error,
+    fetched: u64,
+) {
+    model.preflight_bytes = Some(fetched);
+    model.preflight_error = Some(error.to_string());
+    model.compatibility = AdmissionStatus::Unsupported;
+    model.metal_compatibility = AdmissionStatus::Unsupported;
+    model.cuda_compatibility = AdmissionStatus::Unsupported;
+    model.confidence = Confidence::High;
+    model.reason = format!("GGUF header was rejected: {error}");
+}
+
+/// Records each backend's admission and the best of them.
+fn admit(
+    model: &mut CatalogModel,
+    contract: &RemoteModelContract,
+) -> (AdmissionStatus, AdmissionStatus) {
+    let metal = contract.admission(BackendTarget::Metal).status;
+    let cuda = contract.admission(BackendTarget::Cuda).status;
+    let overall = best_status(metal, cuda);
+    model.compatibility = overall;
+    model.metal_compatibility = metal;
+    model.cuda_compatibility = cuda;
+    model.confidence = if overall == AdmissionStatus::Unknown {
+        Confidence::Medium
+    } else {
+        Confidence::High
+    };
+    (metal, cuda)
 }
 
 pub(in crate::catalog) fn failure(model: &mut CatalogModel, error: impl Into<String>) {

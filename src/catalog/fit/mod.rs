@@ -2,6 +2,7 @@ mod estimate;
 
 use std::cmp::Ordering;
 
+pub(super) use estimate::reason;
 pub use estimate::{Confidence, MemoryFit};
 use libmir::{AdmissionStatus, WeightContainer};
 use sysinfo::System;
@@ -19,7 +20,7 @@ pub struct MachineMemory {
     pub source: &'static str,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CatalogModel {
     pub id: String,
     pub downloads: u64,
@@ -132,6 +133,35 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         preflight_bytes: None,
         preflight_error: None,
         features: Features { tool_use, thinking, vision },
+    }
+}
+
+/// One GGUF variant of a catalog repository, `id` `owner/name:VARIANT`,
+/// with its own weights and memory fit.
+#[must_use]
+pub fn variant(
+    repository: &CatalogModel,
+    id: String,
+    name: &str,
+    weight_bytes: u64,
+    memory: MachineMemory,
+) -> CatalogModel {
+    let required_bytes = required(weight_bytes);
+    let memory_fit = MemoryFit::of(Some(required_bytes), memory.budget);
+    CatalogModel {
+        id,
+        weight_bytes: Some(weight_bytes),
+        required_bytes: Some(required_bytes),
+        budget_bytes: memory.budget,
+        memory_fit,
+        confidence: if memory.budget.is_some() {
+            Confidence::Medium
+        } else {
+            Confidence::Low
+        },
+        reason: estimate::reason(repository.compatibility, memory_fit),
+        encoding: name.to_owned(),
+        ..repository.clone()
     }
 }
 

@@ -39,7 +39,7 @@ fn canonicalizes_active_model_paths_and_removes_aliases() -> Result<()> {
     let (store, root) = test_store("active-alias");
     let snapshot = root.join("hub/snapshots/commit");
     fs::create_dir_all(&snapshot)?;
-    store.save_hub_model("Owner/Model", "main", snapshot.clone())?;
+    store.save_hub_model("Owner/Model", "main", "commit", snapshot.clone())?;
     store.activate_model(snapshot.to_str().expect("UTF-8 test path"))?;
     store.activate_model("Owner--Model")?;
     assert_eq!(store.active_models()?, ["Owner--Model"]);

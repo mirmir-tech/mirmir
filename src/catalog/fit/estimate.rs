@@ -82,7 +82,7 @@ pub(super) const fn rank(model: &CatalogModel) -> u8 {
     compatibility * 4 + memory
 }
 
-pub(super) fn reason(compatibility: AdmissionStatus, memory_fit: MemoryFit) -> String {
+pub(in crate::catalog) fn reason(compatibility: AdmissionStatus, memory_fit: MemoryFit) -> String {
     let reason = match (compatibility, memory_fit) {
         (AdmissionStatus::Unsupported, _) => {
             "model contract or weight format is not supported by libmir"

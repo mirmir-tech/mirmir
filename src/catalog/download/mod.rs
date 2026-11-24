@@ -1,10 +1,13 @@
+mod variant;
+
 use hf_hub::HFClient;
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
+pub(super) use variant::{check_variant, refuse_gguf_repository};
 
 use super::{cache::discover_external_models, resumable};
 use crate::{
-    config::{ModelConfig, Store, model_key},
+    config::{HubReference, ModelConfig, Store},
     error::{Error, Result},
 };
 
@@ -45,17 +48,24 @@ pub async fn pull(
     updates: mpsc::Sender<TransferUpdate>,
     cancellation: &CancellationToken,
 ) -> Result<DownloadedModel> {
-    drop(model_key(repo_id)?);
+    let reference = repo_id.parse::<HubReference>()?;
     let revision = revision.unwrap_or("main");
     send(
         &updates,
         TransferPhase::Resolving,
         0,
         None,
-        format!("resolving {repo_id}@{revision}"),
+        format!("resolving {reference}@{revision}"),
     )
     .await;
-    let snapshot = resumable::snapshot(store, repo_id, revision, &updates, cancellation).await?;
+    let files = resumable::listing(store, reference.repository(), revision).await?;
+    if reference.variant().is_some() {
+        return variant::pull(store, &reference, (revision, files), &updates, cancellation).await;
+    }
+    let commit = resumable::commit(store, repo_id, revision, &files).await?;
+    let snapshot =
+        resumable::snapshot(store, (repo_id, revision, commit), files, &updates, cancellation)
+            .await?;
     send(
         &updates,
         TransferPhase::Validating,
@@ -67,7 +77,11 @@ pub async fn pull(
     let inspection =
         libmir::ModelDescriptor::inspect(&snapshot, libmir::GenerationOverrides::default());
     let load_unavailable_reason = inspection.err().map(|error| error.to_string());
-    let model = store.save_hub_model(repo_id, revision, snapshot.clone())?;
+    let commit = snapshot
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::Config("Hub snapshot has no commit directory".to_owned()))?;
+    let model = store.save_hub_model(repo_id, revision, commit, snapshot.clone())?;
     let message = load_unavailable_reason.as_ref().map_or_else(
         || format!("saved model configuration for {repo_id}"),
         |reason| format!("downloaded {repo_id}; loading is unavailable: {reason}"),
@@ -77,7 +91,31 @@ pub async fn pull(
 }
 
 pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
-    let key = model_key(repo_id)?;
+    let reference = repo_id.parse::<HubReference>()?;
+    if reference.variant().is_some() {
+        let mut freed_bytes = variant::remove_files(store, &reference)?;
+        let removed_config = store.remove_hub_model_config(repo_id)?;
+        // The last variant takes the repository's cache with it.
+        if variant::siblings(store, &reference).is_empty() {
+            freed_bytes += Box::pin(remove(store, reference.repository())).await?.freed_bytes;
+        }
+        return Ok(Removal {
+            removed: removed_config || freed_bytes > 0,
+            freed_bytes,
+        });
+    }
+    // The repository takes every downloaded variant with it.
+    for model in store.list_model_configs()? {
+        let Some(variant) = model.hub.and_then(|hub| hub.repo_id.parse::<HubReference>().ok())
+        else {
+            continue;
+        };
+        if variant.variant().is_some() && variant.repository() == reference.repository() {
+            variant::remove_files(store, &variant)?;
+            store.remove_hub_model_config(&variant.to_string())?;
+        }
+    }
+    let key = reference.key();
     let cache = client(store)?.scan_cache().send().await?;
     let managed = cache
         .repos
