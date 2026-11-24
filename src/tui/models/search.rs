@@ -18,7 +18,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
         let variant = app.chosen_variant(model);
         let downloaded = app.catalog_downloaded(model);
         Row::new(vec![
-            Cell::from(name(model, variant)),
+            Cell::from(name(model)),
             Cell::from(format_label(model, variant)),
             Cell::from(size(model, variant)),
             Cell::from(features(model.tool_use, model.thinking, model.vision)),
@@ -30,11 +30,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
             }),
         ])
     });
-    let header = Row::new(["NAME", "FORMAT", "SIZE", "FEATURES", "FIT", "ACTION"])
+    let header = Row::new(["NAME", "FORMAT · ←/→", "SIZE", "FEATURES", "FIT", "ACTION"])
         .style(Style::new().fg(theme::MUTED).add_modifier(Modifier::BOLD));
     let widths = [
         Constraint::Percentage(34),
-        Constraint::Length(18),
+        Constraint::Length(20),
         Constraint::Length(11),
         Constraint::Percentage(23),
         Constraint::Length(13),
@@ -57,21 +57,13 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-/// The repository, with the chosen quantization of a GGUF one between the
-/// ←/→ marks that change it.
-fn name(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+fn name(model: &CatalogModel) -> String {
     let lock = if model.gated {
         "🔒 "
     } else {
         ""
     };
-    match variant {
-        Some(variant) if model.variants.len() > 1 => {
-            format!("{lock}{} ‹{}›", model.id, variant.name)
-        },
-        Some(variant) => format!("{lock}{} · {}", model.id, variant.name),
-        None => format!("{lock}{}", model.id),
-    }
+    format!("{lock}{}", model.id)
 }
 
 /// What the download needs; `~` marks a size estimated before its files
@@ -97,13 +89,22 @@ fn size(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
     )
 }
 
+/// A GGUF repository's chosen quantization between the ←/→ marks that
+/// change it, and its place among them; the encoding of another.
 fn format_label(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
-    let value = if variant.is_some() {
-        "GGUF"
-    } else {
-        model.encoding.as_deref().unwrap_or(&model.ecosystem)
+    let Some(variant) = variant else {
+        return model.encoding.as_deref().unwrap_or(&model.ecosystem).to_ascii_uppercase();
     };
-    value.to_ascii_uppercase()
+    let count = model.variants.len();
+    if count < 2 {
+        return format!("GGUF {}", variant.name);
+    }
+    let place = model
+        .variants
+        .iter()
+        .position(|option| option.name == variant.name)
+        .unwrap_or(0);
+    format!("‹{}› {}/{count}", variant.name, place + 1)
 }
 
 fn title(app: &App) -> String {

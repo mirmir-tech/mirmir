@@ -209,13 +209,13 @@ fn search_chooses_a_gguf_repositorys_quantization() -> Result<(), std::convert::
     app.catalog.push(model);
 
     let text = rendered(&mut app, 140, 36)?;
-    assert!(text.contains("ggml-org/gemma-4-E4B-it-GGUF ‹Q4_0›"));
+    assert!(text.contains("ggml-org/gemma-4-E4B-it-GGUF") && text.contains("‹Q4_0› 1/3"));
     // `~` marks a size estimated before the files are listed.
     assert!(text.contains("~5.58 GiB"));
     assert!(text.contains("FITS") && text.contains("←/→"));
     app.cycle_variant(1);
     let text = rendered(&mut app, 140, 36)?;
-    assert!(text.contains("‹Q8_0›") && text.contains("TIGHT"));
+    assert!(text.contains("‹Q8_0› 2/3") && text.contains("TIGHT"));
     assert_eq!(app.pull_target(&app.catalog[0]), "ggml-org/gemma-4-E4B-it-GGUF:Q8_0");
     // Downloaded since the search, from any client: the local list says so.
     let downloaded =
