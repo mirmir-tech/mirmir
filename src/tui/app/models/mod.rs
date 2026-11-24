@@ -2,7 +2,10 @@ use crossterm::event::{KeyCode, KeyEvent};
 use tokio::sync::mpsc;
 
 use super::{App, CatalogFilter};
-use crate::rpc::{Client, proto};
+use crate::{
+    catalog,
+    rpc::{Client, proto},
+};
 
 pub(super) struct CatalogSearchEvent {
     query: String,
@@ -229,16 +232,15 @@ impl App {
     }
 }
 
+/// The server's catalog order of a row; a status this client does not know
+/// ranks last.
 fn catalog_rank(model: &proto::CatalogModel) -> u8 {
-    match (model.compatibility.as_str(), model.memory_fit.as_str()) {
-        ("supported", "fits") => 0,
-        ("supported", "tight") => 1,
-        ("supported", "unknown") => 2,
-        ("supported", "does_not_fit") => 3,
-        ("unknown", "fits") => 4,
-        ("unknown", "tight") => 5,
-        ("unknown", "unknown") => 6,
-        ("unknown", "does_not_fit") => 7,
-        _ => 8,
-    }
+    let compatibility = catalog::admission_status(&model.compatibility);
+    let memory_fit = catalog::MemoryFit::from_protocol(&model.memory_fit);
+    compatibility
+        .zip(memory_fit)
+        .map_or(u8::MAX, |(compatibility, memory_fit)| catalog::rank(compatibility, memory_fit))
 }
+
+#[cfg(test)]
+mod tests;

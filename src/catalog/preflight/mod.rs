@@ -5,13 +5,16 @@ mod metadata;
 mod presentation;
 mod range;
 
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 pub(super) use cache::Cache;
 use futures_util::TryStreamExt;
 pub(super) use gguf::inspect as inspect_gguf;
 use hf_hub::{repository::RepoTreeEntry, split_id};
-use libmir::{RemoteModelContract, TensorCatalog, safetensors_header_len};
+use libmir::{RemoteModelContract, TensorCatalog, WeightContainer, safetensors_header_len};
 pub use metadata::RemoteModelMetadata;
 pub(super) use presentation::{apply as apply_to_model, failure as apply_failure};
 
@@ -106,7 +109,7 @@ async fn repository_files(store: &Store, repo_id: &str, revision: &str) -> Resul
     while let Some(entry) = tree.try_next().await? {
         if let RepoTreeEntry::File { path, size, .. } = entry {
             metadata.observe(&path, size)?;
-            if path.ends_with(".safetensors") {
+            if WeightContainer::of(Path::new(&path)) == Some(WeightContainer::SafeTensors) {
                 weights.push(path);
             } else if path == index::FILENAME {
                 index = Some((path, usize::try_from(size)?));

@@ -7,14 +7,14 @@ use serde_json::Value;
 
 use crate::{
     config::GenerationConfig,
-    model::format::{Ecosystem, ModelFormat},
+    model::format::{Ecosystem, ModelEncoding, ModelFormat},
 };
 
 pub(super) struct ModelPresentation {
     pub class: String,
     pub ecosystem: Ecosystem,
     pub container: Option<WeightContainer>,
-    pub encoding: String,
+    pub encoding: ModelEncoding,
     pub metal_compatibility: AdmissionStatus,
     pub cuda_compatibility: AdmissionStatus,
     pub size_bytes: u64,
@@ -45,6 +45,12 @@ pub(super) fn inspect(path: &Path, generation: GenerationConfig) -> ModelPresent
         Ok(descriptor) => present(&config, template.as_deref(), path, &descriptor),
         Err(error) => unavailable(&config, template.as_deref(), path, error.to_string()),
     }
+}
+
+/// A GGUF model whose import failed, unloadable for that `error`.
+pub(super) fn unimported(path: &Path, error: &crate::error::Error) -> ModelPresentation {
+    let config = json(path.join("config.json"));
+    unavailable(&config, template(path).as_deref(), path, format!("GGUF import failed: {error}"))
 }
 
 fn present(

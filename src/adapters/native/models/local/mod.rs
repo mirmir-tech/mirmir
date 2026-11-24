@@ -90,7 +90,7 @@ fn append_partial(
         load_unavailable_reason: "Download incomplete; resume or remove it".to_owned(),
         ecosystem: crate::model::format::Ecosystem::Unknown,
         container: None,
-        encoding: "Unknown".to_owned(),
+        encoding: crate::model::format::ModelEncoding::Unknown,
         metal_compatibility: libmir::AdmissionStatus::Unknown,
         cuda_compatibility: libmir::AdmissionStatus::Unknown,
         size_bytes: partial.downloaded_bytes,
@@ -154,8 +154,12 @@ fn configured(
         revision: String::new(),
         commit: String::new(),
     });
-    let checkpoint = runtime.store.checkpoint(&config.path).unwrap_or_else(|_| config.path.clone());
-    let details = presentation::inspect(&checkpoint, config.generation);
+    // A GGUF model that does not import says why, not that its files lack
+    // a configuration.
+    let details = match runtime.store.checkpoint(&config.path) {
+        Ok(checkpoint) => presentation::inspect(&checkpoint, config.generation),
+        Err(error) => presentation::unimported(&config.path, &error),
+    };
     info(
         config.id.clone(),
         hub.repo_id,

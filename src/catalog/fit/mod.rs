@@ -3,13 +3,13 @@ mod variants;
 
 use std::cmp::Ordering;
 
-pub use estimate::{Confidence, MemoryFit};
+pub use estimate::{Confidence, MemoryFit, admission_status, rank};
 use libmir::{AdmissionStatus, WeightContainer};
 use sysinfo::System;
 pub use variants::{CatalogVariant, variants};
 
 use super::hub::{Features, HubModel};
-use crate::model::format::{Ecosystem, ModelFormat};
+use crate::model::format::{Ecosystem, ModelEncoding, ModelFormat};
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -39,7 +39,7 @@ pub struct CatalogModel {
     pub local_source: &'static str,
     pub ecosystem: Ecosystem,
     pub container: Option<WeightContainer>,
-    pub encoding: String,
+    pub encoding: ModelEncoding,
     pub metal_compatibility: AdmissionStatus,
     pub cuda_compatibility: AdmissionStatus,
     pub preflight_bytes: Option<u64>,
@@ -158,8 +158,8 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
 }
 
 pub fn compare(left: &CatalogModel, right: &CatalogModel) -> Ordering {
-    estimate::rank(left)
-        .cmp(&estimate::rank(right))
+    rank(left.compatibility, left.memory_fit)
+        .cmp(&rank(right.compatibility, right.memory_fit))
         .then_with(|| right.downloads.cmp(&left.downloads))
         .then_with(|| left.id.cmp(&right.id))
 }

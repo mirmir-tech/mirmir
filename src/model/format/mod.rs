@@ -1,10 +1,12 @@
 mod ecosystem;
+mod encoding;
 mod gguf;
 
 use std::path::Path;
 
 pub use ecosystem::Ecosystem;
-use libmir::{AdmissionStatus, BackendTarget, ModelDescriptor, WeightContainer};
+pub use encoding::ModelEncoding;
+use libmir::{AdmissionStatus, BackendTarget, EncodingKind, ModelDescriptor, WeightContainer};
 use serde_json::Value;
 
 use crate::catalog::HubFacts;
@@ -13,7 +15,7 @@ use crate::catalog::HubFacts;
 pub struct ModelFormat {
     pub ecosystem: Ecosystem,
     pub container: Option<WeightContainer>,
-    pub encoding: String,
+    pub encoding: ModelEncoding,
     pub metal: AdmissionStatus,
     pub cuda: AdmissionStatus,
 }
@@ -29,7 +31,7 @@ impl ModelFormat {
         Self {
             ecosystem,
             container: facts.container,
-            encoding: facts.encoding.map_or("Unknown", libmir::EncodingKind::label).into(),
+            encoding: facts.encoding.map_or(ModelEncoding::Unknown, ModelEncoding::Family),
             metal: AdmissionStatus::Unknown,
             cuda: AdmissionStatus::Unknown,
         }
@@ -47,18 +49,10 @@ impl ModelFormat {
             Some(WeightContainer::Gguf) => (Ecosystem::Ggml, gguf::encoding(path)),
             Some(WeightContainer::SafeTensors) | None => {
                 let encoding = descriptor.map_or_else(
-                    || metadata_encoding(config),
-                    |descriptor| descriptor.checkpoint_encoding().label(),
+                    || ModelEncoding::declared(config),
+                    |descriptor| ModelEncoding::Checkpoint(descriptor.checkpoint_encoding()),
                 );
-                let mlx = config.get("quantization").is_some() || encoding.contains("MLX affine");
-                (
-                    if mlx {
-                        Ecosystem::Mlx
-                    } else {
-                        Ecosystem::Transformers
-                    },
-                    encoding,
-                )
+                (safetensors_ecosystem(config, &encoding), encoding)
             },
         };
         let (metal, cuda) = descriptor.map_or_else(
@@ -104,39 +98,13 @@ pub fn legacy_library(container: Option<WeightContainer>, ecosystem: &Ecosystem)
     }
 }
 
-fn metadata_encoding(config: &Value) -> String {
-    let quantization = config.get("quantization_config").or_else(|| config.get("quantization"));
-    let Some(quantization) = quantization else {
-        return config
-            .get("dtype")
-            .or_else(|| config.get("torch_dtype"))
-            .and_then(Value::as_str)
-            .map_or_else(|| "Unknown".into(), |dtype| format!("Dense {dtype}"));
-    };
-    if quantization.get("quant_method").and_then(Value::as_str) == Some("bitsandbytes")
-        && let Some(kind) = quantization.get("bnb_4bit_quant_type").and_then(Value::as_str)
-    {
-        return format!("bitsandbytes {}", kind.to_ascii_uppercase());
-    }
-    for key in ["quant_algo", "quant_method", "mode"] {
-        if let Some(value) = quantization.get(key).and_then(Value::as_str) {
-            return display_name(value);
-        }
-    }
-    quantization
-        .get("bits")
-        .and_then(Value::as_u64)
-        .map_or_else(|| "Quantized".into(), |bits| format!("{bits}-bit"))
-}
-
-fn display_name(value: &str) -> String {
-    match value.to_ascii_lowercase().as_str() {
-        "mlx" => "MLX".into(),
-        "transformers" => "Transformers".into(),
-        "ggml" => "GGML".into(),
-        "nvfp4" => "NVFP4".into(),
-        "mxfp4" => "MXFP4".into(),
-        _ => value.to_owned(),
+/// MLX records its `quantization` in `config.json` and stores grouped
+/// affine weights; other `SafeTensors` checkpoints are Transformers'.
+fn safetensors_ecosystem(config: &Value, encoding: &ModelEncoding) -> Ecosystem {
+    if config.get(encoding::MLX_QUANTIZATION).is_some() || encoding.contains(EncodingKind::Affine) {
+        Ecosystem::Mlx
+    } else {
+        Ecosystem::Transformers
     }
 }
 

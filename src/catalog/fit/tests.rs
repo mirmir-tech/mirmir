@@ -25,7 +25,7 @@ impl Default for CatalogModel {
             local_source: "remote",
             ecosystem: Ecosystem::Unknown,
             container: None,
-            encoding: String::new(),
+            encoding: ModelEncoding::Unknown,
             metal_compatibility: AdmissionStatus::Unknown,
             cuda_compatibility: AdmissionStatus::Unknown,
             preflight_bytes: None,
@@ -99,7 +99,7 @@ fn exposes_qwen3_search_capabilities_before_download() {
 
     assert_eq!(result.ecosystem, Ecosystem::Transformers);
     assert_eq!(result.container, Some(WeightContainer::SafeTensors));
-    assert_eq!(result.encoding, "Unknown");
+    assert_eq!(result.encoding, ModelEncoding::Unknown);
     assert_eq!(result.metal_compatibility, AdmissionStatus::Unknown);
     assert_eq!(result.cuda_compatibility, AdmissionStatus::Unknown);
     assert!(result.features.tool_use);
@@ -165,7 +165,7 @@ fn remote_gguf_awaits_admission_like_safetensors() {
     let result = evaluate(gguf, NO_MEMORY);
     assert_eq!(result.compatibility, AdmissionStatus::Unknown);
     assert_eq!(result.container, Some(WeightContainer::Gguf));
-    assert_eq!(result.encoding, "GGML");
+    assert_eq!(result.encoding, ModelEncoding::Family(EncodingKind::Ggml));
     assert_eq!(result.metal_compatibility, AdmissionStatus::Unknown);
     assert_eq!(result.cuda_compatibility, AdmissionStatus::Unknown);
 }

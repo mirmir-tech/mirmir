@@ -46,12 +46,6 @@ impl HubReference {
             None => repository,
         }
     }
-
-    /// The key of the repository's Hub cache, shared by its variants.
-    #[must_use]
-    pub fn repository_key(&self) -> String {
-        self.repository.replace('/', "--")
-    }
 }
 
 impl FromStr for HubReference {

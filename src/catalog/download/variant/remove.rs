@@ -8,31 +8,28 @@ use std::{
 };
 
 use crate::{
-    config::{HubReference, Store, folder_key},
+    config::{HubReference, Store},
     error::Result,
 };
 
-/// The variant directories downloaded from `reference`'s repository other
-/// than its own.
+/// The directories of the variants downloaded from `reference`'s
+/// repository other than its own, by the references their configurations
+/// record: a repository `name` is never `owner/name`.
 pub(in crate::catalog::download) fn siblings(
     store: &Store,
     reference: &HubReference,
-) -> Vec<PathBuf> {
-    let prefix = format!("{}--", reference.repository_key());
-    let own = reference.key();
-    fs::read_dir(&store.paths().gguf_variants_dir).map_or_else(
-        |_| Vec::new(),
-        |entries| {
-            entries
-                .flatten()
-                .filter(|entry| {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    name.starts_with(&prefix) && name != own
-                })
-                .map(|entry| entry.path())
-                .collect()
-        },
-    )
+) -> Result<Vec<PathBuf>> {
+    Ok(store
+        .list_model_configs()?
+        .into_iter()
+        .filter_map(|model| {
+            let other = model.hub?.repo_id.parse::<HubReference>().ok()?;
+            (other.variant().is_some()
+                && other.repository() == reference.repository()
+                && other != *reference)
+                .then_some(model.path)
+        })
+        .collect())
 }
 
 /// The cache blob `snapshot_file` hard-links: the file of the same inode in
@@ -68,7 +65,7 @@ pub(in crate::catalog::download) fn remove_files(
     if !view.exists() {
         return Ok(0);
     }
-    let kept = siblings(store, reference)
+    let kept = siblings(store, reference)?
         .iter()
         .flat_map(|sibling| fs::read_dir(sibling).into_iter().flatten().flatten())
         .filter_map(|entry| entry.path().canonicalize().ok())
@@ -89,7 +86,7 @@ pub(in crate::catalog::download) fn remove_files(
         fs::remove_file(snapshot_file)?;
     }
     let view = view.canonicalize()?;
-    let import = store.paths().gguf_imports_dir.join(folder_key(&view));
+    let import = store.gguf_import_dir(&view);
     if import.exists() {
         fs::remove_dir_all(import)?;
     }

@@ -19,8 +19,10 @@ pub use cache::{
     discover_partial_downloads_in,
 };
 pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate};
-pub use fit::{CatalogModel, CatalogVariant, Confidence, MachineMemory};
-pub use hub::HubFacts;
+pub use fit::{
+    CatalogModel, CatalogVariant, Confidence, MachineMemory, MemoryFit, admission_status, rank,
+};
+pub use hub::{HubFacts, encoding_named};
 pub use preflight::RemoteHeaderPreflight;
 use queue::TransferQueue;
 

@@ -19,7 +19,7 @@ impl NativeRuntime {
         }
         let direct = Path::new(selector);
         if !direct.exists() {
-            return Ok(self.store.resolve_model(selector).is_ok());
+            return Ok(self.store.selected_model(selector).is_ok());
         }
         let Ok(target) = fs::canonicalize(direct) else {
             return Ok(false);

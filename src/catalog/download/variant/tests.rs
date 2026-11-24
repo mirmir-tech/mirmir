@@ -22,25 +22,57 @@ fn cache(label: &str) -> Result<(Store, PathBuf, PathBuf)> {
     let store = Store::new(paths);
     for (variant, file) in [("Q4_0", "m-Q4_0.gguf"), ("Q8_0", "m-Q8_0.gguf")] {
         let reference = format!("owner/model-GGUF:{variant}").parse::<HubReference>()?;
-        link(&store, &reference, &snapshot, &[file.to_owned(), "mmproj-F16.gguf".to_owned()])?;
+        downloaded(&store, &reference, &snapshot, &[file, "mmproj-F16.gguf"])?;
     }
     Ok((store, repo, root))
+}
+
+/// Links `files` in the variant's directory and records it downloaded.
+fn downloaded(
+    store: &Store,
+    reference: &HubReference,
+    snapshot: &Path,
+    files: &[&str],
+) -> Result<()> {
+    let files = files.iter().map(|&file| file.to_owned()).collect::<Vec<_>>();
+    let view = link(store, reference, snapshot, &files)?;
+    store.save_hub_model(&reference.to_string(), "main", "abc", view)?;
+    Ok(())
+}
+
+/// The key `name--Q4_0` of a repository without an owner starts like
+/// `name--other--Q8_0`, a variant of `name/other`, which is no sibling.
+#[test]
+fn a_repository_without_an_owner_has_no_siblings_in_another() -> Result<()> {
+    let (store, repo, root) = cache("ownerless")?;
+    let snapshot = repo.join("snapshots/abc");
+    let plain = "model-GGUF:Q4_0".parse::<HubReference>()?;
+    downloaded(&store, &plain, &snapshot, &["m-Q4_0.gguf"])?;
+    let other = "model-GGUF/other:Q8_0".parse::<HubReference>()?;
+    downloaded(&store, &other, &snapshot, &["m-Q8_0.gguf"])?;
+    assert!(siblings(&store, &plain)?.is_empty());
+    assert_eq!(siblings(&store, &other)?.len(), 0);
+    let owned = "owner/model-GGUF:Q4_0".parse::<HubReference>()?;
+    assert_eq!(siblings(&store, &owned)?.len(), 1);
+    fs::remove_dir_all(root)?;
+    Ok(())
 }
 
 #[test]
 fn removing_a_variant_keeps_what_another_variant_links() -> Result<()> {
     let (store, repo, root) = cache("shared")?;
     let first = "owner/model-GGUF:Q4_0".parse::<HubReference>()?;
-    assert_eq!(siblings(&store, &first).len(), 1);
+    assert_eq!(siblings(&store, &first)?.len(), 1);
     // Its own text file goes, blob included; the shared tower stays.
     assert_eq!(remove_files(&store, &first)?, 4);
     assert!(!repo.join("blobs/b1").exists() && !repo.join("snapshots/abc/m-Q4_0.gguf").exists());
     assert!(repo.join("blobs/b3").exists() && repo.join("snapshots/abc/mmproj-F16.gguf").exists());
-    assert!(siblings(&store, &first).len() == 1 && remove_files(&store, &first)? == 0);
+    assert!(siblings(&store, &first)?.len() == 1 && remove_files(&store, &first)? == 0);
     // The last variant takes the tower with it.
+    store.remove_hub_model_config(&first.to_string())?;
     let last = "owner/model-GGUF:Q8_0".parse::<HubReference>()?;
     assert_eq!(remove_files(&store, &last)?, 10);
-    assert!(siblings(&store, &last).is_empty());
+    assert!(siblings(&store, &last)?.is_empty());
     assert_eq!(fs::read_dir(repo.join("blobs"))?.count(), 0);
     fs::remove_dir_all(root)?;
     Ok(())

@@ -96,7 +96,7 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
         let mut freed_bytes = variant::remove_files(store, &reference)?;
         let removed_config = store.remove_hub_model_config(repo_id)?;
         // The last variant takes the repository's cache with it.
-        if variant::siblings(store, &reference).is_empty() {
+        if variant::siblings(store, &reference)?.is_empty() {
             freed_bytes += Box::pin(remove(store, reference.repository())).await?.freed_bytes;
         }
         return Ok(Removal {

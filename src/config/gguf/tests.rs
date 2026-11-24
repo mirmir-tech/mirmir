@@ -1,12 +1,28 @@
 use std::{fs, path::PathBuf, time::Duration};
 
 use super::*;
+use crate::config::Paths;
 
 fn root(label: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("mirmir-gguf-{label}-{}", std::process::id()));
     drop(fs::remove_dir_all(&root));
     fs::create_dir_all(&root).expect("temporary directory");
     root
+}
+
+/// A GGUF v3 file of no tensors whose one metadata key names `architecture`.
+fn header(path: &Path, architecture: &str) -> std::io::Result<()> {
+    let key = b"general.architecture";
+    let mut bytes = b"GGUF".to_vec();
+    bytes.extend(3_u32.to_le_bytes());
+    bytes.extend(0_u64.to_le_bytes());
+    bytes.extend(1_u64.to_le_bytes());
+    bytes.extend((key.len() as u64).to_le_bytes());
+    bytes.extend(key);
+    bytes.extend(8_u32.to_le_bytes());
+    bytes.extend((architecture.len() as u64).to_le_bytes());
+    bytes.extend(architecture.as_bytes());
+    fs::write(path, bytes)
 }
 
 #[test]
@@ -24,13 +40,15 @@ fn a_gguf_file_is_its_own_text_model() -> Result<()> {
 #[test]
 fn a_directory_of_gguf_files_pairs_the_model_with_its_vision_tower() -> Result<()> {
     let root = root("directory");
-    fs::write(root.join("gemma-4-26B-A4B-it-Q4_K_M.gguf"), b"")?;
-    fs::write(root.join("mmproj-F16.gguf"), b"")?;
+    // The projector is told by its header, though it sorts first and Google
+    // names it after the model.
+    header(&root.join("a-gemma-4-E4B-it-mmproj.gguf"), libmir::gguf::PROJECTOR_ARCHITECTURE)?;
+    header(&root.join("gemma-4-E4B-it-Q4_K_M.gguf"), "gemma4")?;
     assert_eq!(
         source(&root)?,
         Some(Source {
-            text: root.join("gemma-4-26B-A4B-it-Q4_K_M.gguf"),
-            vision: Some(root.join("mmproj-F16.gguf")),
+            text: root.join("gemma-4-E4B-it-Q4_K_M.gguf"),
+            vision: Some(root.join("a-gemma-4-E4B-it-mmproj.gguf")),
         })
     );
     // A checkpoint directory, or one importing to itself, loads as it is.
@@ -53,5 +71,47 @@ fn an_import_older_than_its_source_is_refreshed() -> Result<()> {
     let later = SystemTime::now() + Duration::from_secs(60);
     fs::File::options().write(true).open(&file)?.set_modified(later)?;
     assert!(!current(&import, &source)?);
+    Ok(())
+}
+
+/// An import made under a dotted directory's truncated name moves to its
+/// whole name, and is dropped when that import exists; another source's
+/// import under the old key stays.
+#[cfg(unix)]
+#[test]
+fn an_import_under_the_old_key_is_adopted_or_removed() -> Result<()> {
+    let root = root("legacy");
+    let store =
+        Store::new(Paths::from_roots(root.join("config"), root.join("state"), &root.join("run")));
+    let model = root.join("models/Qwen2.5-7B-GGUF");
+    fs::create_dir_all(&model)?;
+    header(&model.join("qwen2.5-7b-q4_k_m.gguf"), "qwen2")?;
+    let model = fs::canonicalize(&model)?;
+    let text = model.join("qwen2.5-7b-q4_k_m.gguf");
+    let source = Source { text: text.clone(), vision: None };
+    let legacy = store.paths.gguf_imports_dir.join(folder_key(&model.with_extension("")));
+    let directory = store.gguf_import_dir(&model);
+    assert_ne!(legacy, directory);
+    let old_import = |target: &Path| -> Result<()> {
+        fs::create_dir_all(&legacy)?;
+        fs::write(legacy.join("config.json"), b"{}")?;
+        std::os::unix::fs::symlink(target, legacy.join(text.file_name().unwrap_or_default()))?;
+        Ok(())
+    };
+    old_import(&text)?;
+    adopt(&legacy, &directory, &source)?;
+    assert!(!legacy.exists() && directory.join("config.json").exists());
+    old_import(&text)?;
+    adopt(&legacy, &directory, &source)?;
+    assert!(!legacy.exists() && directory.exists());
+    // `models/Qwen2.gguf` imports under the same old key.
+    fs::remove_dir_all(&directory)?;
+    let other = root.join("models/Qwen2.gguf");
+    header(&other, "qwen2")?;
+    fs::create_dir_all(&legacy)?;
+    std::os::unix::fs::symlink(&other, legacy.join("Qwen2.gguf"))?;
+    adopt(&legacy, &directory, &source)?;
+    assert!(legacy.exists() && !directory.exists());
+    fs::remove_dir_all(root)?;
     Ok(())
 }

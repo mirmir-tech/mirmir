@@ -2,32 +2,16 @@
 
 use std::path::Path;
 
-use libmir::gguf::{GgmlType, text_model};
+use libmir::gguf::text_model;
 
-/// Types below this share of the payload (norms, biases) are left out.
-const MIN_PERCENT: u64 = 1;
+use super::ModelEncoding;
 
-/// `Q4_K 74% · Q6_K 25%` for the text model in `directory`, by share of
-/// payload bytes, never the vision projector linked beside it; an unreadable
-/// header is named, not hidden.
-pub(super) fn encoding(directory: &Path) -> String {
+/// The GGML types of the text model in `directory`, never of the vision
+/// projector linked beside it; an unreadable header is named, not hidden.
+pub(super) fn encoding(directory: &Path) -> ModelEncoding {
     match text_model(directory) {
-        Ok(Some(model)) => describe(&model.type_bytes()),
-        Ok(None) => "Unknown GGUF".into(),
-        Err(error) => format!("Unreadable GGUF: {error}"),
+        Ok(Some(model)) => ModelEncoding::Ggml(model.type_bytes()),
+        Ok(None) => ModelEncoding::NoGgufTextModel,
+        Err(error) => ModelEncoding::UnreadableGguf(error.to_string()),
     }
-}
-
-pub(super) fn describe(type_bytes: &[(GgmlType, u64)]) -> String {
-    let total: u64 = type_bytes.iter().map(|entry| entry.1).sum();
-    if total == 0 {
-        return "Empty GGUF".into();
-    }
-    type_bytes
-        .iter()
-        .map(|&(kind, bytes)| (kind, bytes.saturating_mul(100) / total))
-        .filter(|&(_, percent)| percent >= MIN_PERCENT)
-        .map(|(kind, percent)| format!("{kind} {percent}%"))
-        .collect::<Vec<_>>()
-        .join(" · ")
 }

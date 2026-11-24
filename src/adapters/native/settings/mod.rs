@@ -87,7 +87,7 @@ impl NativeRuntime {
         // A first configuration gives a model loaded by its path a new id.
         // Under the memory gate a load in progress publishes its copy first
         // and is moved below, and a waiting load resolves the new id after.
-        let _memory = if self.store.resolve_model(selector)?.key == config_id {
+        let _memory = if self.store.selected_model(selector)?.key == config_id {
             None
         } else {
             Some(self.lifecycle.memory_gate()?)
@@ -122,7 +122,7 @@ impl NativeRuntime {
         if !config_id.is_empty() {
             return Ok((config_id.to_owned(), hub));
         }
-        let resolved = self.store.resolve_model(selector)?;
+        let resolved = self.store.selected_model(selector)?;
         if !std::path::Path::new(&resolved.key).is_absolute() {
             return Ok((resolved.key, hub));
         }

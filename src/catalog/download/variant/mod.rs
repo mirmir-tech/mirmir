@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use libmir::CancellationToken;
+use libmir::{CancellationToken, WeightContainer};
 pub(super) use remove::{remove_files, siblings};
 use tokio::sync::mpsc;
 
@@ -42,9 +42,9 @@ pub(super) fn repository(files: &[ListedFile]) -> GgufRepository {
 /// to download as one model.
 pub(super) fn gguf_only(files: &[ListedFile], repository: &GgufRepository) -> bool {
     !repository.variants.is_empty()
-        && !files
-            .iter()
-            .any(|file| file.path.to_ascii_lowercase().ends_with(".safetensors"))
+        && !files.iter().any(|file| {
+            WeightContainer::of(Path::new(&file.path)) == Some(WeightContainer::SafeTensors)
+        })
 }
 
 /// The variant a pull of a GGUF repository without one takes, by the

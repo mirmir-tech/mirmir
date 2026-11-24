@@ -13,11 +13,11 @@ impl NativeRuntime {
         force: bool,
         progress: &mut dyn FnMut(ProgressEvent),
     ) -> Result<ModelEntry> {
-        let resolved = self
+        let selected = self
             .store
-            .resolve_model(selector)
+            .selected_model(selector)
             .map_err(|error| Error::InvalidModel(error.to_string()))?;
-        if let Some(model) = self.resident_model(&resolved.key)? {
+        if let Some(model) = self.resident_model(&selected.key)? {
             return Ok(model);
         }
         let _memory = self.lifecycle.memory_gate()?;
@@ -146,7 +146,7 @@ impl NativeRuntime {
         let _memory = self.lifecycle.memory_gate()?;
         let key = self
             .store
-            .resolve_model(selector)
+            .selected_model(selector)
             .map_or_else(|_| selector.to_owned(), |model| model.key);
         let mut state = self.lifecycle.state()?;
         let entry = state.resident.remove(selector).or_else(|| state.resident.remove(&key));

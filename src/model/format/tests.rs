@@ -1,6 +1,7 @@
-use libmir::EncodingKind;
+use libmir::{CheckpointEncoding, EncodingKind, WeightEncoding};
+use serde_json::json;
 
-use super::*;
+use super::{encoding::Declared, *};
 use crate::catalog::HubFacts;
 
 #[test]
@@ -12,7 +13,8 @@ fn remote_encoding_does_not_claim_backend_support() {
     };
     let format = ModelFormat::remote(Some("transformers"), facts);
     assert_eq!(format.ecosystem, Ecosystem::Transformers);
-    assert_eq!(format.encoding, "NVFP4");
+    assert_eq!(format.encoding, ModelEncoding::Family(EncodingKind::NvFp4));
+    assert_eq!(format.encoding.label(), "NVFP4");
     assert_eq!(format.metal, AdmissionStatus::Unknown);
     assert_eq!(format.cuda, AdmissionStatus::Unknown);
 }
@@ -28,8 +30,10 @@ fn an_uninspected_directory_is_unknown_only_with_weights() -> std::io::Result<()
     let gguf = ModelFormat::local(&root, &Value::Null, None);
     std::fs::remove_dir_all(&root)?;
     assert_eq!((without.container, without.metal), (None, AdmissionStatus::Unsupported));
+    assert_eq!(without.encoding, ModelEncoding::Unknown);
     assert_eq!(gguf.container, Some(WeightContainer::Gguf));
     assert_eq!(gguf.ecosystem, Ecosystem::Ggml);
+    assert!(matches!(gguf.encoding, ModelEncoding::UnreadableGguf(_)));
     assert_eq!((gguf.metal, gguf.cuda), (AdmissionStatus::Unknown, AdmissionStatus::Unknown));
     Ok(())
 }
@@ -43,21 +47,54 @@ fn the_legacy_library_names_gguf_by_its_container() {
 
 #[test]
 fn bitsandbytes_metadata_preserves_the_four_bit_type() {
-    let config = serde_json::json!({
+    let config = json!({
         "quantization_config": {
             "quant_method": "bitsandbytes",
             "bnb_4bit_quant_type": "nf4"
         }
     });
-    assert_eq!(metadata_encoding(&config), "bitsandbytes NF4");
+    let encoding = ModelEncoding::declared(&config);
+    assert_eq!(encoding, ModelEncoding::Declared(Declared::BitsAndBytes4Bit("nf4".into())));
+    assert_eq!(encoding.label(), "bitsandbytes NF4");
+}
+
+/// A declared method is spelled as the encoding family or the ecosystem it
+/// names, else as the configuration spells it.
+#[test]
+fn declared_methods_take_the_family_or_ecosystem_spelling() {
+    let method = |name: &str| {
+        ModelEncoding::declared(&json!({ "quantization_config": { "quant_method": name } })).label()
+    };
+    assert_eq!(method("nvfp4"), "NVFP4");
+    assert_eq!(method("mlx"), "MLX");
+    assert_eq!(method("compressed-tensors"), "compressed-tensors");
+    let dense = ModelEncoding::declared(&json!({ "torch_dtype": "bfloat16" }));
+    assert_eq!(dense.label(), "Dense bfloat16");
+    let bits = ModelEncoding::declared(&json!({ "quantization": { "bits": 4 } }));
+    assert_eq!(bits, ModelEncoding::Declared(Declared::Bits(4)));
+}
+
+/// MLX is told by its `quantization` key or grouped affine weights, never by
+/// how an encoding is spelled.
+#[test]
+fn mlx_is_decided_from_the_encoding_family() {
+    let dense = ModelEncoding::Checkpoint(CheckpointEncoding {
+        weights: vec![WeightEncoding::Dense { dtype: "BF16".into() }],
+    });
+    assert_eq!(safetensors_ecosystem(&json!({}), &dense), Ecosystem::Transformers);
+    let mlx = json!({ "quantization": { "group_size": 64, "bits": 4 } });
+    assert_eq!(safetensors_ecosystem(&mlx, &dense), Ecosystem::Mlx);
+    let affine = ModelEncoding::Family(EncodingKind::Affine);
+    assert!(affine.contains(EncodingKind::Affine) && !dense.contains(EncodingKind::Affine));
+    assert_eq!(safetensors_ecosystem(&json!({}), &affine), Ecosystem::Mlx);
 }
 
 #[test]
 fn describes_a_gguf_type_mix_by_share_of_bytes() {
-    let mix = gguf::describe(&[
+    let mix = ModelEncoding::Ggml(vec![
         (libmir::gguf::GgmlType::Q4_K, 745),
         (libmir::gguf::GgmlType::Q6_K, 250),
         (libmir::gguf::GgmlType::F32, 5),
     ]);
-    assert_eq!(mix, "Q4_K 74% · Q6_K 25%");
+    assert_eq!(mix.label(), "Q4_K 74% · Q6_K 25%");
 }

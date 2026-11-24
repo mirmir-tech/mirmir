@@ -2,8 +2,6 @@
 
 use libmir::AdmissionStatus;
 
-use super::CatalogModel;
-
 /// Estimated memory use against the current budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryFit {
@@ -18,6 +16,8 @@ pub enum MemoryFit {
 }
 
 impl MemoryFit {
+    const ALL: [Self; 4] = [Self::Fits, Self::Tight, Self::DoesNotFit, Self::Unknown];
+
     #[must_use]
     pub const fn of(required: Option<u64>, budget: Option<u64>) -> Self {
         match (required, budget) {
@@ -28,6 +28,12 @@ impl MemoryFit {
             (Some(_), Some(_)) => Self::DoesNotFit,
             _ => Self::Unknown,
         }
+    }
+
+    /// The fit a protocol spelling names.
+    #[must_use]
+    pub fn from_protocol(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|fit| fit.as_str() == value)
     }
 
     /// The protocol spelling.
@@ -65,15 +71,31 @@ impl Confidence {
     }
 }
 
-/// The catalog order: admitted models first, then the best memory fit.
-pub(super) const fn rank(model: &CatalogModel) -> u8 {
-    let compatibility = match model.compatibility {
+/// The admission status a protocol spelling names.
+#[must_use]
+pub fn admission_status(value: &str) -> Option<AdmissionStatus> {
+    [
+        AdmissionStatus::Supported,
+        AdmissionStatus::Partial,
+        AdmissionStatus::Unsupported,
+        AdmissionStatus::Unknown,
+    ]
+    .into_iter()
+    .find(|status| status.as_str() == value)
+}
+
+/// The catalog order, the server's and its clients': admitted models first,
+/// then partially admitted, unknown and unsupported ones, each by the best
+/// memory fit.
+#[must_use]
+pub const fn rank(compatibility: AdmissionStatus, memory_fit: MemoryFit) -> u8 {
+    let compatibility = match compatibility {
         AdmissionStatus::Supported => 0,
         AdmissionStatus::Partial => 1,
         AdmissionStatus::Unknown => 2,
         AdmissionStatus::Unsupported => 3,
     };
-    let memory = match model.memory_fit {
+    let memory = match memory_fit {
         MemoryFit::Fits => 0,
         MemoryFit::Tight => 1,
         MemoryFit::Unknown => 2,

@@ -12,12 +12,25 @@ pub struct ResolvedModel {
 }
 
 impl Store {
+    /// The model `selector` names, with the checkpoint it loads from: a GGUF
+    /// model's import, written only when missing or older than its files.
     pub(crate) fn resolve_model(&self, selector: &str) -> Result<ResolvedModel> {
+        let model = self.selected_model(selector)?;
+        // A model whose files are gone keeps its path, for its load to name.
+        let path = if model.path.exists() {
+            self.checkpoint(&model.path)?
+        } else {
+            model.path
+        };
+        Ok(ResolvedModel { path, ..model })
+    }
+
+    /// The model `selector` names, at the path it was configured or named
+    /// by, without reading its checkpoint.
+    pub(crate) fn selected_model(&self, selector: &str) -> Result<ResolvedModel> {
         let direct = Path::new(selector);
         if direct.exists() {
             let canonical = fs::canonicalize(direct)?;
-            // A GGUF file loads from its import.
-            let canonical = self.gguf_import(&canonical)?.unwrap_or(canonical);
             if let Some(model) = self
                 .list_model_configs()
                 .unwrap_or_default()
@@ -44,11 +57,9 @@ impl Store {
             selector.to_owned()
         };
         let model = self.load_model_config(&key)?;
-        // A downloaded GGUF variant loads from its import.
-        let path = self.checkpoint(&model.path).unwrap_or(model.path);
         Ok(ResolvedModel {
             key: model.id,
-            path,
+            path: model.path,
             generation: model.generation,
             runtime: model.runtime,
         })
@@ -154,70 +165,4 @@ pub fn model_key(reference: &str) -> Result<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    use super::*;
-
-    static NEXT_STORE: AtomicU64 = AtomicU64::new(0);
-
-    #[test]
-    fn creates_stable_key_and_rejects_traversal() -> Result<()> {
-        assert_eq!(model_key("Qwen/Qwen2.5")?, "Qwen--Qwen2.5");
-        assert!(model_key("../secret").is_err());
-        assert!(model_key("owner/model/extra").is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn persists_and_removes_hub_model_record() -> Result<()> {
-        let unique = NEXT_STORE.fetch_add(1, Ordering::Relaxed);
-        let root =
-            std::env::temp_dir().join(format!("mirmir-hub-model-{}-{unique}", std::process::id()));
-        let store = Store::new(super::super::Paths::from_roots(
-            root.join("config"),
-            root.join("state"),
-            &root.join("runtime"),
-        ));
-        let snapshot = root.join("cache/snapshots/0123456789");
-        fs::create_dir_all(&snapshot)?;
-        let model = store.save_hub_model("Qwen/Test", "main", "0123456789", snapshot.clone())?;
-        assert_eq!(model.hub.as_ref().map(|hub| hub.commit.as_str()), Some("0123456789"));
-        assert!(store.hub_model_downloaded("Qwen/Test")?);
-        assert_eq!(store.resolve_model("Qwen/Test")?.key, "Qwen--Test");
-        assert_eq!(store.resolve_model(snapshot.to_str().unwrap())?.key, "Qwen--Test");
-        assert!(store.remove_hub_model_config("Qwen/Test")?);
-        assert!(!store.hub_model_downloaded("Qwen/Test")?);
-        Ok(())
-    }
-
-    #[test]
-    fn model_runtime_section_is_optional_and_reaches_load_options() -> Result<()> {
-        let unique = NEXT_STORE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir()
-            .join(format!("mirmir-model-runtime-{}-{unique}", std::process::id()));
-        let store = Store::new(super::super::Paths::from_roots(
-            root.join("config"),
-            root.join("state"),
-            &root.join("runtime"),
-        ));
-        let snapshot = root.join("cache/snapshots/0123456789");
-        fs::create_dir_all(&snapshot)?;
-        store.save_hub_model("Qwen/Reranker", "main", "0123456789", snapshot)?;
-        let path = store.model_config_path("Qwen--Reranker");
-        let written = fs::read_to_string(&path)?;
-        assert!(!written.contains("[runtime]"));
-        assert_eq!(store.resolve_model("Qwen/Reranker")?.runtime.kv_blocks, None);
-        fs::write(&path, format!("{written}\n[runtime]\nkv_blocks = 512\n"))?;
-        let options = store.resolve_model("Qwen/Reranker")?.runtime.load_options(true);
-        assert_eq!(options.kv_blocks.map(std::num::NonZeroU32::get), Some(512));
-        assert!(options.allow_memory_overcommit);
-        // Pulling a new snapshot keeps the saved context.
-        let next = root.join("cache/snapshots/abcdef0123");
-        fs::create_dir_all(&next)?;
-        store.save_hub_model("Qwen/Reranker", "main", "abcdef0123", next)?;
-        let kept = store.resolve_model("Qwen/Reranker")?.runtime.kv_blocks;
-        assert_eq!(kept.map(std::num::NonZeroU32::get), Some(512));
-        Ok(())
-    }
-}
+mod tests;

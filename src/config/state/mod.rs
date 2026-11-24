@@ -82,7 +82,7 @@ impl Store {
         let mut normalized = Vec::with_capacity(state.active_models.len());
         for selector in &state.active_models {
             let key = self
-                .resolve_model(selector)
+                .selected_model(selector)
                 .map_or_else(|_| selector.clone(), |model| model.key);
             if !normalized.contains(&key) {
                 normalized.push(key);

@@ -7,6 +7,13 @@ mod quantization;
 #[cfg(test)]
 mod tests;
 
+use std::path::Path;
+
+use libmir::{WeightContainer, gguf::is_projector_name};
+
+/// The prefix of the multi-token prediction modules a repository may ship.
+const PREDICTION_MODULE_PREFIX: &str = "mtp";
+
 /// One file of a repository listing; Hub search lists files without sizes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoFile {
@@ -54,10 +61,12 @@ impl GgufRepository {
     /// Groups a listing's GGUF files; empty when it holds none.
     #[must_use]
     pub fn from_files(files: &[RepoFile]) -> Self {
-        let gguf = files.iter().filter(|file| file.path.to_ascii_lowercase().ends_with(".gguf"));
+        let gguf = files.iter().filter(|file| {
+            WeightContainer::of(Path::new(&file.path)) == Some(WeightContainer::Gguf)
+        });
         let (towers, text): (Vec<_>, Vec<_>) = gguf
-            .filter(|file| !basename(&file.path).to_ascii_lowercase().starts_with("mtp"))
-            .partition(|file| basename(&file.path).to_ascii_lowercase().contains("mmproj"));
+            .filter(|file| !is_prediction_module(basename(&file.path)))
+            .partition(|file| is_projector_name(basename(&file.path)));
         let mut groups: Vec<(String, Vec<RepoFile>)> = Vec::new();
         for file in text {
             let stem = unsharded(&file.path);
@@ -129,9 +138,17 @@ fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// The path without `.gguf` and gguf-split's `-00001-of-00003` suffix.
+/// Whether a file is a multi-token prediction module (`mtp-*`), a model of
+/// its own.
+fn is_prediction_module(name: &str) -> bool {
+    name.get(..PREDICTION_MODULE_PREFIX.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(PREDICTION_MODULE_PREFIX))
+}
+
+/// The path of a GGUF file without its extension and gguf-split's
+/// `-00001-of-00003` suffix.
 fn unsharded(path: &str) -> String {
-    let stem = &path[..path.len() - ".gguf".len()];
+    let stem = path.rsplit_once('.').map_or(path, |(stem, _)| stem);
     let bytes = stem.as_bytes();
     let shard = bytes.len() >= 15
         && bytes[bytes.len() - 15] == b'-'

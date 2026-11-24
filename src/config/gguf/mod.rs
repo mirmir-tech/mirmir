@@ -8,13 +8,16 @@ use std::{
     time::SystemTime,
 };
 
-use libmir::gguf::{GgufModel, Import, files_in};
+use libmir::{
+    WeightContainer,
+    gguf::{GgufModel, Import, files_in, projector},
+};
 
 use super::{Store, folder_key};
 use crate::error::Result;
 
 /// A GGUF source: the text model's file (its first shard) and an optional
-/// `mmproj` vision tower beside it.
+/// vision tower's projector beside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Source {
     text: PathBuf,
@@ -28,52 +31,77 @@ impl Store {
         Ok(self.gguf_import(&canonical)?.unwrap_or(canonical))
     }
 
-    /// The directory a GGUF `path` loads from, imported or refreshed when
-    /// the import is missing or older than its source; `None` when `path` is
-    /// not a GGUF model. `path` is canonical: a `.gguf` file, or a directory
-    /// of GGUF files without a `config.json`.
+    /// The directory a GGUF `path` loads from, imported or refreshed only
+    /// when the import is missing or older than its source; `None` when
+    /// `path` is not a GGUF model. `path` is canonical: a `.gguf` file, or a
+    /// directory of GGUF files without a `config.json`.
     pub(crate) fn gguf_import(&self, path: &Path) -> Result<Option<PathBuf>> {
         let Some(source) = source(path)? else {
             return Ok(None);
         };
-        // A file imports under its stem; a directory keeps its whole name,
-        // whose dots (`Qwen2.5`) are not an extension.
-        let name = if path.is_file() {
-            path.with_extension("")
-        } else {
-            path.to_path_buf()
-        };
-        let directory = self.paths.gguf_imports_dir.join(folder_key(&name));
+        let directory = self.gguf_import_dir(path);
+        if path.is_dir() {
+            // Earlier versions cut a directory's name at its first dot.
+            let legacy = self.paths.gguf_imports_dir.join(folder_key(&path.with_extension("")));
+            adopt(&legacy, &directory, &source)?;
+        }
         if !current(&directory, &source)? {
             write(&source, &directory)?;
         }
         Ok(Some(directory))
     }
+
+    /// Where a canonical GGUF `path` imports to: a file under its stem; a
+    /// directory under its whole name, whose dots (`Qwen2.5`) are not an
+    /// extension.
+    pub(crate) fn gguf_import_dir(&self, path: &Path) -> PathBuf {
+        let name = if path.is_file() {
+            path.with_extension("")
+        } else {
+            path.to_path_buf()
+        };
+        self.paths.gguf_imports_dir.join(folder_key(&name))
+    }
 }
 
 fn source(path: &Path) -> libmir::Result<Option<Source>> {
     if path.is_file() {
-        return Ok(is_gguf(path).then(|| Source { text: path.to_path_buf(), vision: None }));
+        return Ok((WeightContainer::of(path) == Some(WeightContainer::Gguf))
+            .then(|| Source { text: path.to_path_buf(), vision: None }));
     }
     if !path.is_dir() || path.join("config.json").exists() {
         return Ok(None);
     }
-    let (vision, text): (Vec<_>, Vec<_>) =
-        files_in(path)?.into_iter().partition(|file| is_mmproj(file));
-    Ok(text
+    // The header, not the file name, tells the projector from the text model.
+    let vision = projector(path)?;
+    Ok(files_in(path)?
         .into_iter()
-        .next()
-        .map(|text| Source { text, vision: vision.into_iter().next() }))
+        .find(|file| Some(file) != vision.as_ref())
+        .map(|text| Source { text, vision }))
 }
 
-fn is_gguf(path: &Path) -> bool {
-    path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("gguf"))
+/// Moves the `legacy` import of `source`, made under an earlier key, to
+/// `directory`, or removes it when `directory` already exists. A `legacy`
+/// directory importing another source (a file `Qwen2.gguf` beside the
+/// directory `Qwen2.5`) is left alone.
+fn adopt(legacy: &Path, directory: &Path, source: &Source) -> Result<()> {
+    if legacy == directory || !imports(legacy, &source.text) {
+        return Ok(());
+    }
+    if directory.exists() {
+        fs::remove_dir_all(legacy)?;
+    } else {
+        fs::rename(legacy, directory)?;
+    }
+    Ok(())
 }
 
-/// llama.cpp names a vision tower `mmproj-*.gguf`.
-fn is_mmproj(path: &Path) -> bool {
-    path.file_name()
-        .is_some_and(|name| name.to_string_lossy().to_ascii_lowercase().starts_with("mmproj"))
+/// Whether `directory` is an import linking the GGUF file `text`.
+fn imports(directory: &Path, text: &Path) -> bool {
+    let (Some(name), Ok(text)) = (text.file_name(), fs::canonicalize(text)) else {
+        return false;
+    };
+    fs::canonicalize(directory.join(name)).is_ok_and(|linked| linked == text)
 }
 
 /// Whether `directory` holds an import newer than every source file.

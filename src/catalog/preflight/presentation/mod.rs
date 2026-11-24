@@ -1,7 +1,10 @@
 use libmir::{AdmissionStatus, BackendTarget, RemoteModelContract};
 
 use super::RemoteHeaderPreflight;
-use crate::catalog::{CatalogModel, Confidence};
+use crate::{
+    catalog::{CatalogModel, Confidence},
+    model::format::ModelEncoding,
+};
 
 pub(in crate::catalog) fn apply(model: &mut CatalogModel, preflight: &RemoteHeaderPreflight) {
     model.preflight_bytes = Some(preflight.fetched_bytes);
@@ -22,7 +25,7 @@ pub(in crate::catalog) fn apply(model: &mut CatalogModel, preflight: &RemoteHead
     };
     let (metal, cuda) = admit(model, contract);
     model.features.vision = contract.vision().is_some();
-    model.encoding = contract.checkpoint_encoding().label();
+    model.encoding = ModelEncoding::Checkpoint(contract.checkpoint_encoding());
     let vision = contract.vision().map_or_else(String::new, |vision| {
         let processor = if vision.processor().is_some() {
             "ready"

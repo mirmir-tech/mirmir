@@ -39,7 +39,7 @@ fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
         library: legacy_library(model.container, &model.ecosystem).to_owned(),
         ecosystem: model.ecosystem.name().to_owned(),
         container: container_name(model.container).to_owned(),
-        encoding: model.encoding,
+        encoding: model.encoding.label(),
         metal_compatibility: model.metal_compatibility.as_str().to_owned(),
         cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
         preflight_bytes: model.preflight_bytes,

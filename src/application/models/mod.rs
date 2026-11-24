@@ -11,7 +11,7 @@ pub use preflight::{
 use residency::ModelResidency;
 pub use residency::eviction_candidate;
 
-use crate::model::format::Ecosystem;
+use crate::model::format::{Ecosystem, ModelEncoding};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalModelState {
@@ -56,7 +56,7 @@ pub struct LocalModelInfo {
     pub load_unavailable_reason: String,
     pub ecosystem: Ecosystem,
     pub container: Option<WeightContainer>,
-    pub encoding: String,
+    pub encoding: ModelEncoding,
     pub metal_compatibility: AdmissionStatus,
     pub cuda_compatibility: AdmissionStatus,
     pub size_bytes: u64,

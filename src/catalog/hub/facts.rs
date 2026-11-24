@@ -32,9 +32,21 @@ const ENCODINGS: [(&str, EncodingKind); 6] = [
     ("bitsandbytes", EncodingKind::BitsAndBytes4Bit),
     ("fp8", EncodingKind::Float8),
 ];
+/// The tags naming a repository's weight files.
+const GGUF_TAG: &str = "gguf";
+const SAFETENSORS_TAG: &str = "safetensors";
 const TOOL_USE: [&str; 3] = ["tool-use", "tool-calling", "function-calling"];
 const THINKING: [&str; 2] = ["reasoning", "thinking"];
 const VISION: [&str; 3] = ["image-text-to-text", "multimodal", "vision"];
+
+/// The encoding family a quantization tag or method names, in any case.
+#[must_use]
+pub fn encoding_named(name: &str) -> Option<EncodingKind> {
+    ENCODINGS
+        .into_iter()
+        .find(|(tag, _)| tag.eq_ignore_ascii_case(name))
+        .map(|(_, kind)| kind)
+}
 
 impl HubModel {
     /// Folds the tags' case once; unknown tags are ignored.
@@ -42,9 +54,9 @@ impl HubModel {
     pub fn facts(&self) -> HubFacts {
         let tags = self.tags.iter().map(|tag| tag.to_ascii_lowercase()).collect::<HashSet<_>>();
         let has = |tag: &str| tags.contains(tag);
-        let container = if has("gguf") {
+        let container = if has(GGUF_TAG) {
             Some(WeightContainer::Gguf)
-        } else if self.safetensors.is_some() || has("safetensors") {
+        } else if self.safetensors.is_some() || has(SAFETENSORS_TAG) {
             Some(WeightContainer::SafeTensors)
         } else {
             None
