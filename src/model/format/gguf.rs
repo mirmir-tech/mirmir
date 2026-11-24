@@ -2,22 +2,19 @@
 
 use std::path::Path;
 
-use libmir::gguf::{GgmlType, GgufModel, files_in};
+use libmir::gguf::{GgmlType, text_model};
 
 /// Types below this share of the payload (norms, biases) are left out.
 const MIN_PERCENT: u64 = 1;
 
-/// `Q4_K 74% · Q6_K 25%` for the GGUF model in `directory`, by share of
-/// payload bytes; an unreadable header is named, not hidden.
+/// `Q4_K 74% · Q6_K 25%` for the text model in `directory`, by share of
+/// payload bytes, never the vision projector linked beside it; an unreadable
+/// header is named, not hidden.
 pub(super) fn encoding(directory: &Path) -> String {
-    let model = files_in(directory)
-        .ok()
-        .and_then(|files| files.into_iter().next())
-        .map(GgufModel::open);
-    match model {
-        Some(Ok(model)) => describe(&model.type_bytes()),
-        Some(Err(error)) => format!("Unreadable GGUF: {error}"),
-        None => "Unknown GGUF".into(),
+    match text_model(directory) {
+        Ok(Some(model)) => describe(&model.type_bytes()),
+        Ok(None) => "Unknown GGUF".into(),
+        Err(error) => format!("Unreadable GGUF: {error}"),
     }
 }
 

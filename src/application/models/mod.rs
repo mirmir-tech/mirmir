@@ -4,12 +4,14 @@ mod preflight;
 mod residency;
 pub mod state;
 
-use libmir::{Model, ModelDescriptor};
+use libmir::{AdmissionStatus, Model, ModelDescriptor, WeightContainer};
 pub use preflight::{
     Check, MemoryFit, MemoryReport, eviction_can_help, fitting_tokens, rejection, safe_context,
 };
 use residency::ModelResidency;
 pub use residency::eviction_candidate;
+
+use crate::model::format::Ecosystem;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalModelState {
@@ -52,12 +54,11 @@ pub struct LocalModelInfo {
     pub model_class: String,
     pub loadable: bool,
     pub load_unavailable_reason: String,
-    pub library: String,
-    pub ecosystem: String,
-    pub container: String,
+    pub ecosystem: Ecosystem,
+    pub container: Option<WeightContainer>,
     pub encoding: String,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    pub metal_compatibility: AdmissionStatus,
+    pub cuda_compatibility: AdmissionStatus,
     pub size_bytes: u64,
     pub tool_use: bool,
     pub thinking: bool,

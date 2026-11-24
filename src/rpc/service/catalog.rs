@@ -3,7 +3,12 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
 use super::RuntimeService;
-use crate::{application::TransferProgress, catalog::SearchResults, rpc::proto};
+use crate::{
+    application::TransferProgress,
+    catalog::SearchResults,
+    model::format::{container_name, legacy_library},
+    rpc::proto,
+};
 
 pub fn response(results: SearchResults) -> proto::SearchModelsResponse {
     proto::SearchModelsResponse {
@@ -22,21 +27,21 @@ fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
         likes: model.likes,
         gated: model.gated,
         model_class: model.model_class,
-        compatibility: model.compatibility.to_owned(),
-        memory_fit: model.memory_fit.to_owned(),
+        compatibility: model.compatibility.as_str().to_owned(),
+        memory_fit: model.memory_fit.as_str().to_owned(),
         estimated_weight_bytes: model.weight_bytes,
         estimated_required_bytes: model.required_bytes,
         budget_bytes: model.budget_bytes,
-        confidence: model.confidence.to_owned(),
+        confidence: model.confidence.as_str().to_owned(),
         reason: model.reason,
         downloaded: model.downloaded,
         local_source: model.local_source.to_owned(),
-        library: model.library,
-        ecosystem: model.ecosystem,
-        container: model.container,
+        library: legacy_library(model.container, &model.ecosystem).to_owned(),
+        ecosystem: model.ecosystem.name().to_owned(),
+        container: container_name(model.container).to_owned(),
         encoding: model.encoding,
-        metal_compatibility: model.metal_compatibility,
-        cuda_compatibility: model.cuda_compatibility,
+        metal_compatibility: model.metal_compatibility.as_str().to_owned(),
+        cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
         preflight_bytes: model.preflight_bytes,
         preflight_error: model.preflight_error,
         tool_use: model.features.tool_use,

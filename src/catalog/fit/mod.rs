@@ -1,9 +1,13 @@
+mod estimate;
+
 use std::cmp::Ordering;
 
+pub use estimate::{Confidence, MemoryFit};
+use libmir::{AdmissionStatus, WeightContainer};
 use sysinfo::System;
 
-use super::hub::HubModel;
-use crate::model::format::ModelFormat;
+use super::hub::{Features, HubModel};
+use crate::model::format::{Ecosystem, ModelFormat};
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -15,38 +19,30 @@ pub struct MachineMemory {
     pub source: &'static str,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CatalogModel {
     pub id: String,
     pub downloads: u64,
     pub likes: u64,
     pub gated: bool,
     pub model_class: String,
-    pub compatibility: &'static str,
-    pub memory_fit: &'static str,
+    pub compatibility: AdmissionStatus,
+    pub memory_fit: MemoryFit,
     pub weight_bytes: Option<u64>,
     pub required_bytes: Option<u64>,
     pub budget_bytes: Option<u64>,
-    pub confidence: &'static str,
+    pub confidence: Confidence,
     pub reason: String,
     pub downloaded: bool,
     pub local_source: &'static str,
-    pub library: String,
-    pub ecosystem: String,
-    pub container: String,
+    pub ecosystem: Ecosystem,
+    pub container: Option<WeightContainer>,
     pub encoding: String,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    pub metal_compatibility: AdmissionStatus,
+    pub cuda_compatibility: AdmissionStatus,
     pub preflight_bytes: Option<u64>,
     pub preflight_error: Option<String>,
     pub features: Features,
-}
-
-#[derive(Debug, Default)]
-pub struct Features {
-    pub tool_use: bool,
-    pub thinking: bool,
-    pub vision: bool,
 }
 
 impl MachineMemory {
@@ -91,31 +87,28 @@ impl MachineMemory {
 
 pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     let model_class = model.model_class();
-    let compatibility = compatibility(&model);
+    let facts = model.facts();
+    let format = ModelFormat::remote(model.library_name.as_deref(), facts);
+    let compatibility = compatibility(&model, facts.container);
     let weight_bytes = weights(&model);
     let required_bytes = weight_bytes.map(required);
-    let memory_fit = fit(required_bytes, memory.budget);
+    let memory_fit = MemoryFit::of(required_bytes, memory.budget);
     let confidence = if required_bytes.is_some() && memory.budget.is_some() {
-        "medium"
+        Confidence::Medium
     } else {
-        "low"
+        Confidence::Low
     };
-    let reason = reason(compatibility, memory_fit);
+    let reason = estimate::reason(compatibility, memory_fit);
     let gated = model.is_gated();
-    let format = ModelFormat::remote(
-        model.library_name.as_deref(),
-        &model.tags,
-        model.safetensors.is_some(),
-    );
     let identity = format!("{} {model_class}", model.id).to_ascii_lowercase();
     let generation = !identity.contains("embedding") && !identity.contains("rerank");
     let qwen3 = identity.contains("qwen3");
-    let tool_use = feature(&model, &["tool-use", "tool-calling", "function-calling"])
+    let tagged = facts.features;
+    let tool_use = tagged.tool_use
         || generation && (qwen3 || identity.contains("qwen2.5") && identity.contains("instruct"));
-    let thinking = feature(&model, &["reasoning", "thinking"])
+    let thinking = tagged.thinking
         || generation && (qwen3 || identity.contains("qwq") || identity.contains("deepseek-r1"));
-    let vision = feature(&model, &["image-text-to-text", "multimodal", "vision"])
-        || model_class.to_ascii_lowercase().contains("vision");
+    let vision = tagged.vision || model_class.to_ascii_lowercase().contains("vision");
     CatalogModel {
         id: model.id,
         downloads: model.downloads,
@@ -131,53 +124,34 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         reason,
         downloaded: false,
         local_source: "remote",
-        library: format.legacy_library(),
         ecosystem: format.ecosystem,
         container: format.container,
         encoding: format.encoding,
-        metal_compatibility: format.metal_compatibility,
-        cuda_compatibility: format.cuda_compatibility,
+        metal_compatibility: format.metal,
+        cuda_compatibility: format.cuda,
         preflight_bytes: None,
         preflight_error: None,
         features: Features { tool_use, thinking, vision },
     }
 }
 
-fn feature(model: &HubModel, tags: &[&str]) -> bool {
-    model
-        .tags
-        .iter()
-        .any(|tag| tags.iter().any(|candidate| tag.eq_ignore_ascii_case(candidate)))
-}
-
 pub fn compare(left: &CatalogModel, right: &CatalogModel) -> Ordering {
-    rank(left)
-        .cmp(&rank(right))
+    estimate::rank(left)
+        .cmp(&estimate::rank(right))
         .then_with(|| right.downloads.cmp(&left.downloads))
         .then_with(|| left.id.cmp(&right.id))
 }
 
-fn rank(model: &CatalogModel) -> u8 {
-    let compatibility = match model.compatibility {
-        "supported" => 0,
-        "partial" => 1,
-        "unknown" => 2,
-        _ => 3,
-    };
-    let memory = match model.memory_fit {
-        "fits" => 0,
-        "tight" => 1,
-        "unknown" => 2,
-        _ => 3,
-    };
-    compatibility * 4 + memory
-}
-
-fn compatibility(model: &HubModel) -> &'static str {
-    if model.safetensors.is_none() || model.tags.iter().any(|tag| tag == "gguf") {
-        return "unsupported";
+/// GGUF repositories publish no `SafeTensors` metadata; their admission
+/// waits for the download like any other checkpoint's.
+const fn compatibility(model: &HubModel, container: Option<WeightContainer>) -> AdmissionStatus {
+    match container {
+        Some(WeightContainer::Gguf) => AdmissionStatus::Unknown,
+        Some(WeightContainer::SafeTensors) if model.safetensors.is_some() => {
+            AdmissionStatus::Unknown
+        },
+        Some(WeightContainer::SafeTensors) | None => AdmissionStatus::Unsupported,
     }
-    "unknown"
 }
 
 fn weights(model: &HubModel) -> Option<u64> {
@@ -204,41 +178,6 @@ fn dtype_bits(dtype: &str) -> Option<u64> {
 fn required(weights: u64) -> u64 {
     let workspace = (weights / 5).max(GIB / 2);
     weights.saturating_add(workspace).saturating_add(GIB)
-}
-
-const fn fit(required: Option<u64>, budget: Option<u64>) -> &'static str {
-    match (required, budget) {
-        (Some(required), Some(budget)) if required <= budget.saturating_mul(85) / 100 => "fits",
-        (Some(required), Some(budget)) if required <= budget => "tight",
-        (Some(_), Some(_)) => "does_not_fit",
-        _ => "unknown",
-    }
-}
-
-fn reason(compatibility: &str, memory_fit: &str) -> String {
-    match (compatibility, memory_fit) {
-        ("unsupported", _) => {
-            "model contract or weight format is not supported by libmir".to_owned()
-        },
-        ("unknown", "fits") => {
-            "estimated weights fit; download is required to inspect the execution contract"
-                .to_owned()
-        },
-        ("unknown", "tight") => {
-            "estimated usage is tight; download is required to inspect the execution contract"
-                .to_owned()
-        },
-        ("unknown", "does_not_fit") => {
-            "estimated usage exceeds the current memory budget".to_owned()
-        },
-        ("unknown", "unknown") => {
-            "download is required to inspect the model configuration and tensors".to_owned()
-        },
-        (_, "fits") => "estimated weights and runtime reserve fit the current budget".to_owned(),
-        (_, "tight") => "estimated usage leaves less than 15% headroom".to_owned(),
-        (_, "does_not_fit") => "estimated usage exceeds the current memory budget".to_owned(),
-        _ => "insufficient Hub or device metadata for a reliable estimate".to_owned(),
-    }
 }
 
 #[cfg(test)]

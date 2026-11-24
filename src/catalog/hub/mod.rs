@@ -1,5 +1,8 @@
+mod facts;
+
 use std::collections::BTreeMap;
 
+pub use facts::{Features, HubFacts};
 use serde::Deserialize;
 
 use crate::error::Result;

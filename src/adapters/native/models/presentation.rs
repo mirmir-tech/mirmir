@@ -1,18 +1,22 @@
 use std::{fs, path::Path};
 
-use libmir::{GenerationOverrides, ModelDescriptor, TemplateKind};
+use libmir::{
+    AdmissionStatus, GenerationOverrides, ModelDescriptor, TemplateKind, WeightContainer,
+};
 use serde_json::Value;
 
-use crate::{config::GenerationConfig, model::format::ModelFormat};
+use crate::{
+    config::GenerationConfig,
+    model::format::{Ecosystem, ModelFormat},
+};
 
 pub(super) struct ModelPresentation {
     pub class: String,
-    pub library: String,
-    pub ecosystem: String,
-    pub container: String,
+    pub ecosystem: Ecosystem,
+    pub container: Option<WeightContainer>,
     pub encoding: String,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    pub metal_compatibility: AdmissionStatus,
+    pub cuda_compatibility: AdmissionStatus,
     pub size_bytes: u64,
     pub features: Features,
     pub loadable: bool,
@@ -53,12 +57,11 @@ fn present(
     let kind = descriptor.template().kind();
     ModelPresentation {
         class: model_class(config),
-        library: format.legacy_library(),
         ecosystem: format.ecosystem,
         container: format.container,
         encoding: format.encoding,
-        metal_compatibility: format.metal_compatibility,
-        cuda_compatibility: format.cuda_compatibility,
+        metal_compatibility: format.metal,
+        cuda_compatibility: format.cuda,
         size_bytes: descriptor.layout().weights.iter().map(|weight| weight.bytes).sum(),
         features: Features {
             tool_use: has_tools(template),
@@ -80,12 +83,11 @@ fn unavailable(
     let format = ModelFormat::local(path, config, None);
     ModelPresentation {
         class: model_class(config),
-        library: format.legacy_library(),
         ecosystem: format.ecosystem,
         container: format.container,
         encoding: format.encoding,
-        metal_compatibility: format.metal_compatibility,
-        cuda_compatibility: format.cuda_compatibility,
+        metal_compatibility: format.metal,
+        cuda_compatibility: format.cuda,
         size_bytes: weight_size(path),
         features: Features {
             tool_use: has_tools(template),
@@ -130,12 +132,7 @@ fn weight_size(path: &Path) -> u64 {
     fs::read_dir(path).map_or(0, |entries| {
         entries
             .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .is_some_and(|ext| ext == "safetensors" || ext == "gguf")
-            })
+            .filter(|entry| WeightContainer::of(&entry.path()).is_some())
             .filter_map(|entry| entry.metadata().ok().map(|metadata| metadata.len()))
             .sum()
     })

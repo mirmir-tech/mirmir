@@ -1,106 +1,106 @@
+mod ecosystem;
 mod gguf;
 
-use std::{fs, path::Path};
+use std::path::Path;
 
-use libmir::{BackendTarget, ModelDescriptor};
+pub use ecosystem::Ecosystem;
+use libmir::{AdmissionStatus, BackendTarget, ModelDescriptor, WeightContainer};
 use serde_json::Value;
+
+use crate::catalog::HubFacts;
 
 #[derive(Clone, Debug)]
 pub struct ModelFormat {
-    pub ecosystem: String,
-    pub container: String,
+    pub ecosystem: Ecosystem,
+    pub container: Option<WeightContainer>,
     pub encoding: String,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    pub metal: AdmissionStatus,
+    pub cuda: AdmissionStatus,
 }
 
 impl ModelFormat {
-    pub fn remote(library: Option<&str>, tags: &[String], has_safetensors: bool) -> Self {
-        let gguf = tagged(tags, "gguf");
-        let container = if gguf {
-            "GGUF"
-        } else if has_safetensors || tagged(tags, "safetensors") {
-            "SafeTensors"
-        } else {
-            "Unknown"
-        };
-        let ecosystem = if gguf {
-            "GGML"
-        } else {
-            library.unwrap_or("Unknown")
-        };
-        let encoding = remote_encoding(tags, gguf);
-        let compatibility = if gguf {
-            "unsupported"
-        } else {
-            "unknown"
+    /// A Hub model before download: its weights are uninspected, so neither
+    /// backend's admission is known yet.
+    pub fn remote(library: Option<&str>, facts: HubFacts) -> Self {
+        let ecosystem = match facts.container {
+            Some(WeightContainer::Gguf) => Ecosystem::Ggml,
+            Some(WeightContainer::SafeTensors) | None => Ecosystem::of_library(library),
         };
         Self {
-            ecosystem: display_name(ecosystem),
-            container: container.into(),
-            encoding,
-            metal_compatibility: compatibility.into(),
-            cuda_compatibility: compatibility.into(),
+            ecosystem,
+            container: facts.container,
+            encoding: facts.encoding.map_or("Unknown", libmir::EncodingKind::label).into(),
+            metal: AdmissionStatus::Unknown,
+            cuda: AdmissionStatus::Unknown,
         }
     }
 
+    /// A downloaded model; `descriptor` is `None` when libmir could not
+    /// inspect the directory, whose admission is then unknown when it holds
+    /// weights libmir reads.
     pub fn local(path: &Path, config: &Value, descriptor: Option<&ModelDescriptor>) -> Self {
-        if has_extension(path, "gguf") {
-            // An imported GGUF model has a descriptor whose admission names
-            // the GGML types each backend executes.
-            let (metal, cuda) = descriptor.map_or(("unsupported", "unsupported"), |descriptor| {
-                (
-                    descriptor.admission(BackendTarget::Metal).status.as_str(),
-                    descriptor.admission(BackendTarget::Cuda).status.as_str(),
-                )
-            });
-            return Self {
-                ecosystem: "GGML".into(),
-                container: "GGUF".into(),
-                encoding: gguf::encoding(path),
-                metal_compatibility: metal.into(),
-                cuda_compatibility: cuda.into(),
-            };
-        }
-        let container = if has_extension(path, "safetensors") {
-            "SafeTensors"
-        } else {
-            "Unknown"
-        };
-        let encoding = descriptor.map_or_else(
-            || metadata_encoding(config),
-            |descriptor| descriptor.checkpoint_encoding().label(),
+        let container = descriptor.map_or_else(
+            || WeightContainer::detect(path).ok().flatten(),
+            ModelDescriptor::weight_container,
         );
-        let ecosystem = if config.get("quantization").is_some() || encoding.contains("MLX affine") {
-            "MLX"
-        } else {
-            "Transformers"
+        let (ecosystem, encoding) = match container {
+            Some(WeightContainer::Gguf) => (Ecosystem::Ggml, gguf::encoding(path)),
+            Some(WeightContainer::SafeTensors) | None => {
+                let encoding = descriptor.map_or_else(
+                    || metadata_encoding(config),
+                    |descriptor| descriptor.checkpoint_encoding().label(),
+                );
+                let mlx = config.get("quantization").is_some() || encoding.contains("MLX affine");
+                (
+                    if mlx {
+                        Ecosystem::Mlx
+                    } else {
+                        Ecosystem::Transformers
+                    },
+                    encoding,
+                )
+            },
         };
         let (metal, cuda) = descriptor.map_or_else(
-            || container_compatibility(container),
+            || {
+                let status =
+                    container.map_or(AdmissionStatus::Unsupported, |_| AdmissionStatus::Unknown);
+                (status, status)
+            },
             |descriptor| {
                 (
-                    descriptor.admission(BackendTarget::Metal).status.as_str(),
-                    descriptor.admission(BackendTarget::Cuda).status.as_str(),
+                    descriptor.admission(BackendTarget::Metal).status,
+                    descriptor.admission(BackendTarget::Cuda).status,
                 )
             },
         );
         Self {
-            ecosystem: ecosystem.into(),
-            container: container.into(),
+            ecosystem,
+            container,
             encoding,
-            metal_compatibility: metal.into(),
-            cuda_compatibility: cuda.into(),
+            metal,
+            cuda,
         }
     }
+}
 
-    #[must_use]
-    pub fn legacy_library(&self) -> String {
-        if self.container == "GGUF" {
-            self.container.clone()
-        } else {
-            self.ecosystem.clone()
-        }
+/// The protocol spelling of a weight container.
+#[must_use]
+pub const fn container_name(container: Option<WeightContainer>) -> &'static str {
+    match container {
+        Some(WeightContainer::Gguf) => "GGUF",
+        Some(WeightContainer::SafeTensors) => "SafeTensors",
+        None => "Unknown",
+    }
+}
+
+/// The legacy `library` protocol field: the container for GGUF, else the
+/// ecosystem.
+#[must_use]
+pub fn legacy_library(container: Option<WeightContainer>, ecosystem: &Ecosystem) -> &str {
+    match container {
+        Some(WeightContainer::Gguf) => container_name(container),
+        Some(WeightContainer::SafeTensors) | None => ecosystem.name(),
     }
 }
 
@@ -127,47 +127,6 @@ fn metadata_encoding(config: &Value) -> String {
         .get("bits")
         .and_then(Value::as_u64)
         .map_or_else(|| "Quantized".into(), |bits| format!("{bits}-bit"))
-}
-
-fn container_compatibility(container: &str) -> (&'static str, &'static str) {
-    if container != "SafeTensors" {
-        return ("unsupported", "unsupported");
-    }
-    ("unknown", "unknown")
-}
-
-fn remote_encoding(tags: &[String], gguf: bool) -> String {
-    if gguf {
-        return "GGUF quantization".into();
-    }
-    for (tag, label) in [
-        ("nvfp4", "NVFP4"),
-        ("mxfp4", "MXFP4"),
-        ("awq", "AWQ"),
-        ("gptq", "GPTQ"),
-        ("bitsandbytes", "bitsandbytes"),
-        ("fp8", "FP8"),
-    ] {
-        if tagged(tags, tag) {
-            return label.into();
-        }
-    }
-    "Unknown".into()
-}
-
-fn tagged(tags: &[String], expected: &str) -> bool {
-    tags.iter().any(|tag| tag.eq_ignore_ascii_case(expected))
-}
-
-fn has_extension(path: &Path, extension: &str) -> bool {
-    fs::read_dir(path).is_ok_and(|entries| {
-        entries.filter_map(Result::ok).any(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|value| value.eq_ignore_ascii_case(extension))
-        })
-    })
 }
 
 fn display_name(value: &str) -> String {

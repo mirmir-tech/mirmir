@@ -1,6 +1,7 @@
 use std::{collections::HashSet, future::Future, time::Duration};
 
 use futures_util::{StreamExt, stream};
+use libmir::{AdmissionStatus, WeightContainer};
 
 use super::{Catalog, CatalogModel, preflight};
 
@@ -13,8 +14,8 @@ pub(super) async fn enrich(catalog: &Catalog, models: &mut [CatalogModel]) {
         .enumerate()
         .filter(|(_, model)| {
             model.local_source == "remote"
-                && model.compatibility == "unknown"
-                && model.container == "SafeTensors"
+                && model.compatibility == AdmissionStatus::Unknown
+                && model.container == Some(WeightContainer::SafeTensors)
         })
         .map(|(index, model)| (index, model.id.clone()))
         .collect::<Vec<_>>();

@@ -18,7 +18,8 @@ pub use cache::{
     discover_partial_downloads_in,
 };
 pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate};
-pub use fit::{CatalogModel, MachineMemory};
+pub use fit::{CatalogModel, Confidence, MachineMemory};
+pub use hub::HubFacts;
 use libmir::{BackendTarget, CancellationToken};
 pub use preflight::RemoteHeaderPreflight;
 use queue::TransferQueue;

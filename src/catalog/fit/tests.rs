@@ -1,7 +1,46 @@
 use std::collections::BTreeMap;
 
+use libmir::EncodingKind;
+
 use super::*;
 use crate::catalog::hub::{HubConfig, SafeTensors};
+
+/// An uninspected remote model, for the fields a test sets.
+impl Default for CatalogModel {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            downloads: 0,
+            likes: 0,
+            gated: false,
+            model_class: String::new(),
+            compatibility: AdmissionStatus::Unknown,
+            memory_fit: MemoryFit::Unknown,
+            weight_bytes: None,
+            required_bytes: None,
+            budget_bytes: None,
+            confidence: Confidence::Low,
+            reason: String::new(),
+            downloaded: false,
+            local_source: "remote",
+            ecosystem: Ecosystem::Unknown,
+            container: None,
+            encoding: String::new(),
+            metal_compatibility: AdmissionStatus::Unknown,
+            cuda_compatibility: AdmissionStatus::Unknown,
+            preflight_bytes: None,
+            preflight_error: None,
+            features: Features::default(),
+        }
+    }
+}
+
+const NO_MEMORY: MachineMemory = MachineMemory {
+    total: None,
+    available: None,
+    budget: None,
+    source: "test",
+};
 
 fn model(dtype: &str, parameters: u64) -> HubModel {
     HubModel {
@@ -29,9 +68,9 @@ fn estimates_bf16_weights_and_fits_with_headroom() {
         source: "test",
     };
     let result = evaluate(model("BF16", 1_000_000_000), memory);
-    assert_eq!(result.compatibility, "unknown");
+    assert_eq!(result.compatibility, AdmissionStatus::Unknown);
     assert_eq!(result.weight_bytes, Some(2_000_000_000));
-    assert_eq!(result.memory_fit, "fits");
+    assert_eq!(result.memory_fit, MemoryFit::Fits);
 }
 
 #[test]
@@ -44,30 +83,21 @@ fn refuses_to_guess_unknown_dtype() {
     };
     let result = evaluate(model("CUSTOM", 1_000_000_000), memory);
     assert_eq!(result.weight_bytes, None);
-    assert_eq!(result.memory_fit, "unknown");
-    assert_eq!(result.confidence, "low");
+    assert_eq!(result.memory_fit, MemoryFit::Unknown);
+    assert_eq!(result.confidence, Confidence::Low);
 }
 
 #[test]
 fn exposes_qwen3_search_capabilities_before_download() {
     let mut candidate = model("BF16", 1_000_000_000);
     candidate.id = "Qwen/Qwen3-8B".to_owned();
-    let result = evaluate(
-        candidate,
-        MachineMemory {
-            total: None,
-            available: None,
-            budget: None,
-            source: "test",
-        },
-    );
+    let result = evaluate(candidate, NO_MEMORY);
 
-    assert_eq!(result.library, "Transformers");
-    assert_eq!(result.ecosystem, "Transformers");
-    assert_eq!(result.container, "SafeTensors");
+    assert_eq!(result.ecosystem, Ecosystem::Transformers);
+    assert_eq!(result.container, Some(WeightContainer::SafeTensors));
     assert_eq!(result.encoding, "Unknown");
-    assert_eq!(result.metal_compatibility, "unknown");
-    assert_eq!(result.cuda_compatibility, "unknown");
+    assert_eq!(result.metal_compatibility, AdmissionStatus::Unknown);
+    assert_eq!(result.cuda_compatibility, AdmissionStatus::Unknown);
     assert!(result.features.tool_use);
     assert!(result.features.thinking);
     assert!(!result.features.vision);
@@ -87,18 +117,47 @@ fn ranks_supported_fitting_models_first() {
 }
 
 #[test]
-fn ranks_inspected_partial_models_before_unknown_models() {
-    let mut inspected = CatalogModel {
-        compatibility: "partial",
-        memory_fit: "fits",
+fn ranks_admission_before_memory_fit() {
+    let ranked = |compatibility, memory_fit| CatalogModel {
+        compatibility,
+        memory_fit,
         ..CatalogModel::default()
     };
-    let unknown = CatalogModel {
-        compatibility: "unknown",
-        memory_fit: "fits",
-        ..CatalogModel::default()
-    };
-    inspected.downloads = 1;
+    let order = [
+        ranked(AdmissionStatus::Supported, MemoryFit::Fits),
+        ranked(AdmissionStatus::Supported, MemoryFit::Tight),
+        ranked(AdmissionStatus::Supported, MemoryFit::Unknown),
+        ranked(AdmissionStatus::Supported, MemoryFit::DoesNotFit),
+        ranked(AdmissionStatus::Partial, MemoryFit::Fits),
+        ranked(AdmissionStatus::Unknown, MemoryFit::Fits),
+        ranked(AdmissionStatus::Unsupported, MemoryFit::Fits),
+    ];
+    for pair in order.windows(2) {
+        assert_eq!(compare(&pair[0], &pair[1]), Ordering::Less, "{pair:?}");
+    }
+}
 
-    assert_eq!(compare(&inspected, &unknown), Ordering::Less);
+/// A GGUF repository has no `SafeTensors` metadata; its tag, in any case,
+/// still makes it a GGUF model awaiting admission.
+#[test]
+fn remote_gguf_awaits_admission_like_safetensors() {
+    let mut gguf = model("BF16", 1_000_000_000);
+    gguf.safetensors = None;
+    gguf.library_name = None;
+    gguf.tags = vec!["GGUF".to_owned(), "Conversational".to_owned()];
+    let facts = gguf.facts();
+    assert_eq!(facts.container, Some(WeightContainer::Gguf));
+    assert_eq!(facts.encoding, Some(EncodingKind::Ggml));
+    let format = ModelFormat::remote(None, facts);
+    assert_eq!(format.ecosystem, Ecosystem::Ggml);
+    assert_eq!(
+        (format.metal, format.cuda),
+        (AdmissionStatus::Unknown, AdmissionStatus::Unknown)
+    );
+    let result = evaluate(gguf, NO_MEMORY);
+    assert_eq!(result.compatibility, AdmissionStatus::Unknown);
+    assert_eq!(result.container, Some(WeightContainer::Gguf));
+    assert_eq!(result.encoding, "GGML");
+    assert_eq!(result.metal_compatibility, AdmissionStatus::Unknown);
+    assert_eq!(result.cuda_compatibility, AdmissionStatus::Unknown);
 }
