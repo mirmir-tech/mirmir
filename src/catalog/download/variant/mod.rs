@@ -48,7 +48,8 @@ pub(super) fn gguf_only(files: &[ListedFile], repository: &GgufRepository) -> bo
 }
 
 /// The variant a pull of a GGUF repository without one takes, by the
-/// catalog's rule (`Q4_K_M`, else the largest that fits `memory`, else the
+/// catalog's rule (`Q4_K_M`, else `Q8_0` when it fits `memory`, else the
+/// largest that fits, else the
 /// smallest); `None` for a repository that is not GGUF variants only.
 pub(in crate::catalog) async fn default_variant(
     store: &Store,

@@ -82,7 +82,7 @@ fn finds_a_vision_tower_named_anywhere_and_orders_without_sizes() {
 }
 
 #[test]
-fn defaults_to_q4_k_m_then_the_largest_that_fits_then_the_smallest() {
+fn defaults_to_q4_k_m_then_q8_0_then_the_largest_that_fits_then_the_smallest() {
     let repository = GgufRepository::from_files(&files(&[
         ("m-Q2_K.gguf", 2),
         ("m-Q4_K_M.gguf", 4),
@@ -94,10 +94,19 @@ fn defaults_to_q4_k_m_then_the_largest_that_fits_then_the_smallest() {
             .map(|variant| variant.name.clone())
     };
     assert_eq!(name(&repository, 1).as_deref(), Some("Q4_K_M"));
-    let without = GgufRepository::from_files(&files(&[("m-Q2_K.gguf", 2), ("m-Q8_0.gguf", 8)]));
-    assert_eq!(name(&without, 9).as_deref(), Some("Q8_0"));
+    // Without Q4_K_M: Q8_0 when it fits, even beside a larger one that fits.
+    let without = GgufRepository::from_files(&files(&[
+        ("m-Q2_K.gguf", 2),
+        ("m-Q8_0.gguf", 8),
+        ("m-BF16.gguf", 16),
+    ]));
+    assert_eq!(name(&without, 20).as_deref(), Some("Q8_0"));
+    // Then the largest that fits, else the smallest.
     assert_eq!(name(&without, 5).as_deref(), Some("Q2_K"));
     assert_eq!(name(&without, 1).as_deref(), Some("Q2_K"));
+    let unquantized =
+        GgufRepository::from_files(&files(&[("m-Q2_K.gguf", 2), ("m-BF16.gguf", 16)]));
+    assert_eq!(name(&unquantized, 20).as_deref(), Some("BF16"));
     assert_eq!(name(&GgufRepository::default(), 9), None);
 }
 
