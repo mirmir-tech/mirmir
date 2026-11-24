@@ -17,7 +17,7 @@ fn metal_reservation_roundtrips_maps_and_resets_without_changing_the_default() -
             .metal
             .cache
             .decode_reservation,
-        libmir::MetalDecodeReservation::default()
+        GenerationBudget
     );
     check_presentation(&store, "auto", "default")?;
     for (input, policy) in [("generation_budget", GenerationBudget), ("one_page", OnePage)] {
@@ -43,7 +43,7 @@ fn metal_reservation_roundtrips_maps_and_resets_without_changing_the_default() -
             .metal
             .cache
             .decode_reservation,
-        libmir::MetalDecodeReservation::default()
+        GenerationBudget
     );
     check_presentation(&store, "auto", "default")?;
     assert!(!fs::read_to_string(&store.paths.config_file)?.contains("metal_decode_reservation"));
