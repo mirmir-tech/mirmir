@@ -16,6 +16,8 @@ impl Store {
         let direct = Path::new(selector);
         if direct.exists() {
             let canonical = fs::canonicalize(direct)?;
+            // A GGUF file loads from its import.
+            let canonical = self.gguf_import(&canonical)?.unwrap_or(canonical);
             if let Some(model) = self
                 .list_model_configs()
                 .unwrap_or_default()

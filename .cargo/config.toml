@@ -3,5 +3,9 @@ git-fetch-with-cli = true
 
 # CUDA 13 baseline; explicit environment values take precedence.
 [env]
+# MLX runs float32 matmul, SDPA and QMM as TF32 on NAX GPUs (M5) by default;
+# tests compare float32 against exact references, so cargo-run processes use
+# full float32. Binaries started directly keep MLX's default.
+MLX_ENABLE_TF32 = { value = "0", force = false }
 CUDA_HOME = { value = "/usr/local/cuda", force = false }
 NVCC = { value = "/usr/local/cuda/bin/nvcc", force = false }

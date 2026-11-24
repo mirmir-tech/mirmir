@@ -3,6 +3,7 @@ mod editing;
 mod file;
 mod folder;
 mod generation;
+mod gguf;
 mod model_runtime;
 mod models;
 mod paths;

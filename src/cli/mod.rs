@@ -123,7 +123,8 @@ pub enum ModelCommand {
     /// restoration.
     Load {
         /// Local model key, configured alias, repository ID, or checkpoint path
-        /// to load.
+        /// to load. A `.gguf` file, or a directory of GGUF files with an
+        /// optional `mmproj` vision tower, is imported on first load.
         #[arg(value_name = "SELECTOR")]
         selector: String,
         /// Load despite a failed safe-memory preflight; allocation or execution
