@@ -70,8 +70,19 @@ fn repository_root(paths: &Paths, reference: &str) -> Result<PathBuf> {
         .join(format!("models--{}", model_key(repository.repository())?)))
 }
 
+/// `reference`'s marker. One written before a variant's key joined it to its
+/// repository with `@`, as `owner--name--VARIANT`, moves there first, so a
+/// download interrupted then still resumes, counts and removes as its own.
 fn marker(paths: &Paths, reference: &HubReference) -> PathBuf {
-    paths.gguf_variants_dir.join(format!("{}.{EXTENSION}", reference.key()))
+    let key = reference.key();
+    let path = paths.gguf_variants_dir.join(format!("{key}.{EXTENSION}"));
+    let legacy = paths.gguf_variants_dir.join(format!("{}.{EXTENSION}", key.replace('@', "--")));
+    if !path.exists() {
+        // Most variants have no legacy marker; whichever move wins, the
+        // marker ends up at `path`.
+        drop(fs::rename(legacy, &path));
+    }
+    path
 }
 
 /// Records that `reference` is downloading `files` at `pinned`'s commit.

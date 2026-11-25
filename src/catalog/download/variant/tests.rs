@@ -101,6 +101,26 @@ fn a_downloading_variant_is_pending_until_it_finishes() -> Result<()> {
     Ok(())
 }
 
+/// A download interrupted before variant keys took `@` left its marker at
+/// `owner--name--VARIANT`: it still counts its bytes and removing the
+/// variant forgets it.
+#[test]
+fn a_legacy_pending_marker_is_the_variants_own() -> Result<()> {
+    let (store, _, root) = cache("legacy-pending")?;
+    let variant = "owner/model-GGUF:Q6_K".parse::<HubReference>()?;
+    pending::begin(&store, &variant, &pinned(), &[])?;
+    let variants = &store.paths().gguf_variants_dir;
+    let legacy = variants.join("owner--model-GGUF--Q6_K.pending");
+    fs::rename(variants.join("owner--model-GGUF@Q6_K.pending"), &legacy)?;
+    assert_eq!(pending_variants(store.paths()), std::slice::from_ref(&variant));
+    assert_eq!(pending::pending_bytes(store.paths(), &variant), Some(0));
+    assert!(!legacy.exists());
+    end_pending(&store, &variant)?;
+    assert!(pending_variants(store.paths()).is_empty());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 /// A repository holds more than a variant while another variant is
 /// downloading or its own model is saved.
 #[test]
