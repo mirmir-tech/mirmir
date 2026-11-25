@@ -8,7 +8,7 @@ use super::{Metadata, root};
 use crate::{
     config::{
         Paths, Store,
-        gguf::{current, imports},
+        gguf::{LISTING, current, imports, listing},
     },
     error::Result,
 };
@@ -117,6 +117,7 @@ fn a_folder_losing_its_projector_imports_text_only() -> Result<()> {
         Ok(import.publish(&directory)?)
     };
     publish()?;
+    fs::write(directory.join(LISTING), serde_json::to_vec(&listing(&folder)?)?)?;
     assert!(current(&directory, &folder));
     fs::remove_file(folder.join("mmproj.gguf"))?;
     assert!(!current(&directory, &folder));

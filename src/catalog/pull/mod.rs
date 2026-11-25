@@ -1,6 +1,10 @@
 //! Pulling and removing Hub models, one transfer per model at a time.
 
+mod registry;
+
 use libmir::{BackendTarget, CancellationToken};
+use registry::Activity;
+pub(super) use registry::Transfers;
 
 use super::{
     Catalog, DownloadedModel, MachineMemory, ModelVariants, Removal, TransferPhase, TransferUpdate,
@@ -52,7 +56,7 @@ impl Catalog {
         if self.store.hub_model_downloaded(repo_id)? {
             return Err(Error::Config(format!("model `{repo_id}` is already downloaded")));
         }
-        let _transfer = self.reserve(repo_id)?;
+        let _transfer = self.reserve(repo_id, Activity::Pull)?;
         self.pull_reserved(repo_id, (revision, memory), updates, cancellation).await
     }
 
@@ -77,6 +81,17 @@ impl Catalog {
         let revision =
             resumable::pin(&self.store, reference.repository(), revision.unwrap_or("main")).await?;
         let revision = &revision;
+        download::send(
+            &updates,
+            TransferPhase::Resolving,
+            0,
+            None,
+            format!("resolving {reference}@{} ({})", revision.requested, revision.commit),
+        )
+        .await;
+        // One listing for the choice, the header check and the transfer.
+        let files =
+            resumable::listing(&self.store, reference.repository(), &revision.commit).await?;
         // The variant chosen below transfers under its own id too, so its
         // row is neither removed nor pulled again meanwhile.
         #[expect(clippy::collection_is_never_read, reason = "a guard held until the pull ends")]
@@ -84,13 +99,12 @@ impl Catalog {
         // A GGUF repository pulled without a variant takes the catalog's
         // default one.
         if reference.variant().is_none()
-            && let Some(chosen) =
-                download::default_variant(&self.store, &reference, revision, memory).await?
+            && let Some(chosen) = download::default_variant(&reference, &files, memory)?
         {
             if self.store.hub_model_downloaded(&chosen.to_string())? {
                 return Err(Error::Config(format!("model `{chosen}` is already downloaded")));
             }
-            _chosen = Some(self.reserve(&chosen.to_string())?);
+            _chosen = Some(self.reserve(&chosen.to_string(), Activity::Pull)?);
             download::send(
                 &updates,
                 TransferPhase::Checking,
@@ -119,9 +133,11 @@ impl Catalog {
                 "validating the remote GGUF header".to_owned(),
             )
             .await;
-            download::check_variant(&self.store, &self.client, &reference, revision).await?;
+            let pinned = (revision, files.as_slice());
+            download::check_variant(&self.store, &self.client, &reference, pinned).await?;
             let chosen = reference.to_string();
-            return download::pull(&self.store, &chosen, revision, updates, cancellation).await;
+            let listed = (revision, files);
+            return download::pull(&self.store, &chosen, listed, updates, cancellation).await;
         }
         download::send(
             &updates,
@@ -131,6 +147,13 @@ impl Catalog {
             "validating remote SafeTensors headers".to_owned(),
         )
         .await;
+        self.check_safetensors(repo_id, revision).await?;
+        download::pull(&self.store, repo_id, (revision, files), updates, cancellation).await
+    }
+
+    /// Admits a `SafeTensors` repository from its remote headers before it
+    /// downloads, logging what they tell.
+    async fn check_safetensors(&self, repo_id: &str, revision: &resumable::Pinned) -> Result<()> {
         let preflight = self.preflight_headers(repo_id, Some(&revision.commit)).await?;
         let model_type = preflight
             .metadata
@@ -163,50 +186,14 @@ impl Catalog {
             fetched_bytes = preflight.fetched_bytes,
             "remote SafeTensors headers validated"
         );
-        download::pull(&self.store, repo_id, revision, updates, cancellation).await
+        Ok(())
     }
 
+    /// Removes `repo_id`, excluding any transfer of it, or of any of its
+    /// variants when it names a repository, until its files are gone.
     pub async fn remove(&self, repo_id: &str) -> Result<Removal> {
-        if self.is_transferring(repo_id)? {
-            return Err(Error::Config(format!("model `{repo_id}` is currently downloading")));
-        }
+        let _removal = self.reserve(repo_id, Activity::Removal)?;
         download::remove(&self.store, repo_id).await
-    }
-
-    /// Registers `repo_id`'s transfer until the returned guard drops.
-    fn reserve(&self, repo_id: &str) -> Result<Transfer<'_>> {
-        let Ok(mut active) = self.active_transfers.lock() else {
-            return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
-        };
-        if !active.insert(repo_id.to_owned()) {
-            return Err(Error::Config(format!("model `{repo_id}` is already downloading")));
-        }
-        drop(active);
-        Ok(Transfer {
-            catalog: self,
-            repo_id: repo_id.to_owned(),
-        })
-    }
-
-    fn is_transferring(&self, repo_id: &str) -> Result<bool> {
-        let Ok(active) = self.active_transfers.lock() else {
-            return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
-        };
-        Ok(active.contains(repo_id))
-    }
-}
-
-/// A registered transfer, forgotten when dropped, however the pull ends.
-struct Transfer<'a> {
-    catalog: &'a Catalog,
-    repo_id: String,
-}
-
-impl Drop for Transfer<'_> {
-    fn drop(&mut self) {
-        if let Ok(mut active) = self.catalog.active_transfers.lock() {
-            active.remove(&self.repo_id);
-        }
     }
 }
 

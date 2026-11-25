@@ -41,12 +41,7 @@ impl Store {
                 Err(error) => return Err(error),
             }
         } else {
-            let key = if selector.contains('/') {
-                model_key(selector)?
-            } else {
-                selector.to_owned()
-            };
-            self.load_model_config(&key)?
+            self.load_model_config(&super::models::selector_key(selector))?
         };
         if let Some(generation) = change.generation {
             model.generation = generation;

@@ -8,7 +8,7 @@ pub use variant::{pending_bytes, pending_variants};
 
 use super::{
     cache::discover_external_models,
-    resumable::{self, Pinned},
+    resumable::{self, ListedFile, Pinned},
 };
 use crate::{
     config::{HubReference, ModelConfig, Store},
@@ -45,24 +45,16 @@ pub struct Removal {
     pub freed_bytes: u64,
 }
 
-/// Downloads `repo_id` at `pinned`'s commit, the one every request uses.
+/// Downloads `repo_id` at `pinned`'s commit, the one every request uses,
+/// from the repository's `files` listed at that commit.
 pub async fn pull(
     store: &Store,
     repo_id: &str,
-    pinned: &Pinned,
+    (pinned, files): (&Pinned, Vec<ListedFile>),
     updates: mpsc::Sender<TransferUpdate>,
     cancellation: &CancellationToken,
 ) -> Result<DownloadedModel> {
     let reference = repo_id.parse::<HubReference>()?;
-    send(
-        &updates,
-        TransferPhase::Resolving,
-        0,
-        None,
-        format!("resolving {reference}@{} ({})", pinned.requested, pinned.commit),
-    )
-    .await;
-    let files = resumable::listing(store, reference.repository(), &pinned.commit).await?;
     if reference.variant().is_some() {
         return variant::pull(store, &reference, (pinned, files), &updates, cancellation).await;
     }

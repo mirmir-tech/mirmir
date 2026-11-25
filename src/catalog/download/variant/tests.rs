@@ -47,8 +47,8 @@ fn downloaded(
     Ok(())
 }
 
-/// The key `name--Q4_0` of a repository without an owner starts like
-/// `name--other--Q8_0`, a variant of `name/other`, which is no sibling.
+/// A variant of a repository without an owner, `name:Q4_0`, is no sibling
+/// of `name/other:Q8_0`, a variant of another repository.
 #[test]
 fn a_repository_without_an_owner_has_no_siblings_in_another() -> Result<()> {
     let (store, repo, root) = cache("ownerless")?;
@@ -136,6 +136,32 @@ fn a_pending_variant_owns_its_partial_blobs() -> Result<()> {
     assert_eq!(remove_pending(&store, &variant)?, 3);
     assert!(!repo.join("blobs/b4.incomplete").exists());
     assert!(repo.join("blobs/b3").exists() && repo.join("snapshots/abc/mmproj-F16.gguf").exists());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// Two interrupted variants sharing a partial vision tower: removing one
+/// keeps the tower's partial blob, so the other resumes from its offset.
+#[test]
+fn removing_a_pending_variant_keeps_what_another_one_resumes() -> Result<()> {
+    let (store, repo, root) = cache("shared-pending")?;
+    let file = |path: &str, etag: &str, size| crate::catalog::resumable::ListedFile {
+        path: path.to_owned(),
+        etag: etag.to_owned(),
+        size,
+    };
+    let tower = file("mmproj-BF16.gguf", "b6", 8);
+    let first = "owner/model-GGUF:Q5_K_M".parse::<HubReference>()?;
+    let second = "owner/model-GGUF:Q3_K_M".parse::<HubReference>()?;
+    pending::begin(&store, &first, &pinned(), &[file("m-Q5.gguf", "b7", 4), tower.clone()])?;
+    pending::begin(&store, &second, &pinned(), &[file("m-Q3.gguf", "b8", 4), tower])?;
+    fs::write(repo.join("blobs/b6.incomplete"), [0_u8; 6])?;
+    fs::write(repo.join("blobs/b7.incomplete"), [0_u8; 2])?;
+    assert_eq!(pending_bytes(store.paths(), &second), Some(6));
+    assert_eq!(remove_pending(&store, &first)?, 2);
+    assert!(!repo.join("blobs/b7.incomplete").exists());
+    assert_eq!(fs::metadata(repo.join("blobs/b6.incomplete"))?.len(), 6);
+    assert_eq!(pending_bytes(store.paths(), &second), Some(6));
     fs::remove_dir_all(root)?;
     Ok(())
 }

@@ -76,8 +76,21 @@ fn blob_of(_snapshot_file: &Path) -> Option<PathBuf> {
     None
 }
 
+/// The blobs, by `ETag`, of the other variants of `reference`'s repository
+/// still downloading: one they share with it, such as a vision tower, is
+/// theirs to resume from.
+fn pending_blobs(store: &Store, reference: &HubReference) -> HashSet<String> {
+    super::pending_variants(store.paths())
+        .into_iter()
+        .filter(|other| other != reference && other.repository() == reference.repository())
+        .filter_map(|other| super::pending::recorded(store.paths(), &other))
+        .flat_map(|other| other.files.into_iter().map(|file| file.etag))
+        .collect()
+}
+
 /// Removes the files a downloading `reference` recorded, final or partial,
-/// except blobs a sibling variant links; the bytes freed.
+/// except blobs a sibling variant links or another downloading one records;
+/// the bytes freed.
 pub(in crate::catalog::download) fn remove_pending(
     store: &Store,
     reference: &HubReference,
@@ -95,9 +108,12 @@ pub(in crate::catalog::download) fn remove_pending(
         .hub_cache_dir
         .join(format!("models--{}", crate::config::model_key(reference.repository())?));
     let snapshot = root.join("snapshots").join(&pending.commit);
+    let downloading = pending_blobs(store, reference);
     let mut freed = 0;
     for ((blob, partial), file) in pending.blobs(store.paths())?.into_iter().zip(&pending.files) {
-        if blob.canonicalize().is_ok_and(|blob| kept.contains(&blob)) {
+        if downloading.contains(&file.etag)
+            || blob.canonicalize().is_ok_and(|blob| kept.contains(&blob))
+        {
             continue;
         }
         for path in [partial, blob] {
@@ -116,7 +132,8 @@ pub(in crate::catalog::download) fn remove_pending(
 }
 
 /// Removes the variant's directory and import, and the snapshot files and
-/// blobs no sibling links; the bytes freed.
+/// blobs no sibling links nor a downloading variant records; the bytes
+/// freed.
 pub(in crate::catalog::download) fn remove_files(
     store: &Store,
     reference: &HubReference,
@@ -130,17 +147,20 @@ pub(in crate::catalog::download) fn remove_files(
         .flat_map(|sibling| fs::read_dir(sibling).into_iter().flatten().flatten())
         .filter_map(|entry| entry.path().canonicalize().ok())
         .collect::<HashSet<_>>();
+    let downloading = pending_blobs(store, reference);
     let mut freed = 0;
     for entry in fs::read_dir(&view)?.flatten() {
         // The snapshot file the view links, a hard link of its blob.
         let Ok(snapshot_file) = entry.path().canonicalize() else {
             continue;
         };
-        if kept.contains(&snapshot_file) {
+        let blob = blob_of(&snapshot_file);
+        let etag = blob.as_ref().and_then(|blob| blob.file_name()?.to_str().map(str::to_owned));
+        if kept.contains(&snapshot_file) || etag.is_some_and(|etag| downloading.contains(&etag)) {
             continue;
         }
         freed += fs::metadata(&snapshot_file).map_or(0, |metadata| metadata.len());
-        if let Some(blob) = blob_of(&snapshot_file) {
+        if let Some(blob) = blob {
             fs::remove_file(blob)?;
         }
         fs::remove_file(snapshot_file)?;

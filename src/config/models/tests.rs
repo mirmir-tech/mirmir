@@ -86,7 +86,49 @@ fn a_gguf_import_failure_surfaces_from_resolve() -> Result<()> {
         error.as_ref().is_err_and(|error| error.to_string().contains("GGUF")),
         "{error:?}"
     );
-    assert_eq!(store.selected_model("owner/model-GGUF:Q4_0")?.key, "owner--model-GGUF--Q4_0");
+    assert_eq!(store.selected_model("owner/model-GGUF:Q4_0")?.key, "owner--model-GGUF@Q4_0");
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// `model:Q8_0`, a variant of an ownerless repository, and `model/Q8_0`, a
+/// repository, keep their own configurations; each resolves by name, and a
+/// repository keeps the key it always had.
+#[test]
+fn an_ownerless_variant_and_a_namesake_repository_stay_apart() -> Result<()> {
+    let unique = NEXT_STORE.fetch_add(1, Ordering::Relaxed);
+    let root =
+        std::env::temp_dir().join(format!("mirmir-ownerless-{}-{unique}", std::process::id()));
+    let store = Store::new(super::super::Paths::from_roots(
+        root.join("config"),
+        root.join("state"),
+        &root.join("runtime"),
+    ));
+    let (variant, repository) = (root.join("variant"), root.join("repository"));
+    for path in [&variant, &repository] {
+        fs::create_dir_all(path)?;
+    }
+    store.save_hub_model("model:Q8_0", "main", "abc", variant.clone())?;
+    store.save_hub_model("model/Q8_0", "main", "def", repository.clone())?;
+    assert_eq!(model_key("model/Q8_0")?, "model--Q8_0");
+    for (selector, max_tokens) in [("model:Q8_0", 8), ("model/Q8_0", 16)] {
+        let generation = GenerationConfig {
+            max_tokens: Some(max_tokens),
+            ..Default::default()
+        };
+        let change = super::super::ModelConfigChange {
+            generation: Some(generation),
+            runtime: None,
+        };
+        store.save_model_config(selector, "", None, change)?;
+    }
+    let selected = |selector| store.selected_model(selector);
+    let (first, second) = (selected("model:Q8_0")?, selected("model/Q8_0")?);
+    assert_eq!((first.path, first.generation.max_tokens), (variant, Some(8)));
+    assert_eq!((second.path, second.generation.max_tokens), (repository, Some(16)));
+    let saved = store.list_model_configs()?;
+    assert_eq!(saved.len(), 2);
+    assert!(store.hub_model_downloaded("model:Q8_0")? && store.hub_model_downloaded("model/Q8_0")?);
     fs::remove_dir_all(root)?;
     Ok(())
 }

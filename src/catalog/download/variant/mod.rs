@@ -41,18 +41,16 @@ pub(super) fn repository(files: &[ListedFile]) -> GgufRepository {
     GgufRepository::from_files(&files)
 }
 
-/// The variant a pull of a GGUF repository without one takes, by the
-/// catalog's rule (`Q8_0` when it fits `memory`, else `Q4_K_M`, else the
-/// largest that fits, else the smallest); `None` for a repository that is
-/// not GGUF variants only.
-pub(in crate::catalog) async fn default_variant(
-    store: &Store,
+/// The variant a pull of a GGUF repository without one takes from the
+/// repository's pinned `files`, by the catalog's rule (`Q8_0` when it fits
+/// `memory`, else `Q4_K_M`, else the largest that fits, else the smallest);
+/// `None` for a repository that is not GGUF variants only.
+pub(in crate::catalog) fn default_variant(
     reference: &HubReference,
-    pinned: &Pinned,
+    files: &[ListedFile],
     memory: crate::catalog::MachineMemory,
 ) -> Result<Option<HubReference>> {
-    let files = resumable::listing(store, reference.repository(), &pinned.commit).await?;
-    let gguf = repository(&files);
+    let gguf = repository(files);
     if !gguf.gguf_only() {
         return Ok(None);
     }
@@ -60,15 +58,16 @@ pub(in crate::catalog) async fn default_variant(
     default.map(|name| reference.with_variant(&name)).transpose()
 }
 
-/// Admits the variant from its remote header before it downloads.
+/// Admits the variant, found in the pinned `files`, from its remote header
+/// before it downloads.
 pub(in crate::catalog) async fn check_variant(
     store: &Store,
     client: &reqwest::Client,
     reference: &HubReference,
-    pinned: &Pinned,
+    (pinned, files): (&Pinned, &[ListedFile]),
 ) -> Result<()> {
     let revision = pinned.commit.as_str();
-    let gguf = repository(&resumable::listing(store, reference.repository(), revision).await?);
+    let gguf = repository(files);
     let variant = named(&gguf, reference)?;
     let token = store.hf_token()?;
     let (contract, fetched) = preflight::inspect_gguf(

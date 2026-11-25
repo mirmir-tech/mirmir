@@ -169,7 +169,7 @@ fn a_partial_variant_download_lists_as_the_variant() -> std::io::Result<()> {
     assert_eq!(listed(&mut HashSet::new()), [("Owner/Model-GGUF".to_owned(), 7)]);
     fs::create_dir_all(&paths.gguf_variants_dir)?;
     fs::write(
-        paths.gguf_variants_dir.join("Owner--Model-GGUF--Q4_K_M.pending"),
+        paths.gguf_variants_dir.join("Owner--Model-GGUF@Q4_K_M.pending"),
         "Owner/Model-GGUF:Q4_K_M",
     )?;
     assert_eq!(listed(&mut HashSet::new()), [("Owner/Model-GGUF:Q4_K_M".to_owned(), 7)]);

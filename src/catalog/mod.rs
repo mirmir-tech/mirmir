@@ -38,7 +38,7 @@ use crate::{
 pub struct Catalog {
     client: reqwest::Client,
     store: Store,
-    active_transfers: Arc<Mutex<HashSet<String>>>,
+    active_transfers: Arc<Mutex<pull::Transfers>>,
     transfer_queue: TransferQueue,
     preflight_cache: preflight::Cache,
 }
@@ -61,7 +61,7 @@ impl Catalog {
         Self {
             client: reqwest::Client::new(),
             store,
-            active_transfers: Arc::new(Mutex::new(HashSet::new())),
+            active_transfers: Arc::new(Mutex::new(pull::Transfers::new())),
             transfer_queue: TransferQueue::serial(),
             preflight_cache: preflight::Cache::default(),
         }

@@ -6,6 +6,9 @@ use std::{fmt, str::FromStr};
 
 use crate::error::{Error, Result};
 
+/// Joins a repository's key to its variant's.
+const VARIANT_KEY: char = '@';
+
 #[cfg(test)]
 mod tests;
 
@@ -36,13 +39,15 @@ impl HubReference {
         })
     }
 
-    /// The file-system key of the model: `owner--name`, then `--VARIANT`.
-    /// Hub names never contain `--`, so keys stay distinct.
+    /// The file-system key of the model: `owner--name`, then `@VARIANT`.
+    /// No repository or variant part holds `@`, so a variant of `name`
+    /// (`name@VARIANT`) never meets the repository `name/VARIANT`
+    /// (`name--VARIANT`), and a repository's key is the one it always had.
     #[must_use]
     pub fn key(&self) -> String {
         let repository = self.repository.replace('/', "--");
         match &self.variant {
-            Some(variant) => format!("{repository}--{variant}"),
+            Some(variant) => format!("{repository}{VARIANT_KEY}{variant}"),
             None => repository,
         }
     }

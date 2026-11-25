@@ -10,11 +10,25 @@ use std::{
 
 use libmir::{
     WeightContainer,
-    gguf::{GgufHeader, GgufModel, Import, ImportManifest, files_in, shard_paths},
+    gguf::{GgufHeader, GgufModel, Import, ImportManifest, SourceFile, files_in, shard_paths},
 };
 
 use super::{Store, folder::named_key, folder_key};
 use crate::error::Result;
+
+/// Beside a directory's import: the directory's GGUF files as the import
+/// chose its source from them, so a lookup tells a current import without
+/// reading a header, however many quantizations the directory holds.
+const LISTING: &str = "source-listing.json";
+
+/// The GGUF files of a directory, as they are now.
+fn listing(path: &Path) -> libmir::Result<Vec<SourceFile>> {
+    let files = files_in(path)?;
+    Ok(files
+        .iter()
+        .map(|file| SourceFile::of(file))
+        .collect::<std::result::Result<_, _>>()?)
+}
 
 /// A GGUF source: the text model's file (its first shard) and an optional
 /// vision tower's projector beside it.
@@ -41,6 +55,9 @@ impl Store {
         if current(&directory, path) {
             return Ok(Some(directory));
         }
+        // Taken before any header is read: a file changing meanwhile makes
+        // the next lookup import again.
+        let listing = path.is_dir().then(|| listing(path)).transpose()?;
         let Some(source) = source(path)? else {
             return Ok(None);
         };
@@ -52,6 +69,9 @@ impl Store {
             tracing::warn!(legacy = %legacy.display(), %error, "keeping a legacy GGUF import");
         }
         write(&source, &directory)?;
+        if let Some(listing) = listing {
+            fs::write(directory.join(LISTING), serde_json::to_vec_pretty(&listing)?)?;
+        }
         Ok(Some(directory))
     }
 
@@ -127,28 +147,31 @@ fn imports(directory: &Path, text: &Path) -> bool {
 
 /// Whether `directory` holds a published import of the GGUF `path` that is
 /// still current: every file it recorded is there, each source is unchanged,
-/// and `path` still groups into those sources, the shards of a file or the
-/// GGUF files of a directory without a `config.json`.
+/// and `path` still yields those sources: a file its shards, a directory
+/// without a `config.json` the same GGUF files it chose them from.
 fn current(directory: &Path, path: &Path) -> bool {
     let Some(manifest) = ImportManifest::read(directory) else {
         return false;
     };
-    let files = if path.is_file() {
-        if !manifest.vision.is_empty() {
-            return false;
-        }
-        shard_paths(path)
-    } else if path.join("config.json").exists() {
-        return false;
+    let chosen_from_the_same_files = if path.is_file() {
+        let recorded = manifest.sources().map(|source| source.path.clone()).collect();
+        manifest.vision.is_empty()
+            && shard_paths(path).is_ok_and(|files| {
+                files
+                    .iter()
+                    .map(fs::canonicalize)
+                    .collect::<std::io::Result<BTreeSet<_>>>()
+                    .ok()
+                    == Some(recorded)
+            })
     } else {
-        files_in(path)
+        let recorded = fs::read(directory.join(LISTING))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Vec<SourceFile>>(&bytes).ok());
+        !path.join("config.json").exists()
+            && recorded.is_some_and(|recorded| listing(path).is_ok_and(|now| now == recorded))
     };
-    let Ok(files) = files else {
-        return false;
-    };
-    let sources = files.iter().map(fs::canonicalize).collect::<std::io::Result<BTreeSet<_>>>();
-    let recorded = manifest.sources().map(|source| source.path.clone()).collect::<BTreeSet<_>>();
-    sources.is_ok_and(|sources| sources == recorded) && manifest.is_current(directory)
+    chosen_from_the_same_files && manifest.is_current(directory)
 }
 
 /// Publishes the import whole: the previous one stays until every file of

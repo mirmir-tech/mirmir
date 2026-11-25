@@ -222,7 +222,7 @@ fn search_chooses_a_gguf_repositorys_quantization() -> Result<(), std::convert::
     );
     // Downloaded since the search, from any client: the local list says so.
     let downloaded =
-        local_model("ggml-org--gemma-4-E4B-it-GGUF--Q8_0", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0");
+        local_model("ggml-org--gemma-4-E4B-it-GGUF@Q8_0", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0");
     app.local_models.push(downloaded);
     assert!(rendered(&mut app, 140, 36)?.contains("DOWNLOADED"));
     // The last quantization stays chosen past the end.

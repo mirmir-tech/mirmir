@@ -1,5 +1,6 @@
 mod fixture;
 mod imports;
+mod quantizations;
 
 use std::{fs, path::PathBuf};
 

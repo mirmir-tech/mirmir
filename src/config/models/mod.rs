@@ -51,12 +51,7 @@ impl Store {
                 runtime: super::model_runtime::ModelRuntimeConfig::default(),
             });
         }
-        let key = if selector.contains('/') {
-            model_key(selector)?
-        } else {
-            selector.to_owned()
-        };
-        let model = self.load_model_config(&key)?;
+        let model = self.load_model_config(&selector_key(selector))?;
         Ok(ResolvedModel {
             key: model.id,
             path: model.path,
@@ -162,6 +157,12 @@ impl Store {
 /// The file-system key of a Hub reference, `owner/name[:VARIANT]`.
 pub fn model_key(reference: &str) -> Result<String> {
     Ok(reference.parse::<super::HubReference>()?.key())
+}
+
+/// The key a configuration `selector` names: a Hub reference's, with or
+/// without an owner, else the selector itself, a configuration id.
+pub(super) fn selector_key(selector: &str) -> String {
+    model_key(selector).unwrap_or_else(|_| selector.to_owned())
 }
 
 #[cfg(test)]
