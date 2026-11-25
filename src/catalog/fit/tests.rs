@@ -53,6 +53,7 @@ fn model(dtype: &str, parameters: u64) -> HubModel {
         gated: serde_json::Value::Bool(false),
         config: HubConfig {
             architectures: vec!["Qwen2ForCausalLM".to_owned()],
+            model_type: Some("qwen2".to_owned()),
         },
         safetensors: Some(SafeTensors {
             parameters: BTreeMap::from([(dtype.to_owned(), parameters)]),

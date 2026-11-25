@@ -77,6 +77,8 @@ pub struct HubPage {
 pub struct HubConfig {
     #[serde(default)]
     pub architectures: Vec<String>,
+    #[serde(default)]
+    pub model_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,12 +159,21 @@ pub async fn whoami(client: &reqwest::Client, token: &str) -> Result<String> {
 }
 
 impl HubModel {
+    /// The configuration's `architectures`, else its `model_type`, else a
+    /// GGUF repository's `general.architecture`: GGUF repositories rarely
+    /// carry a `config.json`.
     #[must_use]
     pub fn model_class(&self) -> String {
-        if self.config.architectures.is_empty() {
-            return "unknown".to_owned();
+        if !self.config.architectures.is_empty() {
+            return self.config.architectures.join(", ");
         }
-        self.config.architectures.join(", ")
+        self.config
+            .model_type
+            .as_deref()
+            .or_else(|| self.gguf.as_ref().and_then(|gguf| gguf.architecture.as_deref()))
+            .filter(|value| !value.is_empty())
+            .unwrap_or("unknown")
+            .to_owned()
     }
 
     #[must_use]
@@ -195,6 +206,19 @@ mod tests {
             Some(494_032_768)
         );
         assert!(!models[0].is_gated());
+        Ok(())
+    }
+
+    #[test]
+    fn names_a_class_without_architectures() -> Result<()> {
+        let json = r#"[
+            {"id":"a/typed","config":{"model_type":"qwen3"}},
+            {"id":"a/gguf","gguf":{"total":4000000000,"architecture":"gemma4"}},
+            {"id":"a/bare"}
+        ]"#;
+        let models: Vec<HubModel> = serde_json::from_str(json)?;
+        let classes = models.iter().map(HubModel::model_class).collect::<Vec<_>>();
+        assert_eq!(classes, ["qwen3", "gemma4", "unknown"]);
         Ok(())
     }
 

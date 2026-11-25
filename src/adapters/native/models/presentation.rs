@@ -125,11 +125,16 @@ fn template(path: &Path) -> Option<String> {
     })
 }
 
+/// The configuration's `architectures`, else its `model_type`: a GGUF
+/// import's configuration, derived from the file's metadata, names only the
+/// latter.
 fn model_class(config: &Value) -> String {
     config
         .get("architectures")
         .and_then(Value::as_array)
         .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
+        .filter(|value| !value.is_empty())
+        .or_else(|| config.get("model_type").and_then(Value::as_str).map(str::to_owned))
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "unknown".to_owned())
 }
@@ -154,4 +159,23 @@ fn has_thinking(template: Option<&str>) -> bool {
             || value.contains("<think>")
             || value.contains("<|think|>")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::model_class;
+
+    #[test]
+    fn names_a_gguf_import_by_its_model_type() {
+        assert_eq!(
+            model_class(
+                &json!({"architectures": ["Gemma4ForConditionalGeneration"], "model_type": "gemma4"})
+            ),
+            "Gemma4ForConditionalGeneration"
+        );
+        assert_eq!(model_class(&json!({"model_type": "gemma4"})), "gemma4");
+        assert_eq!(model_class(&json!({"architectures": [], "model_type": ""})), "unknown");
+    }
 }
