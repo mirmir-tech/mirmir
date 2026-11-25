@@ -9,7 +9,10 @@ mod tests;
 
 use std::path::Path;
 
-use libmir::{WeightContainer, gguf::is_projector_name};
+use libmir::{
+    WeightContainer,
+    gguf::{ShardName, is_projector_name},
+};
 
 /// The prefix of the multi-token prediction modules a repository may ship.
 const PREDICTION_MODULE_PREFIX: &str = "mtp";
@@ -150,17 +153,7 @@ fn is_prediction_module(name: &str) -> bool {
 /// `-00001-of-00003` suffix.
 fn unsharded(path: &str) -> String {
     let stem = path.rsplit_once('.').map_or(path, |(stem, _)| stem);
-    let bytes = stem.as_bytes();
-    let shard = bytes.len() >= 15
-        && bytes[bytes.len() - 15] == b'-'
-        && stem[stem.len() - 9..stem.len() - 5].eq_ignore_ascii_case("-of-")
-        && bytes[bytes.len() - 14..bytes.len() - 9].iter().all(u8::is_ascii_digit)
-        && bytes[bytes.len() - 5..].iter().all(u8::is_ascii_digit);
-    if shard {
-        stem[..stem.len() - 15].to_owned()
-    } else {
-        stem.to_owned()
-    }
+    ShardName::parse(stem).map_or(stem, |shard| shard.prefix).to_owned()
 }
 
 /// The quantization label of a file stem: from its first token naming a

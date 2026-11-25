@@ -1,4 +1,9 @@
+mod fixture;
+mod imports;
+
 use std::{fs, path::PathBuf, time::Duration};
+
+use fixture::Metadata;
 
 use super::*;
 use crate::config::Paths;
@@ -12,17 +17,7 @@ fn root(label: &str) -> PathBuf {
 
 /// A GGUF v3 file of no tensors whose one metadata key names `architecture`.
 fn header(path: &Path, architecture: &str) -> std::io::Result<()> {
-    let key = b"general.architecture";
-    let mut bytes = b"GGUF".to_vec();
-    bytes.extend(3_u32.to_le_bytes());
-    bytes.extend(0_u64.to_le_bytes());
-    bytes.extend(1_u64.to_le_bytes());
-    bytes.extend((key.len() as u64).to_le_bytes());
-    bytes.extend(key);
-    bytes.extend(8_u32.to_le_bytes());
-    bytes.extend((architecture.len() as u64).to_le_bytes());
-    bytes.extend(architecture.as_bytes());
-    fs::write(path, bytes)
+    Metadata::default().text("general.architecture", architecture).write(path)
 }
 
 #[test]
@@ -57,6 +52,8 @@ fn a_directory_of_gguf_files_pairs_the_model_with_its_vision_tower() -> Result<(
     Ok(())
 }
 
+/// An import counts once it links its source, and only while it is newer.
+#[cfg(unix)]
 #[test]
 fn an_import_older_than_its_source_is_refreshed() -> Result<()> {
     let root = root("current");
@@ -67,6 +64,9 @@ fn an_import_older_than_its_source_is_refreshed() -> Result<()> {
     assert!(!current(&import, &source)?);
     fs::create_dir_all(&import)?;
     fs::write(import.join("config.json"), b"{}")?;
+    // An import interrupted after its configuration is not one.
+    assert!(!current(&import, &source)?);
+    std::os::unix::fs::symlink(&file, import.join("model.gguf"))?;
     assert!(current(&import, &source)?);
     let later = SystemTime::now() + Duration::from_secs(60);
     fs::File::options().write(true).open(&file)?.set_modified(later)?;

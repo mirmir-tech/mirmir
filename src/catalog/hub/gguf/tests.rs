@@ -131,3 +131,16 @@ fn reads_bits_per_weight_from_labels() {
         assert_eq!(quantization::bits_per_weight(label), bits, "{label}");
     }
 }
+
+/// Shard suffixes are read as bytes: accented and non-Latin stems stay whole,
+/// a malformed suffix is part of the stem, and a numbered shard loses it.
+#[test]
+fn unshards_without_cutting_characters() {
+    assert_eq!(unsharded("model-aaaaé12345678.gguf"), "model-aaaaé12345678");
+    assert_eq!(unsharded("dir/modèle-Q4_K_M-00002-of-00003.gguf"), "dir/modèle-Q4_K_M");
+    assert_eq!(unsharded("模型-量化-00001-OF-00002.gguf"), "模型-量化");
+    assert_eq!(unsharded("Qwen3-8B-Q4_K_M.gguf"), "Qwen3-8B-Q4_K_M");
+    assert_eq!(unsharded("m-0001-of-00002.gguf"), "m-0001-of-00002");
+    assert_eq!(unsharded("m-00003-of-00002.gguf"), "m-00003-of-00002");
+    assert_eq!(unsharded("m-00001-of-0000x.gguf"), "m-00001-of-0000x");
+}

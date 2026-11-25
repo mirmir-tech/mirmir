@@ -10,10 +10,10 @@ use std::{
 
 use libmir::{
     WeightContainer,
-    gguf::{GgufModel, Import, files_in, projector},
+    gguf::{GgufModel, Import, files_in, projector, shard_paths},
 };
 
-use super::{Store, folder_key};
+use super::{Store, folder::named_key, folder_key};
 use crate::error::Result;
 
 /// A GGUF source: the text model's file (its first shard) and an optional
@@ -40,11 +40,10 @@ impl Store {
             return Ok(None);
         };
         let directory = self.gguf_import_dir(path);
-        if path.is_dir() {
-            // Earlier versions cut a directory's name at its first dot.
-            let legacy = self.paths.gguf_imports_dir.join(folder_key(&path.with_extension("")));
-            adopt(&legacy, &directory, &source)?;
-        }
+        // Earlier versions keyed a file by its path without the extension and
+        // cut a directory's name at its first dot.
+        let legacy = self.paths.gguf_imports_dir.join(folder_key(&path.with_extension("")));
+        adopt(&legacy, &directory, &source)?;
         if !current(&directory, &source)? {
             write(&source, &directory)?;
         }
@@ -53,14 +52,14 @@ impl Store {
 
     /// Where a canonical GGUF `path` imports to: a file under its stem; a
     /// directory under its whole name, whose dots (`Qwen2.5`) are not an
-    /// extension.
+    /// extension. Both are told apart by a digest of the whole path.
     pub(crate) fn gguf_import_dir(&self, path: &Path) -> PathBuf {
-        let name = if path.is_file() {
-            path.with_extension("")
+        let key = if path.is_file() {
+            named_key(path.file_stem(), path)
         } else {
-            path.to_path_buf()
+            folder_key(path)
         };
-        self.paths.gguf_imports_dir.join(folder_key(&name))
+        self.paths.gguf_imports_dir.join(key)
     }
 }
 
@@ -104,15 +103,19 @@ fn imports(directory: &Path, text: &Path) -> bool {
     fs::canonicalize(directory.join(name)).is_ok_and(|linked| linked == text)
 }
 
-/// Whether `directory` holds an import newer than every source file.
+/// Whether `directory` holds a complete import newer than every source file:
+/// one linking each shard of the text model and of its vision tower.
 fn current(directory: &Path, source: &Source) -> Result<bool> {
     let Ok(imported) = fs::metadata(directory.join("config.json")).and_then(|meta| meta.modified())
     else {
         return Ok(false);
     };
-    let newest = [Some(&source.text), source.vision.as_ref()]
-        .into_iter()
-        .flatten()
+    let files = source.files()?;
+    if !files.iter().all(|file| imports(directory, file)) {
+        return Ok(false);
+    }
+    let newest = files
+        .iter()
         .map(|file| fs::metadata(file).and_then(|meta| meta.modified()))
         .collect::<std::io::Result<Vec<SystemTime>>>()?
         .into_iter()
@@ -120,13 +123,27 @@ fn current(directory: &Path, source: &Source) -> Result<bool> {
     Ok(newest.is_some_and(|newest| imported >= newest))
 }
 
+impl Source {
+    /// Every file the import links: each shard of the text model, then of
+    /// the vision tower.
+    fn files(&self) -> libmir::Result<Vec<PathBuf>> {
+        let mut files = shard_paths(&self.text)?;
+        if let Some(vision) = &self.vision {
+            files.extend(shard_paths(vision)?);
+        }
+        Ok(files)
+    }
+}
+
+/// Publishes the import whole: the previous one stays until every file of
+/// the new one is written.
 fn write(source: &Source, directory: &Path) -> libmir::Result<()> {
     let text = GgufModel::open(&source.text)?;
     let mut import = Import::derive(&text)?;
     if let Some(vision) = &source.vision {
         import = import.with_vision(&GgufModel::open(vision)?, &text)?;
     }
-    import.write(directory)?;
+    import.publish(directory)?;
     Ok(())
 }
 
