@@ -1,29 +1,38 @@
-//! Downloads interrupted in the Hub cache. A repository's partial cache
-//! lists as the GGUF variants downloading into it, else as the repository.
+//! Downloads in progress or interrupted in the Hub cache: the GGUF
+//! variants downloading into a repository's cache, else the repository.
 
 use std::collections::HashSet;
 
 use crate::{
     application::{LocalModelInfo, LocalModelState},
-    catalog::{PartialDownload, discover_partial_downloads_in, pending_variants},
-    config::{Paths, model_key},
+    catalog::{PartialDownload, cached_repository_bytes, discover_partial_downloads_in},
+    config::{HubReference, Paths, model_key},
 };
 
-pub(super) fn append(listed: &mut Vec<LocalModelInfo>, paths: &Paths, known: &mut HashSet<String>) {
-    for partial in discover_partial_downloads_in(&paths.hub_cache_dir) {
-        // Resuming a variant must not pull the whole repository.
-        let variants = pending_variants(paths, &partial.repo_id);
-        if variants.is_empty() {
-            append_one(listed, partial, known);
-            continue;
-        }
-        for variant in variants {
+/// The GGUF variants downloading, each from its repository's cache, then
+/// the other repositories' partial caches. A repository with a variant
+/// downloading lists as that variant alone, until the variant's
+/// configuration is saved: its cache, complete or not, is not a model of
+/// its own, and resuming it must not pull every quantization.
+pub(super) fn append(
+    listed: &mut Vec<LocalModelInfo>,
+    paths: &Paths,
+    pending: Vec<HubReference>,
+    known: &mut HashSet<String>,
+) {
+    for variant in pending {
+        let repository = variant.repository().to_owned();
+        if let Some(downloaded_bytes) = cached_repository_bytes(&paths.hub_cache_dir, &repository) {
             let partial = PartialDownload {
                 repo_id: variant.to_string(),
-                ..partial.clone()
+                downloaded_bytes,
             };
             append_one(listed, partial, known);
         }
+        known.insert(repository);
+    }
+    for partial in discover_partial_downloads_in(&paths.hub_cache_dir) {
+        append_one(listed, partial, known);
     }
 }
 

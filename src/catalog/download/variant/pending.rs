@@ -32,9 +32,9 @@ pub(in crate::catalog::download) fn end(store: &Store, reference: &HubReference)
     }
 }
 
-/// The variants of `repository` whose download has not finished.
+/// The variants whose download has not finished.
 #[must_use]
-pub fn pending_variants(paths: &Paths, repository: &str) -> Vec<HubReference> {
+pub fn pending_variants(paths: &Paths) -> Vec<HubReference> {
     let Ok(entries) = fs::read_dir(&paths.gguf_variants_dir) else {
         return Vec::new();
     };
@@ -43,7 +43,7 @@ pub fn pending_variants(paths: &Paths, repository: &str) -> Vec<HubReference> {
         .filter(|entry| entry.path().extension().is_some_and(|extension| extension == EXTENSION))
         .filter_map(|entry| fs::read_to_string(entry.path()).ok())
         .filter_map(|text| text.trim().parse::<HubReference>().ok())
-        .filter(|reference| reference.repository() == repository && reference.variant().is_some())
+        .filter(|reference| reference.variant().is_some())
         .collect::<Vec<_>>();
     pending.sort_by_key(ToString::to_string);
     pending

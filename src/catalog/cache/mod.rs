@@ -103,6 +103,13 @@ fn has_incomplete(repo_path: &Path) -> bool {
     })
 }
 
+/// The bytes `repo_id`'s managed cache holds; `None` without one.
+#[must_use]
+pub fn cached_repository_bytes(cache: &Path, repo_id: &str) -> Option<u64> {
+    let repo_path = cache.join(format!("models--{}", repo_id.replace('/', "--")));
+    repo_path.is_dir().then(|| directory_size(&repo_path.join("blobs")))
+}
+
 fn partial_download(repo_path: &Path) -> Option<PartialDownload> {
     let repo_id = repo_id(repo_path)?;
     cached_model(repo_path, Cache::Managed).is_none().then(|| PartialDownload {

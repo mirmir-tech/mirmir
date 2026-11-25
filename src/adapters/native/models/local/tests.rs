@@ -159,7 +159,7 @@ fn a_partial_variant_download_lists_as_the_variant() -> std::io::Result<()> {
     fs::write(blobs.join("etag.incomplete"), [0_u8; 7])?;
     let listed = |known: &mut HashSet<String>| {
         let mut listed = Vec::new();
-        partial::append(&mut listed, paths, known);
+        partial::append(&mut listed, paths, crate::catalog::pending_variants(paths), known);
         listed
             .into_iter()
             .filter(|model| model.repo_id.starts_with("Owner/Model-GGUF"))
@@ -173,5 +173,11 @@ fn a_partial_variant_download_lists_as_the_variant() -> std::io::Result<()> {
         "Owner/Model-GGUF:Q4_K_M",
     )?;
     assert_eq!(listed(&mut HashSet::new()), [("Owner/Model-GGUF:Q4_K_M".to_owned(), 7)]);
+    // Its last bytes are in, its configuration not yet saved: still the
+    // variant, and the repository's cache is no model of its own.
+    fs::rename(blobs.join("etag.incomplete"), blobs.join("etag"))?;
+    let mut known = HashSet::new();
+    assert_eq!(listed(&mut known), [("Owner/Model-GGUF:Q4_K_M".to_owned(), 7)]);
+    assert!(known.contains("Owner/Model-GGUF"));
     Ok(())
 }

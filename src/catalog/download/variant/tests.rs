@@ -84,16 +84,12 @@ fn removing_a_variant_keeps_what_another_variant_links() -> Result<()> {
 fn a_downloading_variant_is_pending_until_it_finishes() -> Result<()> {
     let (store, _, root) = cache("pending")?;
     let variant = "owner/model-GGUF:Q6_K".parse::<HubReference>()?;
-    assert!(pending_variants(store.paths(), "owner/model-GGUF").is_empty());
+    assert!(pending_variants(store.paths()).is_empty());
     pending::begin(&store, &variant)?;
-    assert_eq!(
-        pending_variants(store.paths(), "owner/model-GGUF"),
-        std::slice::from_ref(&variant)
-    );
-    assert!(pending_variants(store.paths(), "owner/other-GGUF").is_empty());
+    assert_eq!(pending_variants(store.paths()), std::slice::from_ref(&variant));
     end_pending(&store, &variant)?;
     end_pending(&store, &variant)?;
-    assert!(pending_variants(store.paths(), "owner/model-GGUF").is_empty());
+    assert!(pending_variants(store.paths()).is_empty());
     fs::remove_dir_all(root)?;
     Ok(())
 }

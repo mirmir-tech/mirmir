@@ -9,12 +9,16 @@ mod partial;
 use super::{super::NativeRuntime, presentation};
 use crate::{
     application::{LocalModelInfo, LocalModelState, ModelInfo, Result},
-    catalog::{CachedModel, discover_cached_models_in, discover_external_models},
+    catalog::{CachedModel, discover_cached_models_in, discover_external_models, pending_variants},
     config::{GenerationConfig, HubModelConfig, ModelConfig, model_key},
 };
 
 impl NativeRuntime {
     pub fn local_models(&self) -> Result<Vec<LocalModelInfo>> {
+        // A variant's download saves its configuration before it drops its
+        // pending marker: read in the other order, every variant shows in
+        // one of them, and its repository's cache never lists on its own.
+        let pending = pending_variants(self.store.paths());
         let configs = self.store.list_model_configs()?;
         let recent = self
             .store
@@ -36,13 +40,13 @@ impl NativeRuntime {
             .iter()
             .map(|config| configured(config, &recent, &resident, &state.loading, self))
             .collect::<Vec<_>>();
+        partial::append(&mut listed, self.store.paths(), pending, &mut known_repos);
         for cached in discover_cached_models_in(&self.store.paths().hub_cache_dir) {
             append_cached(
                 &mut listed, cached, true, &mut known_repos, &mut known_paths, &resident,
                 &state.loading,
             );
         }
-        partial::append(&mut listed, self.store.paths(), &mut known_repos);
         for cached in discover_external_models(self.store.paths()) {
             append_cached(
                 &mut listed, cached, false, &mut known_repos, &mut known_paths, &resident,

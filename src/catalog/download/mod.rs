@@ -107,8 +107,10 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
         });
     }
     // The repository takes every downloaded and downloading variant with it.
-    for pending in variant::pending_variants(store.paths(), reference.repository()) {
-        variant::end_pending(store, &pending)?;
+    for pending in variant::pending_variants(store.paths()) {
+        if pending.repository() == reference.repository() {
+            variant::end_pending(store, &pending)?;
+        }
     }
     for model in store.list_model_configs()? {
         let Some(variant) = model.hub.and_then(|hub| hub.repo_id.parse::<HubReference>().ok())
