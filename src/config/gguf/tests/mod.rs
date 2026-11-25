@@ -1,7 +1,7 @@
 mod fixture;
 mod imports;
 
-use std::{fs, path::PathBuf, time::Duration};
+use std::{fs, path::PathBuf};
 
 use fixture::Metadata;
 
@@ -49,28 +49,6 @@ fn a_directory_of_gguf_files_pairs_the_model_with_its_vision_tower() -> Result<(
     // A checkpoint directory, or one importing to itself, loads as it is.
     fs::write(root.join("config.json"), b"{}")?;
     assert_eq!(source(&root)?, None);
-    Ok(())
-}
-
-/// An import counts once it links its source, and only while it is newer.
-#[cfg(unix)]
-#[test]
-fn an_import_older_than_its_source_is_refreshed() -> Result<()> {
-    let root = root("current");
-    let file = root.join("model.gguf");
-    fs::write(&file, b"")?;
-    let import = root.join("import");
-    let source = Source { text: file.clone(), vision: None };
-    assert!(!current(&import, &source)?);
-    fs::create_dir_all(&import)?;
-    fs::write(import.join("config.json"), b"{}")?;
-    // An import interrupted after its configuration is not one.
-    assert!(!current(&import, &source)?);
-    std::os::unix::fs::symlink(&file, import.join("model.gguf"))?;
-    assert!(current(&import, &source)?);
-    let later = SystemTime::now() + Duration::from_secs(60);
-    fs::File::options().write(true).open(&file)?.set_modified(later)?;
-    assert!(!current(&import, &source)?);
     Ok(())
 }
 

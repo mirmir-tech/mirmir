@@ -10,7 +10,7 @@ use std::{
 use libmir::{CancellationToken, WeightContainer};
 pub(super) use pending::end as end_pending;
 pub use pending::pending_variants;
-pub(super) use remove::{remove_files, siblings};
+pub(super) use remove::{holds_more, remove_files};
 use tokio::sync::mpsc;
 
 mod pending;
@@ -23,7 +23,7 @@ use crate::{
     catalog::{
         hub::{GgufRepository, GgufVariant, RepoFile},
         preflight,
-        resumable::{self, ListedFile},
+        resumable::{self, ListedFile, Pinned},
     },
     config::{HubReference, Store},
     error::{Error, Result},
@@ -57,11 +57,10 @@ pub(super) fn gguf_only(files: &[ListedFile], repository: &GgufRepository) -> bo
 pub(in crate::catalog) async fn default_variant(
     store: &Store,
     reference: &HubReference,
-    revision: Option<&str>,
+    pinned: &Pinned,
     memory: crate::catalog::MachineMemory,
 ) -> Result<Option<HubReference>> {
-    let files =
-        resumable::listing(store, reference.repository(), revision.unwrap_or("main")).await?;
+    let files = resumable::listing(store, reference.repository(), &pinned.commit).await?;
     let gguf = repository(&files);
     if !gguf_only(&files, &gguf) {
         return Ok(None);
@@ -75,9 +74,9 @@ pub(in crate::catalog) async fn check_variant(
     store: &Store,
     client: &reqwest::Client,
     reference: &HubReference,
-    revision: Option<&str>,
+    pinned: &Pinned,
 ) -> Result<()> {
-    let revision = revision.unwrap_or("main");
+    let revision = pinned.commit.as_str();
     let gguf = repository(&resumable::listing(store, reference.repository(), revision).await?);
     let variant = named(&gguf, reference)?;
     let token = store.hf_token()?;
@@ -120,7 +119,7 @@ fn named<'a>(gguf: &'a GgufRepository, reference: &HubReference) -> Result<&'a G
 pub(super) async fn pull(
     store: &Store,
     reference: &HubReference,
-    (revision, files): (&str, Vec<ListedFile>),
+    (pinned, files): (&Pinned, Vec<ListedFile>),
     updates: &mpsc::Sender<TransferUpdate>,
     cancellation: &CancellationToken,
 ) -> Result<DownloadedModel> {
@@ -135,11 +134,10 @@ pub(super) async fn pull(
         .map(|file| file.path.clone())
         .collect::<Vec<_>>();
     pending::begin(store, &reference)?;
-    let commit = resumable::commit(store, reference.repository(), revision, &files).await?;
     let selected = files.into_iter().filter(|file| wanted.contains(&file.path)).collect();
     let snapshot = resumable::snapshot(
         store,
-        (reference.repository(), revision, commit),
+        (reference.repository(), pinned),
         selected,
         updates,
         cancellation,
@@ -167,7 +165,7 @@ pub(super) async fn pull(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::Config("Hub snapshot has no commit directory".to_owned()))?;
-    let config = store.save_hub_model(&reference.to_string(), revision, commit, view)?;
+    let config = store.save_hub_model(&reference.to_string(), &pinned.requested, commit, view)?;
     pending::end(store, &reference)?;
     let message = load_unavailable_reason.as_ref().map_or_else(
         || format!("saved model configuration for {reference}"),

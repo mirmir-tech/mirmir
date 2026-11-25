@@ -50,41 +50,80 @@ pub async fn listing(store: &Store, repo_id: &str, revision: &str) -> Result<Vec
     Ok(files)
 }
 
-/// The commit `revision` of `repo_id` names, read from the metadata of the
-/// first of `files` that reports it.
-pub async fn commit(
-    store: &Store,
-    repo_id: &str,
-    revision: &str,
-    files: &[ListedFile],
-) -> Result<String> {
-    let hf = client(store)?;
-    let (owner, name) = split_id(repo_id);
-    resolve_commit(&hf.model(owner, name), revision, files).await
+/// A revision pinned to the commit it named when the pull began. Listing,
+/// header checks and file requests all use the commit, so a branch that
+/// moves during a transfer or its resume cannot mix two revisions' bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pinned {
+    /// The revision as asked for, such as `main`, which the cache's
+    /// `refs` and the saved configuration name.
+    pub requested: String,
+    /// The immutable commit it resolved to.
+    pub commit: String,
 }
 
-/// Downloads `files` of `repo_id` at `commit` of `revision` into its
-/// snapshot, which it returns.
+/// Resolves `revision` of `repo_id` to its commit once; a full commit hash
+/// is its own.
+pub async fn pin(store: &Store, repo_id: &str, revision: &str) -> Result<Pinned> {
+    let commit = if is_commit(revision) {
+        revision.to_owned()
+    } else {
+        let hf = client(store)?;
+        let (owner, name) = split_id(repo_id);
+        hf.model(owner, name)
+            .info()
+            .revision(revision)
+            .send()
+            .await?
+            .sha
+            .ok_or_else(|| {
+                Error::Config(format!("the Hub names no commit for {repo_id}@{revision}"))
+            })?
+    };
+    Ok(Pinned { requested: revision.to_owned(), commit })
+}
+
+fn is_commit(revision: &str) -> bool {
+    revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Downloads `files` of `repo_id` at `pinned`'s commit into its snapshot,
+/// which it returns.
 pub async fn snapshot(
     store: &Store,
-    (repo_id, revision, commit): (&str, &str, String),
+    (repo_id, pinned): (&str, &Pinned),
+    files: Vec<ListedFile>,
+    updates: &mpsc::Sender<TransferUpdate>,
+    cancellation: &CancellationToken,
+) -> Result<PathBuf> {
+    let endpoint = client(store)?.endpoint().to_owned();
+    transfer(store, &endpoint, (repo_id, pinned), files, updates, cancellation).await
+}
+
+/// [`snapshot`] from the Hub at `endpoint`.
+async fn transfer(
+    store: &Store,
+    endpoint: &str,
+    (repo_id, pinned): (&str, &Pinned),
     files: Vec<ListedFile>,
     updates: &mpsc::Sender<TransferUpdate>,
     cancellation: &CancellationToken,
 ) -> Result<PathBuf> {
     let metadata = files
         .into_iter()
-        .map(|file| hf_hub::repository::FileMetadataInfo {
-            location: Some(download_url(repo_id, revision, &file.path)),
-            filename: file.path,
-            etag: file.etag,
-            commit_hash: commit.clone(),
-            xet_hash: None,
-            file_size: file.size,
+        .map(|file| {
+            Ok(hf_hub::repository::FileMetadataInfo {
+                location: Some(download_url(endpoint, repo_id, &pinned.commit, &file.path)?),
+                filename: file.path,
+                etag: file.etag,
+                commit_hash: pinned.commit.clone(),
+                xet_hash: None,
+                file_size: file.size,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
     let root = store.paths().hub_cache_dir.join(format!("models--{}", model_key(repo_id)?));
-    let snapshot = root.join("snapshots").join(&commit);
+    let snapshot = root.join("snapshots").join(&pinned.commit);
     let total = metadata.iter().map(|file| file.file_size).sum();
     let mut completed = completed_bytes(&root, &metadata);
     send(
@@ -99,46 +138,26 @@ pub async fn snapshot(
     for file in metadata {
         completed = transfer.file(file, completed).await?;
     }
-    let reference = root.join("refs").join(revision);
+    let reference = root.join("refs").join(&pinned.requested);
     if let Some(parent) = reference.parent() {
         fs::create_dir_all(parent).await?;
     }
-    fs::write(reference, format!("{commit}\n")).await?;
+    fs::write(reference, format!("{}\n", pinned.commit)).await?;
     Ok(snapshot)
 }
 
-async fn resolve_commit(
-    repository: &hf_hub::HFRepository<hf_hub::RepoTypeModel>,
-    revision: &str,
-    files: &[ListedFile],
-) -> Result<String> {
-    for file in files {
-        if let Ok(value) = repository
-            .get_file_metadata()
-            .filepath(&file.path)
-            .revision(revision)
-            .send()
-            .await
-        {
-            return Ok(value.commit_hash);
-        }
-    }
-    Err(Error::Config("could not resolve repository commit".to_owned()))
-}
-
-fn download_url(repo_id: &str, revision: &str, filename: &str) -> String {
-    let mut url = reqwest::Url::parse("https://huggingface.co").expect("static Hub URL is valid");
-    {
-        let mut segments = url.path_segments_mut().expect("Hub URL can hold path segments");
-        repo_id.split('/').for_each(|segment| {
-            segments.push(segment);
-        });
-        segments.push("resolve").push(revision);
-        filename.split('/').for_each(|segment| {
-            segments.push(segment);
-        });
-    }
-    url.to_string()
+/// `<endpoint>/<repo_id>/resolve/<commit>/<filename>`.
+fn download_url(endpoint: &str, repo_id: &str, commit: &str, filename: &str) -> Result<String> {
+    let mut url = reqwest::Url::parse(endpoint)
+        .map_err(|error| Error::Config(format!("invalid Hub endpoint {endpoint}: {error}")))?;
+    url.path_segments_mut()
+        .map_err(|()| Error::Config(format!("Hub endpoint {endpoint} cannot hold a path")))?
+        .pop_if_empty()
+        .extend(repo_id.split('/'))
+        .push("resolve")
+        .push(commit)
+        .extend(filename.split('/'));
+    Ok(url.to_string())
 }
 
 fn completed_bytes(root: &Path, files: &[hf_hub::repository::FileMetadataInfo]) -> u64 {
@@ -153,3 +172,6 @@ fn completed_bytes(root: &Path, files: &[hf_hub::repository::FileMetadataInfo]) 
         })
         .sum()
 }
+
+#[cfg(test)]
+mod tests;

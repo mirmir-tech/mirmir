@@ -67,6 +67,10 @@ impl Catalog {
         .await;
         let _permit = self.transfer_queue.acquire(cancellation).await?;
         let mut reference = repo_id.parse::<HubReference>()?;
+        // One commit for the choice, the header checks and every file.
+        let revision =
+            resumable::pin(&self.store, reference.repository(), revision.unwrap_or("main")).await?;
+        let revision = &revision;
         // A GGUF repository pulled without a variant takes the catalog's
         // default one.
         if reference.variant().is_none()
@@ -112,7 +116,7 @@ impl Catalog {
             "validating remote SafeTensors headers".to_owned(),
         )
         .await;
-        let preflight = self.preflight_headers(repo_id, revision).await?;
+        let preflight = self.preflight_headers(repo_id, Some(&revision.commit)).await?;
         let model_type = preflight
             .metadata
             .config

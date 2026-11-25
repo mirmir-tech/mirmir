@@ -3,14 +3,14 @@
 //! link to the file itself, which then loads like a `SafeTensors` checkpoint.
 
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
-    time::SystemTime,
 };
 
 use libmir::{
     WeightContainer,
-    gguf::{GgufModel, Import, files_in, projector, shard_paths},
+    gguf::{GgufModel, Import, ImportManifest, files_in, projector, shard_paths},
 };
 
 use super::{Store, folder::named_key, folder_key};
@@ -32,21 +32,23 @@ impl Store {
     }
 
     /// The directory a GGUF `path` loads from, imported or refreshed only
-    /// when the import is missing or older than its source; `None` when
+    /// when its published record no longer matches the source; `None` when
     /// `path` is not a GGUF model. `path` is canonical: a `.gguf` file, or a
-    /// directory of GGUF files without a `config.json`.
+    /// directory of GGUF files without a `config.json`. A current import is
+    /// told by file names and metadata, without reading a GGUF header.
     pub(crate) fn gguf_import(&self, path: &Path) -> Result<Option<PathBuf>> {
+        let directory = self.gguf_import_dir(path);
+        if current(&directory, path) {
+            return Ok(Some(directory));
+        }
         let Some(source) = source(path)? else {
             return Ok(None);
         };
-        let directory = self.gguf_import_dir(path);
         // Earlier versions keyed a file by its path without the extension and
         // cut a directory's name at its first dot.
         let legacy = self.paths.gguf_imports_dir.join(folder_key(&path.with_extension("")));
         adopt(&legacy, &directory, &source)?;
-        if !current(&directory, &source)? {
-            write(&source, &directory)?;
-        }
+        write(&source, &directory)?;
         Ok(Some(directory))
     }
 
@@ -103,36 +105,30 @@ fn imports(directory: &Path, text: &Path) -> bool {
     fs::canonicalize(directory.join(name)).is_ok_and(|linked| linked == text)
 }
 
-/// Whether `directory` holds a complete import newer than every source file:
-/// one linking each shard of the text model and of its vision tower.
-fn current(directory: &Path, source: &Source) -> Result<bool> {
-    let Ok(imported) = fs::metadata(directory.join("config.json")).and_then(|meta| meta.modified())
-    else {
-        return Ok(false);
+/// Whether `directory` holds a published import of the GGUF `path` that is
+/// still current: every file it recorded is there, each source is unchanged,
+/// and `path` still groups into those sources, the shards of a file or the
+/// GGUF files of a directory without a `config.json`.
+fn current(directory: &Path, path: &Path) -> bool {
+    let Some(manifest) = ImportManifest::read(directory) else {
+        return false;
     };
-    let files = source.files()?;
-    if !files.iter().all(|file| imports(directory, file)) {
-        return Ok(false);
-    }
-    let newest = files
-        .iter()
-        .map(|file| fs::metadata(file).and_then(|meta| meta.modified()))
-        .collect::<std::io::Result<Vec<SystemTime>>>()?
-        .into_iter()
-        .max();
-    Ok(newest.is_some_and(|newest| imported >= newest))
-}
-
-impl Source {
-    /// Every file the import links: each shard of the text model, then of
-    /// the vision tower.
-    fn files(&self) -> libmir::Result<Vec<PathBuf>> {
-        let mut files = shard_paths(&self.text)?;
-        if let Some(vision) = &self.vision {
-            files.extend(shard_paths(vision)?);
+    let files = if path.is_file() {
+        if !manifest.vision.is_empty() {
+            return false;
         }
-        Ok(files)
-    }
+        shard_paths(path)
+    } else if path.join("config.json").exists() {
+        return false;
+    } else {
+        files_in(path)
+    };
+    let Ok(files) = files else {
+        return false;
+    };
+    let sources = files.iter().map(fs::canonicalize).collect::<std::io::Result<BTreeSet<_>>>();
+    let recorded = manifest.sources().map(|source| source.path.clone()).collect::<BTreeSet<_>>();
+    sources.is_ok_and(|sources| sources == recorded) && manifest.is_current(directory)
 }
 
 /// Publishes the import whole: the previous one stays until every file of

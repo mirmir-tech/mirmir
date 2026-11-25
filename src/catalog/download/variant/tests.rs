@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::*;
+use super::{remove::siblings, *};
 use crate::config::Paths;
 
 /// A cache of one repository: blobs hard-linked into a snapshot, and a view
@@ -90,6 +90,23 @@ fn a_downloading_variant_is_pending_until_it_finishes() -> Result<()> {
     end_pending(&store, &variant)?;
     end_pending(&store, &variant)?;
     assert!(pending_variants(store.paths()).is_empty());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// A repository holds more than a variant while another variant is
+/// downloading or its own model is saved.
+#[test]
+fn a_pending_sibling_or_the_base_model_keeps_the_repository() -> Result<()> {
+    let (store, _, root) = cache("holds")?;
+    let lone = "owner/lone-GGUF:Q8_0".parse::<HubReference>()?;
+    assert!(!holds_more(&store, &lone)?);
+    pending::begin(&store, &"owner/lone-GGUF:Q6_K".parse::<HubReference>()?)?;
+    assert!(holds_more(&store, &lone)?);
+    let base = "owner/base:Q8_0".parse::<HubReference>()?;
+    assert!(!holds_more(&store, &base)?);
+    store.save_hub_model("owner/base", "main", "abc", root.clone())?;
+    assert!(holds_more(&store, &base)?);
     fs::remove_dir_all(root)?;
     Ok(())
 }

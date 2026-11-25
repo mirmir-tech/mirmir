@@ -32,6 +32,27 @@ pub(in crate::catalog::download) fn siblings(
         .collect())
 }
 
+/// Whether `reference`'s repository holds anything besides it: another
+/// variant, downloaded or downloading, or the repository's own model.
+pub(in crate::catalog::download) fn holds_more(
+    store: &Store,
+    reference: &HubReference,
+) -> Result<bool> {
+    let same = |other: &HubReference| other.repository() == reference.repository();
+    if super::pending_variants(store.paths())
+        .iter()
+        .any(|other| same(other) && other != reference)
+    {
+        return Ok(true);
+    }
+    Ok(store.list_model_configs()?.into_iter().any(|model| {
+        model
+            .hub
+            .and_then(|hub| hub.repo_id.parse::<HubReference>().ok())
+            .is_some_and(|other| same(&other) && other != *reference)
+    }))
+}
+
 /// The cache blob `snapshot_file` hard-links: the file of the same inode in
 /// the repository's `blobs`.
 #[cfg(unix)]

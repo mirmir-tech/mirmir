@@ -2,9 +2,14 @@
 
 use std::{fs, path::Path, time::Duration};
 
+use libmir::gguf::{GgufModel, Import, ImportManifest};
+
 use super::{Metadata, root};
 use crate::{
-    config::{Paths, Store, gguf::imports},
+    config::{
+        Paths, Store,
+        gguf::{current, imports},
+    },
     error::Result,
 };
 
@@ -72,6 +77,87 @@ fn a_file_and_its_namesake_folder_import_apart() -> Result<()> {
         assert_eq!(store.gguf_import(&file)?, Some(of_file));
         assert_eq!(store.gguf_import(&folder)?, Some(of_folder));
     }
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// A lost generated file is written again on the next lookup.
+#[test]
+fn an_import_missing_a_generated_file_is_redone() -> Result<()> {
+    let root = root("generated");
+    let model = root.join("model.gguf");
+    Metadata::llama().write(&model)?;
+    let model = fs::canonicalize(&model)?;
+    let store = store(&root);
+    let directory = store.gguf_import(&model)?.unwrap_or_default();
+    fs::remove_file(directory.join("tokenizer.json"))?;
+    assert!(!current(&directory, &model));
+    assert_eq!(store.gguf_import(&model)?, Some(directory.clone()));
+    assert!(directory.join("tokenizer.json").exists());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// A folder whose projector is gone is a text model now: its multimodal
+/// import is redone without the vision tower.
+#[test]
+fn a_folder_losing_its_projector_imports_text_only() -> Result<()> {
+    let root = root("projector");
+    let folder = root.join("models/Vision-GGUF");
+    fs::create_dir_all(&folder)?;
+    Metadata::llama().write(&folder.join("model.gguf"))?;
+    fs::write(folder.join("mmproj.gguf"), b"projector")?;
+    let folder = fs::canonicalize(&folder)?;
+    let store = store(&root);
+    let directory = store.gguf_import_dir(&folder);
+    // As the multimodal import published it, without deriving the tower.
+    let publish = || -> libmir::Result<()> {
+        let mut import = Import::derive(&GgufModel::open(folder.join("model.gguf"))?)?;
+        import.vision_shards.push(folder.join("mmproj.gguf"));
+        Ok(import.publish(&directory)?)
+    };
+    publish()?;
+    assert!(current(&directory, &folder));
+    fs::remove_file(folder.join("mmproj.gguf"))?;
+    assert!(!current(&directory, &folder));
+    assert_eq!(store.gguf_import(&folder)?, Some(directory.clone()));
+    let manifest = ImportManifest::read(&directory)
+        .ok_or_else(|| crate::error::Error::Config("no manifest".to_owned()))?;
+    assert!(manifest.vision.is_empty() && !directory.join("mmproj.gguf").exists());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// A current import is found again from names and metadata alone: with its
+/// sources unreadable the lookup still succeeds, and once a source changes
+/// it is imported again.
+#[cfg(unix)]
+#[test]
+fn a_current_import_is_found_without_reading_headers() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let root = root("headers");
+    let folder = root.join("models/Split-GGUF");
+    fs::create_dir_all(&folder)?;
+    let shards = [1, 2].map(|number| folder.join(format!("split-{number:05}-of-00002.gguf")));
+    Metadata::llama().shard(1, 2).write(&shards[0])?;
+    Metadata::default().shard(2, 2).write(&shards[1])?;
+    let folder = fs::canonicalize(&folder)?;
+    let store = store(&root);
+    let directory = store.gguf_import(&folder)?.unwrap_or_default();
+    let mode = |mode| {
+        shards
+            .iter()
+            .try_for_each(|shard| fs::set_permissions(shard, fs::Permissions::from_mode(mode)))
+    };
+    mode(0o000)?;
+    let unread = store.gguf_import(&folder);
+    mode(0o644)?;
+    assert_eq!(unread?, Some(directory.clone()));
+    let imported = || fs::metadata(directory.join("import.json")).and_then(|meta| meta.modified());
+    let before = imported()?;
+    later(&shards[1])?;
+    store.gguf_import(&folder)?;
+    assert!(imported()? > before);
     fs::remove_dir_all(root)?;
     Ok(())
 }

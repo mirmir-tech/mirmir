@@ -6,7 +6,10 @@ use tokio::sync::mpsc;
 pub use variant::pending_variants;
 pub(super) use variant::{check_variant, default_variant};
 
-use super::{cache::discover_external_models, resumable};
+use super::{
+    cache::discover_external_models,
+    resumable::{self, Pinned},
+};
 use crate::{
     config::{HubReference, ModelConfig, Store},
     error::{Error, Result},
@@ -42,31 +45,29 @@ pub struct Removal {
     pub freed_bytes: u64,
 }
 
+/// Downloads `repo_id` at `pinned`'s commit, the one every request uses.
 pub async fn pull(
     store: &Store,
     repo_id: &str,
-    revision: Option<&str>,
+    pinned: &Pinned,
     updates: mpsc::Sender<TransferUpdate>,
     cancellation: &CancellationToken,
 ) -> Result<DownloadedModel> {
     let reference = repo_id.parse::<HubReference>()?;
-    let revision = revision.unwrap_or("main");
     send(
         &updates,
         TransferPhase::Resolving,
         0,
         None,
-        format!("resolving {reference}@{revision}"),
+        format!("resolving {reference}@{} ({})", pinned.requested, pinned.commit),
     )
     .await;
-    let files = resumable::listing(store, reference.repository(), revision).await?;
+    let files = resumable::listing(store, reference.repository(), &pinned.commit).await?;
     if reference.variant().is_some() {
-        return variant::pull(store, &reference, (revision, files), &updates, cancellation).await;
+        return variant::pull(store, &reference, (pinned, files), &updates, cancellation).await;
     }
-    let commit = resumable::commit(store, repo_id, revision, &files).await?;
     let snapshot =
-        resumable::snapshot(store, (repo_id, revision, commit), files, &updates, cancellation)
-            .await?;
+        resumable::snapshot(store, (repo_id, pinned), files, &updates, cancellation).await?;
     send(
         &updates,
         TransferPhase::Validating,
@@ -82,7 +83,7 @@ pub async fn pull(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::Config("Hub snapshot has no commit directory".to_owned()))?;
-    let model = store.save_hub_model(repo_id, revision, commit, snapshot.clone())?;
+    let model = store.save_hub_model(repo_id, &pinned.requested, commit, snapshot.clone())?;
     let message = load_unavailable_reason.as_ref().map_or_else(
         || format!("saved model configuration for {repo_id}"),
         |reason| format!("downloaded {repo_id}; loading is unavailable: {reason}"),
@@ -94,17 +95,19 @@ pub async fn pull(
 pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
     let reference = repo_id.parse::<HubReference>()?;
     if reference.variant().is_some() {
+        let pending = variant::pending_variants(store.paths()).contains(&reference);
+        let downloaded = store.paths().gguf_variants_dir.join(reference.key()).exists();
         variant::end_pending(store, &reference)?;
         let mut freed_bytes = variant::remove_files(store, &reference)?;
         let removed_config = store.remove_hub_model_config(repo_id)?;
-        // The last variant takes the repository's cache with it.
-        if variant::siblings(store, &reference)?.is_empty() {
+        let existed = pending || downloaded || removed_config;
+        // The last variant takes the repository's cache with it; a variant
+        // that never existed, a base model or another variant, downloaded or
+        // downloading, keeps it.
+        if existed && !variant::holds_more(store, &reference)? {
             freed_bytes += Box::pin(remove(store, reference.repository())).await?.freed_bytes;
         }
-        return Ok(Removal {
-            removed: removed_config || freed_bytes > 0,
-            freed_bytes,
-        });
+        return Ok(Removal { removed: existed, freed_bytes });
     }
     // The repository takes every downloaded and downloading variant with it.
     for pending in variant::pending_variants(store.paths()) {
