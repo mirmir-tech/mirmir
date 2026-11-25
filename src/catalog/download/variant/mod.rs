@@ -58,6 +58,16 @@ pub(in crate::catalog) fn default_variant(
     default.map(|name| reference.with_variant(&name)).transpose()
 }
 
+/// The variant `reference` names in the pinned `files`, under the label the
+/// repository gives it, whatever case or file stem it was asked by: the
+/// name it downloads, is saved and is removed under.
+pub(in crate::catalog) fn canonical_variant(
+    reference: &HubReference,
+    files: &[ListedFile],
+) -> Result<HubReference> {
+    reference.with_variant(&named(&repository(files), reference)?.name)
+}
+
 /// Admits the variant, found in the pinned `files`, from its remote header
 /// before it downloads.
 pub(in crate::catalog) async fn check_variant(

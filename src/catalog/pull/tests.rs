@@ -70,3 +70,33 @@ async fn no_pull_starts_while_its_repository_is_removed() -> Result<()> {
     drop(removal);
     Ok(())
 }
+
+/// A pull asked by the variant's file stem holds its label as soon as the
+/// listing resolves it: removing the variant by its label is refused and
+/// the partial blob it downloads stays.
+#[tokio::test]
+async fn a_pull_by_file_stem_holds_the_variants_label() -> Result<()> {
+    let (catalog, root) = catalog("pull-by-stem");
+    let blobs = catalog.store.paths().hub_cache_dir.join("models--owner--m/blobs");
+    std::fs::create_dir_all(&blobs)?;
+    std::fs::write(blobs.join("q8.incomplete"), b"partial")?;
+    let files = ["m-Q4_0.gguf", "m-Q8_0.gguf"].map(|path| ListedFile {
+        path: path.to_owned(),
+        etag: path.to_owned(),
+        size: 8,
+    });
+    let stem = "owner/m:m-Q8_0".parse::<HubReference>()?;
+    let _pull = catalog.reserve(&stem.to_string(), Activity::Pull)?;
+    let Some((label, _held)) = catalog.reserve_label(&stem, &files)? else {
+        return Err(crate::error::Error::Config("the stem took no label".to_owned()));
+    };
+    assert_eq!(label.to_string(), "owner/m:Q8_0");
+    let refused = catalog.remove("owner/m:Q8_0").await;
+    assert!(refused.is_err_and(|error| error.to_string().contains("downloading")));
+    assert_eq!(std::fs::read(blobs.join("q8.incomplete"))?, b"partial");
+    // The label asked in another case is the same reservation, not another.
+    let lower = "owner/m:q8_0".parse::<HubReference>()?;
+    assert!(catalog.reserve_label(&lower, &files)?.is_none());
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

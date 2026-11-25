@@ -3,7 +3,7 @@ mod variant;
 use hf_hub::HFClient;
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
-pub(super) use variant::{check_variant, default_variant};
+pub(super) use variant::{canonical_variant, check_variant, default_variant};
 pub use variant::{pending_bytes, pending_variants};
 
 use super::{

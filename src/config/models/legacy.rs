@@ -24,7 +24,7 @@ impl Store {
     /// Moves every legacy variant configuration to its current key. It runs
     /// without the configuration write lock, which a caller may hold, so
     /// each step tolerates another migration having made it first.
-    pub(super) fn migrate_variant_keys(&self) -> Result<()> {
+    pub(in crate::config) fn migrate_variant_keys(&self) -> Result<()> {
         let Ok(entries) = fs::read_dir(&self.paths.models_dir) else {
             return Ok(());
         };
@@ -86,9 +86,11 @@ impl Store {
             if marker(stem).exists() {
                 fs::rename(marker(stem), marker(&key))?;
             }
-            model.id = key;
+            model.id.clone_from(&key);
             write_toml(&target, &model, false)?;
         }
+        // Selections of the legacy key follow before a namesake can take it.
+        self.rename_selections(stem, &key)?;
         // The current key's configuration, new or found, supersedes it.
         match fs::remove_file(path) {
             Err(error) if error.kind() != ErrorKind::NotFound => Err(error.into()),

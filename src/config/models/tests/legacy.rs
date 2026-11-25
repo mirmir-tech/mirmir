@@ -114,3 +114,26 @@ fn an_active_legacy_selection_follows_its_variant() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// The legacy variant `m:Q8`, active as `m--Q8`, stays the active model
+/// after the repository `m/Q8` is saved under that key and the store opens
+/// again.
+#[test]
+fn an_active_legacy_variant_survives_its_namesake() -> Result<()> {
+    let (store, paths, root) = legacy("legacy-active-namesake", "m:Q8", "m--Q8")?;
+    fs::write(
+        root.join("config/state.toml"),
+        "schema_version = 1\nrecent_models = [\"m--Q8\"]\nactive_models = [\"m--Q8\"]\n",
+    )?;
+    let snapshot = root.join("cache/snapshots/abc");
+    fs::create_dir_all(&snapshot)?;
+    store.save_hub_model("m/Q8", "main", "abc", snapshot)?;
+    let reopened = Store::new(paths.clone());
+    assert_eq!(reopened.active_models()?, ["m@Q8"]);
+    assert_eq!(reopened.recent_models()?, ["m@Q8"]);
+    let active = reopened.resolve_model("m@Q8")?;
+    assert_eq!(active.path, paths.gguf_variants_dir.join("m@Q8").canonicalize()?);
+    assert_eq!(active.generation.max_tokens, Some(8));
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

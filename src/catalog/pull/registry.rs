@@ -35,7 +35,7 @@ fn excludes(held: &(HubReference, Activity), wanted: &(HubReference, Activity)) 
 
 /// Whether `left` and `right` name one model: a variant is found by its
 /// label in any case, and downloads under the label the repository gives.
-fn same_model(left: &HubReference, right: &HubReference) -> bool {
+pub(super) fn same_model(left: &HubReference, right: &HubReference) -> bool {
     left.repository() == right.repository()
         && match (left.variant(), right.variant()) {
             (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),

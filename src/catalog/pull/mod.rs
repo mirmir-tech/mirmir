@@ -10,7 +10,7 @@ use super::{
     Catalog, DownloadedModel, MachineMemory, ModelVariants, Removal, TransferPhase, TransferUpdate,
     discover_cached_models_in, download, fit,
     hub::{GgufRepository, RepoFile},
-    resumable,
+    resumable::{self, ListedFile},
 };
 use crate::{
     config::HubReference,
@@ -92,10 +92,11 @@ impl Catalog {
         // One listing for the choice, the header check and the transfer.
         let files =
             resumable::listing(&self.store, reference.repository(), &revision.commit).await?;
-        // The variant chosen below transfers under its own id too, so its
-        // row is neither removed nor pulled again meanwhile.
-        #[expect(clippy::collection_is_never_read, reason = "a guard held until the pull ends")]
-        let mut _chosen = None;
+        // The variant chosen below, or the label the one asked for has,
+        // transfers under its own id too, so its row is neither removed nor
+        // pulled again meanwhile.
+        #[expect(clippy::collection_is_never_read, reason = "guards held until the pull ends")]
+        let mut labels = Vec::new();
         // A GGUF repository pulled without a variant takes the catalog's
         // default one.
         if reference.variant().is_none()
@@ -104,7 +105,7 @@ impl Catalog {
             if self.store.hub_model_downloaded(&chosen.to_string())? {
                 return Err(Error::Config(format!("model `{chosen}` is already downloaded")));
             }
-            _chosen = Some(self.reserve(&chosen.to_string(), Activity::Pull)?);
+            labels.push(self.reserve(&chosen.to_string(), Activity::Pull)?);
             download::send(
                 &updates,
                 TransferPhase::Checking,
@@ -125,6 +126,10 @@ impl Catalog {
             return Err(Error::Config(format!("model `{repo_id}` is already downloaded")));
         }
         if reference.variant().is_some() {
+            if let Some((canonical, transfer)) = self.reserve_label(&reference, &files)? {
+                labels.push(transfer);
+                reference = canonical;
+            }
             download::send(
                 &updates,
                 TransferPhase::Checking,
@@ -149,6 +154,26 @@ impl Catalog {
         .await;
         self.check_safetensors(repo_id, revision).await?;
         download::pull(&self.store, repo_id, (revision, files), updates, cancellation).await
+    }
+
+    /// Reserves the variant `reference` names under its label in the pinned
+    /// `files` too, when it was asked by another spelling or its file stem:
+    /// it downloads, before any marker or byte is written, and is removed
+    /// under that label, which a removal must then find taken.
+    fn reserve_label(
+        &self,
+        reference: &HubReference,
+        files: &[ListedFile],
+    ) -> Result<Option<(HubReference, registry::Transfer<'_>)>> {
+        let canonical = download::canonical_variant(reference, files)?;
+        if registry::same_model(&canonical, reference) {
+            return Ok(None);
+        }
+        if self.store.hub_model_downloaded(&canonical.to_string())? {
+            return Err(Error::Config(format!("model `{canonical}` is already downloaded")));
+        }
+        let transfer = self.reserve(&canonical.to_string(), Activity::Pull)?;
+        Ok(Some((canonical, transfer)))
     }
 
     /// Admits a `SafeTensors` repository from its remote headers before it
