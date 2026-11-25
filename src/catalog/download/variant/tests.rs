@@ -85,6 +85,49 @@ fn removing_a_variant_keeps_what_another_variant_links() -> Result<()> {
     Ok(())
 }
 
+/// The repository's own model, saved at the snapshot a variant links,
+/// keeps every file of it when the variant goes.
+#[test]
+fn removing_a_variant_keeps_the_base_snapshot() -> Result<()> {
+    let (store, repo, root) = cache("base")?;
+    let snapshot = repo.join("snapshots/abc");
+    store.save_hub_model("owner/model-GGUF", "main", "abc", snapshot.clone())?;
+    let variant = "owner/model-GGUF:Q4_0".parse::<HubReference>()?;
+    store.remove_hub_model_config("owner/model-GGUF:Q8_0")?;
+    assert_eq!(remove_files(&store, &variant)?, 0);
+    for (blob, file) in [("b1", "m-Q4_0.gguf"), ("b2", "m-Q8_0.gguf"), ("b3", "mmproj-F16.gguf")] {
+        assert!(repo.join("blobs").join(blob).exists() && snapshot.join(file).exists(), "{file}");
+    }
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// A variant saved under its legacy key, removed before anything listed
+/// it, is removed with its view.
+#[tokio::test]
+async fn a_legacy_variant_is_removed_as_the_first_operation() -> Result<()> {
+    let (store, _, root) = cache("legacy-remove")?;
+    let variants = &store.paths().gguf_variants_dir;
+    let (old, view) = (
+        variants.join("owner--model-GGUF--Q4_0"),
+        variants.join("owner--model-GGUF@Q4_0"),
+    );
+    fs::rename(&view, &old)?;
+    let models = &store.paths().models_dir;
+    let config = fs::read_to_string(models.join("owner--model-GGUF@Q4_0.toml"))?;
+    fs::remove_file(models.join("owner--model-GGUF@Q4_0.toml"))?;
+    fs::write(
+        models.join("owner--model-GGUF--Q4_0.toml"),
+        config.replace("owner--model-GGUF@Q4_0", "owner--model-GGUF--Q4_0"),
+    )?;
+    let removal = crate::catalog::download::remove(&store, "owner/model-GGUF:Q4_0").await?;
+    assert!(removal.removed && removal.freed_bytes > 0);
+    assert!(!old.exists() && !view.exists());
+    assert!(!store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 /// A variant downloading into the shared cache is pending until its
 /// configuration is saved; removing it forgets it as well.
 #[test]

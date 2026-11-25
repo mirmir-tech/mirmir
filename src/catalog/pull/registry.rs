@@ -27,10 +27,20 @@ pub(in crate::catalog) type Transfers = HashSet<(HubReference, Activity)>;
 fn excludes(held: &(HubReference, Activity), wanted: &(HubReference, Activity)) -> bool {
     let ((held, held_activity), (wanted, wanted_activity)) = (held, wanted);
     let removal = [held_activity, wanted_activity].contains(&&Activity::Removal);
-    held == wanted
+    same_model(held, wanted)
         || (removal
             && held.repository() == wanted.repository()
             && (held.variant().is_none() || wanted.variant().is_none()))
+}
+
+/// Whether `left` and `right` name one model: a variant is found by its
+/// label in any case, and downloads under the label the repository gives.
+fn same_model(left: &HubReference, right: &HubReference) -> bool {
+    left.repository() == right.repository()
+        && match (left.variant(), right.variant()) {
+            (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
+            (left, right) => left == right,
+        }
 }
 
 impl Catalog {

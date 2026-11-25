@@ -21,13 +21,26 @@ use crate::error::Result;
 /// reading a header, however many quantizations the directory holds.
 const LISTING: &str = "source-listing.json";
 
+/// One GGUF file of a directory: its name there and the file it resolves
+/// to, so a link turned to another file of the same size and time is not
+/// the file the import was made from.
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Listed {
+    name: PathBuf,
+    target: SourceFile,
+}
+
 /// The GGUF files of a directory, as they are now.
-fn listing(path: &Path) -> libmir::Result<Vec<SourceFile>> {
-    let files = files_in(path)?;
-    Ok(files
-        .iter()
-        .map(|file| SourceFile::of(file))
-        .collect::<std::result::Result<_, _>>()?)
+fn listing(path: &Path) -> Result<Vec<Listed>> {
+    // libmir's model errors convert to its own error, which converts to ours.
+    files_in(path)
+        .map_err(libmir::Error::from)?
+        .into_iter()
+        .map(|file| {
+            let target = SourceFile::of(&fs::canonicalize(&file)?).map_err(libmir::Error::from)?;
+            Ok(Listed { name: file, target })
+        })
+        .collect()
 }
 
 /// A GGUF source: the text model's file (its first shard) and an optional
@@ -167,7 +180,7 @@ fn current(directory: &Path, path: &Path) -> bool {
     } else {
         let recorded = fs::read(directory.join(LISTING))
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<SourceFile>>(&bytes).ok());
+            .and_then(|bytes| serde_json::from_slice::<Vec<Listed>>(&bytes).ok());
         !path.join("config.json").exists()
             && recorded.is_some_and(|recorded| listing(path).is_ok_and(|now| now == recorded))
     };

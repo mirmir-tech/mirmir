@@ -41,7 +41,7 @@ impl Store {
                 Err(error) => return Err(error),
             }
         } else {
-            self.load_model_config(&super::models::selector_key(selector))?
+            self.load_model_config(&super::models::selector_key(selector)?)?
         };
         if let Some(generation) = change.generation {
             model.generation = generation;
@@ -53,7 +53,7 @@ impl Store {
             model.hub = hub;
         }
         self.paths.ensure_config_dirs()?;
-        write_toml(&self.model_config_path(&model.id), &model, false)?;
+        write_toml(&self.model_config_path(&model.id)?, &model, false)?;
         Ok(model.id)
     }
 }

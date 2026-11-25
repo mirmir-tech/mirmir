@@ -18,6 +18,9 @@ fn a_chosen_variant_transfers_under_its_own_id() -> Result<()> {
     let chosen = catalog.reserve("owner/model-GGUF:Q8_0", Activity::Pull)?;
     assert!(catalog.is_transferring("owner/model-GGUF:Q8_0")?);
     assert!(catalog.reserve("owner/model-GGUF:Q8_0", Activity::Pull).is_err());
+    // The variant is one model in any case its label is asked in.
+    assert!(catalog.reserve("owner/model-GGUF:q8_0", Activity::Removal).is_err());
+    assert!(catalog.reserve("owner/model-GGUF:q8_0", Activity::Pull).is_err());
     drop((chosen, repository));
     assert!(!catalog.is_transferring("owner/model-GGUF:Q8_0")?);
     assert!(!catalog.is_transferring("owner/model-GGUF")?);

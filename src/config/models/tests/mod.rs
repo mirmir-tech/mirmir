@@ -9,6 +9,17 @@ fn creates_stable_key_and_rejects_traversal() -> Result<()> {
     assert_eq!(model_key("Qwen/Qwen2.5")?, "Qwen--Qwen2.5");
     assert!(model_key("../secret").is_err());
     assert!(model_key("owner/model/extra").is_err());
+    // Neither a path that does not exist nor a configuration file's name is
+    // taken for an id.
+    let store = Store::new(super::super::Paths::from_roots(
+        "/nonexistent/config".into(),
+        "/nonexistent/state".into(),
+        std::path::Path::new("/nonexistent/run"),
+    ));
+    for selector in ["missing/../../secret", "../secret", "a\\b", "../../../../../../missing"] {
+        let refused = store.selected_model(selector);
+        assert!(refused.is_err_and(|error| error.to_string().contains("invalid")), "{selector}");
+    }
     Ok(())
 }
 
@@ -47,7 +58,7 @@ fn model_runtime_section_is_optional_and_reaches_load_options() -> Result<()> {
     let snapshot = root.join("cache/snapshots/0123456789");
     fs::create_dir_all(&snapshot)?;
     store.save_hub_model("Qwen/Reranker", "main", "0123456789", snapshot)?;
-    let path = store.model_config_path("Qwen--Reranker");
+    let path = store.model_config_path("Qwen--Reranker")?;
     let written = fs::read_to_string(&path)?;
     assert!(!written.contains("[runtime]"));
     assert_eq!(store.resolve_model("Qwen/Reranker")?.runtime.kv_blocks, None);
@@ -133,47 +144,4 @@ fn an_ownerless_variant_and_a_namesake_repository_stay_apart() -> Result<()> {
     Ok(())
 }
 
-/// A variant saved under its legacy key, `owner--name--VARIANT`, moves to
-/// `owner--name@VARIANT` with its view and pending marker, and resolves and
-/// removes as before.
-#[test]
-fn a_variant_saved_under_its_legacy_key_moves_to_the_current_one() -> Result<()> {
-    let unique = NEXT_STORE.fetch_add(1, Ordering::Relaxed);
-    let root =
-        std::env::temp_dir().join(format!("mirmir-legacy-variant-{}-{unique}", std::process::id()));
-    let paths =
-        super::super::Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
-    let store = Store::new(paths.clone());
-    let legacy = "owner--model-GGUF--Q4_K_M";
-    let view = paths.gguf_variants_dir.join(legacy);
-    fs::create_dir_all(&view)?;
-    // Its import, keyed by the legacy view's path, holds a derived file.
-    let import = store.gguf_import_dir(&view.canonicalize()?);
-    fs::create_dir_all(&import)?;
-    fs::write(import.join("tokenizer.json"), "{}")?;
-    fs::write(
-        paths.gguf_variants_dir.join(format!("{legacy}.pending")),
-        "owner/model-GGUF:Q4_K_M",
-    )?;
-    fs::create_dir_all(&paths.models_dir)?;
-    fs::write(
-        paths.models_dir.join(format!("{legacy}.toml")),
-        format!(
-            "schema_version = 1\nid = \"{legacy}\"\npath = \"{}\"\n\n[hub]\nrepo_id = \
-             \"owner/model-GGUF:Q4_K_M\"\nrevision = \"main\"\ncommit = \"abc\"\n",
-            view.canonicalize()?.display()
-        ),
-    )?;
-    let resolved = store.resolve_model("owner/model-GGUF:Q4_K_M")?;
-    let key = "owner--model-GGUF@Q4_K_M";
-    assert_eq!(resolved.key, key);
-    assert_eq!(resolved.path, paths.gguf_variants_dir.join(key).canonicalize()?);
-    assert!(!view.exists() && !paths.models_dir.join(format!("{legacy}.toml")).exists());
-    let moved = store.gguf_import_dir(&resolved.path);
-    assert!(!import.exists() && moved.join("tokenizer.json").exists(), "{moved:?}");
-    assert!(paths.gguf_variants_dir.join(format!("{key}.pending")).exists());
-    assert_eq!(store.list_model_configs()?.len(), 1);
-    assert!(store.remove_hub_model_config("owner/model-GGUF:Q4_K_M")?);
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
+mod legacy;

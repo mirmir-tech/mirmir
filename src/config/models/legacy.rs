@@ -2,7 +2,8 @@
 //! repository with `@`, as `owner--name--VARIANT`. They move to the current
 //! key together with the variant's view and pending marker, named after the
 //! key too, so loading, listing and removing a variant downloaded earlier
-//! keep working.
+//! keep working, and a namesake repository (`owner/name--VARIANT`) whose
+//! key the legacy one is never takes its place.
 
 use std::{
     fs,
@@ -13,10 +14,16 @@ use std::{
 use super::super::{HubReference, ModelConfig, Store, file::write_toml, folder_key};
 use crate::error::Result;
 
+/// The key the variant keyed `key` (`owner--name@VARIANT`) had before:
+/// `owner--name--VARIANT`; `None` for a key that is no variant's.
+pub(super) fn legacy_key(key: &str) -> Option<String> {
+    key.contains('@').then(|| key.replacen('@', "--", 1))
+}
+
 impl Store {
     /// Moves every legacy variant configuration to its current key. It runs
     /// without the configuration write lock, which a caller may hold, so
-    /// each step tolerates another listing having made it first.
+    /// each step tolerates another migration having made it first.
     pub(super) fn migrate_variant_keys(&self) -> Result<()> {
         let Ok(entries) = fs::read_dir(&self.paths.models_dir) else {
             return Ok(());
@@ -29,7 +36,27 @@ impl Store {
         Ok(())
     }
 
-    fn migrate_variant_key(&self, path: &Path) -> Result<()> {
+    /// Moves the variant `reference` from its legacy key, if it is saved
+    /// there, before anything looks for it by its current key.
+    pub(crate) fn migrate_variant(&self, reference: &HubReference) -> Result<()> {
+        match legacy_key(&reference.key()) {
+            Some(legacy) => self.migrate_variant_key(&self.model_config_path(&legacy)?),
+            None => Ok(()),
+        }
+    }
+
+    /// The current id of the variant whose legacy key is `legacy`, an id a
+    /// selection saved before it moved.
+    pub(super) fn current_variant_id(&self, legacy: &str) -> Result<Option<String>> {
+        Ok(self.list_model_configs()?.into_iter().find_map(|model| {
+            let reference = model.hub?.repo_id.parse::<HubReference>().ok()?;
+            (legacy_key(&reference.key()).as_deref() == Some(legacy)).then_some(model.id)
+        }))
+    }
+
+    /// Moves the configuration at `path` to its own key when it records a
+    /// variant saved under another: its legacy key, or a namesake's.
+    pub(super) fn migrate_variant_key(&self, path: &Path) -> Result<()> {
         let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
             return Ok(());
         };
@@ -51,22 +78,10 @@ impl Store {
         if key == stem {
             return Ok(());
         }
-        let target = self.model_config_path(&key);
+        let target = self.model_config_path(&key)?;
         if !target.exists() {
+            self.move_view(&mut model, stem, &key)?;
             let variants = &self.paths.gguf_variants_dir;
-            let (old_view, view) = (variants.join(stem), variants.join(&key));
-            if same_file(&model.path, &old_view) && !view.exists() {
-                let old_view = old_view.canonicalize()?;
-                // The view's import is keyed by the view's path: moved along,
-                // it is not imported again beside a stale copy.
-                let imports = [
-                    self.gguf_import_dir(&old_view),
-                    self.paths.gguf_imports_dir.join(folder_key(&old_view.with_extension(""))),
-                ];
-                fs::rename(&old_view, &view)?;
-                model.path = view.canonicalize()?;
-                move_import(&imports, &self.gguf_import_dir(&model.path))?;
-            }
             let marker = |key: &str| variants.join(format!("{key}.pending"));
             if marker(stem).exists() {
                 fs::rename(marker(stem), marker(&key))?;
@@ -79,6 +94,34 @@ impl Store {
             Err(error) if error.kind() != ErrorKind::NotFound => Err(error.into()),
             _ => Ok(()),
         }
+    }
+
+    /// Moves `model`'s view, named `stem`, to `key` with its import, and
+    /// points `model` at it, whether or not an interrupted migration moved
+    /// the view already.
+    fn move_view(&self, model: &mut ModelConfig, stem: &str, key: &str) -> Result<()> {
+        let Ok(variants) = self.paths.gguf_variants_dir.canonicalize() else {
+            return Ok(());
+        };
+        let (old_view, view) = (variants.join(stem), variants.join(key));
+        if model.path != old_view && !same_file(&model.path, &old_view) {
+            return Ok(());
+        }
+        if old_view.exists() && !view.exists() {
+            fs::rename(&old_view, &view)?;
+        }
+        if !view.exists() {
+            return Ok(());
+        }
+        // The view's import is keyed by the view's path: moved along, it is
+        // not imported again beside a stale copy.
+        let imports = [
+            self.gguf_import_dir(&old_view),
+            self.paths.gguf_imports_dir.join(folder_key(&old_view.with_extension(""))),
+        ];
+        move_import(&imports, &self.gguf_import_dir(&view))?;
+        model.path = view;
+        Ok(())
     }
 }
 

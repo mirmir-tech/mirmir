@@ -12,9 +12,10 @@ use crate::{
     error::Result,
 };
 
-/// The directories of the variants downloaded from `reference`'s
-/// repository other than its own, by the references their configurations
-/// record: a repository `name` is never `owner/name`.
+/// The directories of the models saved from `reference`'s repository other
+/// than itself, by the references their configurations record: its other
+/// variants' views and the repository's own snapshot, whose files a variant
+/// may share. A repository `name` is never `owner/name`.
 pub(in crate::catalog::download) fn siblings(
     store: &Store,
     reference: &HubReference,
@@ -24,12 +25,29 @@ pub(in crate::catalog::download) fn siblings(
         .into_iter()
         .filter_map(|model| {
             let other = model.hub?.repo_id.parse::<HubReference>().ok()?;
-            (other.variant().is_some()
-                && other.repository() == reference.repository()
-                && other != *reference)
+            (other.repository() == reference.repository() && other != *reference)
                 .then_some(model.path)
         })
         .collect())
+}
+
+/// The files under the `siblings`, canonical: a view's links resolve to
+/// the snapshot files they name, a snapshot's own files to themselves.
+fn kept_files(siblings: &[PathBuf]) -> HashSet<PathBuf> {
+    let mut kept = HashSet::new();
+    let mut directories = siblings.to_vec();
+    while let Some(directory) = directories.pop() {
+        for entry in fs::read_dir(&directory).into_iter().flatten().flatten() {
+            let path = entry.path();
+            // A snapshot nests a repository's folders; a view is flat.
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                directories.push(path);
+            } else if let Ok(file) = path.canonicalize() {
+                kept.insert(file);
+            }
+        }
+    }
+    kept
 }
 
 /// Whether `reference`'s repository holds anything besides it: another
@@ -98,10 +116,9 @@ pub(in crate::catalog::download) fn remove_pending(
     let Some(pending) = super::pending::recorded(store.paths(), reference) else {
         return Ok(0);
     };
-    let kept = siblings(store, reference)?
+    let kept = kept_files(&siblings(store, reference)?)
         .iter()
-        .flat_map(|sibling| fs::read_dir(sibling).into_iter().flatten().flatten())
-        .filter_map(|entry| blob_of(&entry.path().canonicalize().ok()?))
+        .filter_map(|file| blob_of(file))
         .collect::<HashSet<_>>();
     let root = store
         .paths()
@@ -142,11 +159,7 @@ pub(in crate::catalog::download) fn remove_files(
     if !view.exists() {
         return Ok(0);
     }
-    let kept = siblings(store, reference)?
-        .iter()
-        .flat_map(|sibling| fs::read_dir(sibling).into_iter().flatten().flatten())
-        .filter_map(|entry| entry.path().canonicalize().ok())
-        .collect::<HashSet<_>>();
+    let kept = kept_files(&siblings(store, reference)?);
     let downloading = pending_blobs(store, reference);
     let mut freed = 0;
     for entry in fs::read_dir(&view)?.flatten() {

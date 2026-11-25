@@ -1,4 +1,7 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use super::{GenerationConfig, HubModelConfig, ModelConfig, Store, file::write_toml};
 use crate::error::{Error, Result};
@@ -51,7 +54,18 @@ impl Store {
                 runtime: super::model_runtime::ModelRuntimeConfig::default(),
             });
         }
-        let model = self.load_model_config(&selector_key(selector))?;
+        let key = selector_key(selector)?;
+        let model = match self.load_model_config(&key) {
+            // A selection saved before its variant moved names its legacy
+            // key, which holds no `@`.
+            Err(Error::ModelNotFound(missing)) if !key.contains('@') => {
+                match self.current_variant_id(&key)? {
+                    Some(id) => self.load_model_config(&id)?,
+                    None => return Err(Error::ModelNotFound(missing)),
+                }
+            },
+            model => model?,
+        };
         Ok(ResolvedModel {
             key: model.id,
             path: model.path,
@@ -76,6 +90,7 @@ impl Store {
         if !self.paths.models_dir.exists() {
             return Ok(Vec::new());
         }
+        // Once per listing: every configuration below is under its own key.
         self.migrate_variant_keys()?;
         let mut models = Vec::new();
         for entry in fs::read_dir(&self.paths.models_dir)? {
@@ -87,7 +102,7 @@ impl Store {
             let Some(key) = path.file_stem().and_then(|value| value.to_str()) else {
                 continue;
             };
-            models.push(self.load_model_config(key)?);
+            models.push(read_model_config(&path, key)?);
         }
         models.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(models)
@@ -105,6 +120,8 @@ impl Store {
         let key = model_key(reference)?;
         self.paths.ensure_config_dirs()?;
         let _writes = super::store::config_writes();
+        // A legacy variant saved under this key moves to its own first.
+        self.migrate_variant_key(&self.model_config_path(&key)?)?;
         // A new snapshot of the repository keeps the saved defaults and context.
         let (generation, runtime) = self.load_model_config(&key).map_or_else(
             |_| (GenerationConfig::default(), super::model_runtime::ModelRuntimeConfig::default()),
@@ -122,41 +139,64 @@ impl Store {
             generation,
             runtime,
         };
-        write_toml(&self.model_config_path(&key), &model, false)?;
+        write_toml(&self.model_config_path(&key)?, &model, false)?;
         Ok(model)
     }
 
     pub fn remove_hub_model_config(&self, repo_id: &str) -> Result<bool> {
         let key = model_key(repo_id)?;
-        let path = self.model_config_path(&key);
-        if !path.exists() {
-            return Ok(false);
-        }
-        let model = self.load_model_config(&key)?;
+        let model = match self.load_model_config(&key) {
+            Err(Error::ModelNotFound(_)) => return Ok(false),
+            model => model?,
+        };
         if model.hub.as_ref().is_none_or(|hub| hub.repo_id != repo_id) {
             return Err(Error::Config(format!("model `{key}` is not managed from `{repo_id}`")));
         }
-        fs::remove_file(path)?;
+        fs::remove_file(self.model_config_path(&key)?)?;
         Ok(true)
     }
 
     pub(super) fn load_model_config(&self, key: &str) -> Result<ModelConfig> {
-        let path = self.model_config_path(key);
-        // A variant downloaded before its key took `@` is still saved under
-        // its legacy key.
-        if !path.exists() && key.contains('@') {
-            self.migrate_variant_keys()?;
+        let path = self.model_config_path(key)?;
+        // A variant downloaded before its key took `@` is saved under its
+        // legacy key, which may be this one, a namesake repository's: either
+        // moves to the variant's own key first.
+        if path.exists() {
+            self.migrate_variant_key(&path)?;
+        } else if let Some(legacy) = legacy::legacy_key(key) {
+            self.migrate_variant_key(&self.model_config_path(&legacy)?)?;
         }
         if !path.exists() {
             return Err(Error::ModelNotFound(key.to_owned()));
         }
-        let model: ModelConfig = toml::from_str(&fs::read_to_string(path)?)?;
-        model.validate(key)?;
-        Ok(model)
+        read_model_config(&path, key)
     }
 
-    pub(super) fn model_config_path(&self, key: &str) -> std::path::PathBuf {
-        self.paths.models_dir.join(format!("{key}.toml"))
+    /// Where the configuration `key` is saved; `key` is one file name.
+    pub(super) fn model_config_path(&self, key: &str) -> Result<PathBuf> {
+        Ok(self.paths.models_dir.join(format!("{}.toml", config_id(key)?)))
+    }
+}
+
+fn read_model_config(path: &Path, key: &str) -> Result<ModelConfig> {
+    let model: ModelConfig = toml::from_str(&fs::read_to_string(path)?)?;
+    model.validate(key)?;
+    Ok(model)
+}
+
+/// `id` when it can name a configuration file: a key's characters, ASCII
+/// letters, digits, `-`, `_`, `.` and `@`, never `.` or `..`.
+fn config_id(id: &str) -> Result<&str> {
+    let valid = !id.is_empty()
+        && id != "."
+        && id != ".."
+        && id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "-_.@".contains(character));
+    if valid {
+        Ok(id)
+    } else {
+        Err(Error::Config(format!("invalid model configuration id `{id}`")))
     }
 }
 
@@ -166,9 +206,10 @@ pub fn model_key(reference: &str) -> Result<String> {
 }
 
 /// The key a configuration `selector` names: a Hub reference's, with or
-/// without an owner, else the selector itself, a configuration id.
-pub(super) fn selector_key(selector: &str) -> String {
-    model_key(selector).unwrap_or_else(|_| selector.to_owned())
+/// without an owner, else the selector itself, a configuration id. A path
+/// is selected only as one that exists, never as an id.
+pub(super) fn selector_key(selector: &str) -> Result<String> {
+    model_key(selector).or_else(|_| Ok(config_id(selector)?.to_owned()))
 }
 
 mod legacy;

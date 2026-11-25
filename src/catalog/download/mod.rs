@@ -87,6 +87,8 @@ pub async fn pull(
 pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
     let reference = repo_id.parse::<HubReference>()?;
     if reference.variant().is_some() {
+        // A variant saved under its legacy key is found by its current one.
+        store.migrate_variant(&reference)?;
         let pending = variant::pending_variants(store.paths()).contains(&reference);
         let downloaded = store.paths().gguf_variants_dir.join(reference.key()).exists();
         let mut freed_bytes = variant::remove_pending(store, &reference)?;
