@@ -8,9 +8,12 @@ use std::{
 };
 
 use libmir::{CancellationToken, WeightContainer};
+pub(super) use pending::end as end_pending;
+pub use pending::pending_variants;
 pub(super) use remove::{remove_files, siblings};
 use tokio::sync::mpsc;
 
+mod pending;
 mod remove;
 #[cfg(test)]
 mod tests;
@@ -131,6 +134,7 @@ pub(super) async fn pull(
         .chain(gguf.vision.as_ref())
         .map(|file| file.path.clone())
         .collect::<Vec<_>>();
+    pending::begin(store, &reference)?;
     let commit = resumable::commit(store, reference.repository(), revision, &files).await?;
     let selected = files.into_iter().filter(|file| wanted.contains(&file.path)).collect();
     let snapshot = resumable::snapshot(
@@ -164,6 +168,7 @@ pub(super) async fn pull(
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::Config("Hub snapshot has no commit directory".to_owned()))?;
     let config = store.save_hub_model(&reference.to_string(), revision, commit, view)?;
+    pending::end(store, &reference)?;
     let message = load_unavailable_reason.as_ref().map_or_else(
         || format!("saved model configuration for {reference}"),
         |reason| format!("downloaded {reference}; loading is unavailable: {reason}"),

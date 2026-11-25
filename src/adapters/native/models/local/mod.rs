@@ -4,14 +4,12 @@ use std::{
 };
 
 mod known;
+mod partial;
 
 use super::{super::NativeRuntime, presentation};
 use crate::{
     application::{LocalModelInfo, LocalModelState, ModelInfo, Result},
-    catalog::{
-        CachedModel, PartialDownload, discover_cached_models_in, discover_external_models,
-        discover_partial_downloads_in,
-    },
+    catalog::{CachedModel, discover_cached_models_in, discover_external_models},
     config::{GenerationConfig, HubModelConfig, ModelConfig, model_key},
 };
 
@@ -44,9 +42,7 @@ impl NativeRuntime {
                 &state.loading,
             );
         }
-        for partial in discover_partial_downloads_in(&self.store.paths().hub_cache_dir) {
-            append_partial(&mut listed, partial, &mut known_repos);
-        }
+        partial::append(&mut listed, self.store.paths(), &mut known_repos);
         for cached in discover_external_models(self.store.paths()) {
             append_cached(
                 &mut listed, cached, false, &mut known_repos, &mut known_paths, &resident,
@@ -61,45 +57,6 @@ impl NativeRuntime {
 
 /// Resident models' presented details by their canonical selector.
 type Resident<'a> = HashMap<&'a str, &'a ModelInfo>;
-
-fn append_partial(
-    listed: &mut Vec<LocalModelInfo>,
-    partial: PartialDownload,
-    known: &mut HashSet<String>,
-) {
-    if known.contains(&partial.repo_id) {
-        return;
-    }
-    let Ok(id) = model_key(&partial.repo_id) else {
-        return;
-    };
-    listed.push(LocalModelInfo {
-        id,
-        repo_id: partial.repo_id.clone(),
-        revision: "main".to_owned(),
-        commit: String::new(),
-        path: String::new(),
-        state: LocalModelState::Paused,
-        recent_rank: None,
-        selector: partial.repo_id.clone(),
-        managed: true,
-        image_input: false,
-        image_unavailable_reason: String::new(),
-        model_class: String::new(),
-        loadable: false,
-        load_unavailable_reason: "Download incomplete; resume or remove it".to_owned(),
-        ecosystem: crate::model::format::Ecosystem::Unknown,
-        container: None,
-        encoding: crate::model::format::ModelEncoding::Unknown,
-        metal_compatibility: libmir::AdmissionStatus::Unknown,
-        cuda_compatibility: libmir::AdmissionStatus::Unknown,
-        size_bytes: partial.downloaded_bytes,
-        tool_use: false,
-        thinking: false,
-        vision: false,
-    });
-    known.insert(partial.repo_id);
-}
 
 fn append_cached(
     listed: &mut Vec<LocalModelInfo>,

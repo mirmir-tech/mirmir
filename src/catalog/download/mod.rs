@@ -3,6 +3,7 @@ mod variant;
 use hf_hub::HFClient;
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
+pub use variant::pending_variants;
 pub(super) use variant::{check_variant, default_variant};
 
 use super::{cache::discover_external_models, resumable};
@@ -93,6 +94,7 @@ pub async fn pull(
 pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
     let reference = repo_id.parse::<HubReference>()?;
     if reference.variant().is_some() {
+        variant::end_pending(store, &reference)?;
         let mut freed_bytes = variant::remove_files(store, &reference)?;
         let removed_config = store.remove_hub_model_config(repo_id)?;
         // The last variant takes the repository's cache with it.
@@ -104,7 +106,10 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
             freed_bytes,
         });
     }
-    // The repository takes every downloaded variant with it.
+    // The repository takes every downloaded and downloading variant with it.
+    for pending in variant::pending_variants(store.paths(), reference.repository()) {
+        variant::end_pending(store, &pending)?;
+    }
     for model in store.list_model_configs()? {
         let Some(variant) = model.hub.and_then(|hub| hub.repo_id.parse::<HubReference>().ok())
         else {

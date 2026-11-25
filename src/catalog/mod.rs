@@ -18,7 +18,7 @@ pub use cache::{
     CachedModel, PartialDownload, discover_cached_models_in, discover_external_models,
     discover_partial_downloads_in,
 };
-pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate};
+pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate, pending_variants};
 pub use fit::{
     CatalogModel, CatalogVariant, Confidence, MachineMemory, MemoryFit, admission_status, rank,
 };

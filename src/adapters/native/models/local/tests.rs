@@ -147,3 +147,31 @@ fn resident_cached_text_model_keeps_its_image_unavailable_reason() -> crate::err
     assert_eq!(listed[0].image_unavailable_reason, "text-only checkpoint");
     Ok(())
 }
+
+/// A repository's partial cache lists as the GGUF variant downloading into
+/// it, whose resume pulls that variant, not as the whole repository.
+#[test]
+fn a_partial_variant_download_lists_as_the_variant() -> std::io::Result<()> {
+    let hub = LinkedHub::new()?;
+    let paths = hub.store.paths();
+    let blobs = paths.hub_cache_dir.join("models--Owner--Model-GGUF/blobs");
+    fs::create_dir_all(&blobs)?;
+    fs::write(blobs.join("etag.incomplete"), [0_u8; 7])?;
+    let listed = |known: &mut HashSet<String>| {
+        let mut listed = Vec::new();
+        partial::append(&mut listed, paths, known);
+        listed
+            .into_iter()
+            .filter(|model| model.repo_id.starts_with("Owner/Model-GGUF"))
+            .map(|model| (model.repo_id, model.size_bytes))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(listed(&mut HashSet::new()), [("Owner/Model-GGUF".to_owned(), 7)]);
+    fs::create_dir_all(&paths.gguf_variants_dir)?;
+    fs::write(
+        paths.gguf_variants_dir.join("Owner--Model-GGUF--Q4_K_M.pending"),
+        "Owner/Model-GGUF:Q4_K_M",
+    )?;
+    assert_eq!(listed(&mut HashSet::new()), [("Owner/Model-GGUF:Q4_K_M".to_owned(), 7)]);
+    Ok(())
+}
