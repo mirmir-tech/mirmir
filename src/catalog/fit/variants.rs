@@ -4,8 +4,11 @@
 
 use libmir::AdmissionStatus;
 
-use super::{MachineMemory, MemoryFit, required};
-use crate::catalog::hub::{GgufRepository, GgufVariant};
+use super::{CatalogModel, MachineMemory, MemoryFit, required};
+use crate::{
+    catalog::hub::{GgufRepository, GgufVariant},
+    error::Result,
+};
 
 /// How much is known of a variant's size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,11 +31,34 @@ impl VariantSize {
         }
     }
 
+    /// The size a protocol spelling of its kind names with `bytes`;
+    /// unknown for a kind this build does not know or without bytes.
+    #[must_use]
+    pub fn from_protocol(kind: &str, bytes: Option<u64>) -> Self {
+        bytes
+            .into_iter()
+            .flat_map(|bytes| [Self::Exact(bytes), Self::Estimated(bytes)])
+            .find(|size| size.kind() == kind)
+            .unwrap_or(Self::Unknown)
+    }
+
     #[must_use]
     pub const fn bytes(self) -> Option<u64> {
         match self {
             Self::Exact(bytes) | Self::Estimated(bytes) => Some(bytes),
             Self::Unknown => None,
+        }
+    }
+
+    /// Both sizes together: exact only when both are.
+    const fn plus(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Exact(left), Self::Exact(right)) => Self::Exact(left.saturating_add(right)),
+            (
+                Self::Exact(left) | Self::Estimated(left),
+                Self::Exact(right) | Self::Estimated(right),
+            ) => Self::Estimated(left.saturating_add(right)),
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
         }
     }
 }
@@ -48,7 +74,8 @@ pub struct CatalogVariant {
 }
 
 /// The repository's variants, fewest bits first, and the one to download
-/// when none is chosen; sizes are estimated from `parameters` where the
+/// when none is chosen, by the rule search and pull share; sizes, the
+/// vision tower's with each, are estimated from `parameters` where the
 /// listing gave none.
 #[must_use]
 pub fn variants(
@@ -56,14 +83,24 @@ pub fn variants(
     parameters: Option<u64>,
     memory: MachineMemory,
 ) -> (Vec<CatalogVariant>, Option<String>) {
-    let vision = repository.vision.as_ref().and_then(|tower| tower.size).unwrap_or(0);
-    let size = |variant: &GgufVariant| match (variant.bytes(), parameters) {
-        (Some(bytes), _) => VariantSize::Exact(bytes + vision),
+    let vision = repository.vision.as_ref().map_or(VariantSize::Exact(0), |tower| {
+        tower.size.map_or_else(
+            || {
+                repository
+                    .estimated_vision_bytes()
+                    .map_or(VariantSize::Unknown, VariantSize::Estimated)
+            },
+            VariantSize::Exact,
+        )
+    });
+    let text = |variant: &GgufVariant| match (variant.bytes(), parameters) {
+        (Some(bytes), _) => VariantSize::Exact(bytes),
         (None, Some(parameters)) => variant
             .estimated_bytes(parameters)
             .map_or(VariantSize::Unknown, VariantSize::Estimated),
         (None, None) => VariantSize::Unknown,
     };
+    let size = |variant: &GgufVariant| text(variant).plus(vision);
     let fit =
         |variant: &GgufVariant| MemoryFit::of(size(variant).bytes().map(required), memory.budget);
     let default = repository
@@ -81,6 +118,21 @@ pub fn variants(
         })
         .collect();
     (variants, default)
+}
+
+impl CatalogModel {
+    /// Whether the row's own pull target is downloaded: a GGUF-only
+    /// repository's default variant, by its flag, else the repository, as
+    /// `repository` tells; a variant's snapshot shares the repository's
+    /// cache, so the cache does not tell for a GGUF-only one.
+    pub(in crate::catalog) fn target_downloaded(
+        &self,
+        repository: impl FnOnce() -> Result<bool>,
+    ) -> Result<bool> {
+        self.default_variant.as_ref().map_or_else(repository, |name| {
+            Ok(self.variants.iter().any(|variant| &variant.name == name && variant.downloaded))
+        })
+    }
 }
 
 /// Whether the repository's GGUF files import, by the architecture the Hub

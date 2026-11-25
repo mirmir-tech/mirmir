@@ -7,10 +7,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use libmir::{CancellationToken, WeightContainer};
+use libmir::CancellationToken;
 pub(super) use pending::end as end_pending;
-pub use pending::pending_variants;
-pub(super) use remove::{holds_more, remove_files};
+pub use pending::{pending_bytes, pending_variants};
+pub(super) use remove::{holds_more, remove_files, remove_pending};
 use tokio::sync::mpsc;
 
 mod pending;
@@ -41,15 +41,6 @@ pub(super) fn repository(files: &[ListedFile]) -> GgufRepository {
     GgufRepository::from_files(&files)
 }
 
-/// Whether a listing is GGUF variants only, with no `SafeTensors` weights
-/// to download as one model.
-pub(super) fn gguf_only(files: &[ListedFile], repository: &GgufRepository) -> bool {
-    !repository.variants.is_empty()
-        && !files.iter().any(|file| {
-            WeightContainer::of(Path::new(&file.path)) == Some(WeightContainer::SafeTensors)
-        })
-}
-
 /// The variant a pull of a GGUF repository without one takes, by the
 /// catalog's rule (`Q8_0` when it fits `memory`, else `Q4_K_M`, else the
 /// largest that fits, else the smallest); `None` for a repository that is
@@ -62,7 +53,7 @@ pub(in crate::catalog) async fn default_variant(
 ) -> Result<Option<HubReference>> {
     let files = resumable::listing(store, reference.repository(), &pinned.commit).await?;
     let gguf = repository(&files);
-    if !gguf_only(&files, &gguf) {
+    if !gguf.gguf_only() {
         return Ok(None);
     }
     let (_, default) = crate::catalog::fit::variants(&gguf, None, memory);
@@ -133,8 +124,8 @@ pub(super) async fn pull(
         .chain(gguf.vision.as_ref())
         .map(|file| file.path.clone())
         .collect::<Vec<_>>();
-    pending::begin(store, &reference)?;
-    let selected = files.into_iter().filter(|file| wanted.contains(&file.path)).collect();
+    let selected = files.into_iter().filter(|file| wanted.contains(&file.path)).collect::<Vec<_>>();
+    pending::begin(store, &reference, pinned, &selected)?;
     let snapshot = resumable::snapshot(
         store,
         (reference.repository(), pinned),

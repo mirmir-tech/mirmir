@@ -144,3 +144,65 @@ fn unshards_without_cutting_characters() {
     assert_eq!(unsharded("m-00003-of-00002.gguf"), "m-00003-of-00002");
     assert_eq!(unsharded("m-00001-of-0000x.gguf"), "m-00001-of-0000x");
 }
+
+/// The largest type that fits is a known one: a type of unknown size,
+/// ordered last, is taken only when no known one fits.
+#[test]
+fn prefers_a_known_type_as_the_largest_that_fits() {
+    let repository = GgufRepository::from_files(&files(&[
+        ("m-Q2_K.gguf", 2),
+        ("m-Q5_K_M.gguf", 5),
+        ("m-custom.gguf", 3),
+    ]));
+    let name = |budget: u64| {
+        repository
+            .default_variant(|variant| variant.bytes().is_some_and(|bytes| bytes <= budget))
+            .map(|variant| variant.name.clone())
+    };
+    assert_eq!(name(9).as_deref(), Some("Q5_K_M"));
+    assert_eq!(name(4).as_deref(), Some("Q2_K"));
+    let unknown = GgufRepository::from_files(&files(&[("m-custom.gguf", 3), ("n-other.gguf", 4)]));
+    assert_eq!(
+        unknown
+            .default_variant(|variant| variant.bytes().is_some_and(|bytes| bytes <= 9))
+            .map(|variant| variant.name.as_str()),
+        Some("n-other")
+    );
+}
+
+/// Variants named after their file stems keep their quantization: its bits,
+/// its estimate and the `Q8_0` default.
+#[test]
+fn keeps_the_quantization_of_variants_named_by_stem() {
+    let listed = ["a/m-Q8_0.gguf", "b/m-Q8_0.gguf", "a/m-Q4_K_M.gguf"]
+        .map(|path| RepoFile { path: path.into(), size: None });
+    let repository = GgufRepository::from_files(&listed);
+    let names = repository
+        .variants
+        .iter()
+        .map(|variant| (variant.name.as_str(), variant.quantization.label()))
+        .collect::<Vec<_>>();
+    assert_eq!(names, [("a_m-Q4_K_M", "Q4_K_M"), ("a_m-Q8_0", "Q8_0"), ("b_m-Q8_0", "Q8_0")]);
+    assert_eq!(repository.variants[1].estimated_bytes(8_000_000_000), Some(8_510_000_000));
+    let default = repository.default_variant(|_| true).map(|variant| variant.name.as_str());
+    assert_eq!(default, Some("a_m-Q8_0"));
+    let fallback = repository.default_variant(|_| false).map(|variant| variant.name.as_str());
+    assert_eq!(fallback, Some("a_m-Q4_K_M"));
+}
+
+/// Only a listing without `SafeTensors` weights is GGUF only, and a vision
+/// tower is estimated at the precision its name gives.
+#[test]
+fn tells_gguf_only_listings_and_estimates_the_vision_tower() {
+    let gguf = files(&[("m-Q4_K_M.gguf", 4), ("mmproj-F32.gguf", 1)]);
+    let repository = GgufRepository::from_files(&gguf);
+    assert!(repository.gguf_only());
+    // 600 million weights at 32 bits.
+    assert_eq!(repository.estimated_vision_bytes(), Some(2_400_000_000));
+    let mixed = files(&[("m-Q4_K_M.gguf", 4), ("model.safetensors", 8)]);
+    assert!(!GgufRepository::from_files(&mixed).gguf_only());
+    assert!(!GgufRepository::from_files(&files(&[("model.safetensors", 8)])).gguf_only());
+    let unnamed = GgufRepository::from_files(&files(&[("m-Q8_0.gguf", 8), ("mmproj.gguf", 1)]));
+    assert_eq!(unnamed.estimated_vision_bytes(), Some(1_200_000_000));
+    assert_eq!(GgufRepository::default().estimated_vision_bytes(), None);
+}

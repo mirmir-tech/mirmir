@@ -2,7 +2,12 @@
 //! its default until ←/→ picks another, and the `repo:VARIANT` it downloads.
 
 use super::App;
-use crate::rpc::proto;
+use crate::{
+    catalog::{MemoryFit, VariantSize},
+    config::HubReference,
+    error::Result,
+    rpc::proto,
+};
 
 impl App {
     /// The variant a row downloads: the one picked, else its default.
@@ -35,17 +40,22 @@ impl App {
     }
 
     /// What a row's download pulls: `repo:VARIANT` for a GGUF repository.
-    pub(crate) fn pull_target(&self, model: &proto::CatalogModel) -> String {
-        self.chosen_variant(model)
-            .map_or_else(|| model.id.clone(), |variant| format!("{}:{}", model.id, variant.name))
+    pub(crate) fn pull_target(&self, model: &proto::CatalogModel) -> Result<String> {
+        let reference = model.id.parse::<HubReference>()?;
+        let target = match self.chosen_variant(model) {
+            Some(variant) => reference.with_variant(&variant.name)?,
+            None => reference,
+        };
+        Ok(target.to_string())
     }
 
     /// Whether the row's chosen download is on this server: as the search
     /// found it, or in the local list since.
     pub(crate) fn catalog_downloaded(&self, model: &proto::CatalogModel) -> bool {
-        let target = self.pull_target(model);
+        let target = self.pull_target(model).ok();
         let listed = self.local_models.iter().any(|local| {
-            local.repo_id == target && matches!(local.state.as_str(), "available" | "ready")
+            target.as_ref() == Some(&local.repo_id)
+                && matches!(local.state.as_str(), "available" | "ready")
         });
         listed
             || self.chosen_variant(model).map_or_else(
@@ -54,9 +64,17 @@ impl App {
             )
     }
 
-    /// The memory fit of the row's chosen download.
-    pub(crate) fn catalog_fit<'a>(&self, model: &'a proto::CatalogModel) -> &'a str {
-        self.chosen_variant(model)
-            .map_or(&model.memory_fit, |variant| &variant.memory_fit)
+    /// The memory fit of the row's chosen download; unknown for a fit this
+    /// client does not know.
+    pub(crate) fn catalog_fit(&self, model: &proto::CatalogModel) -> MemoryFit {
+        let fit = self
+            .chosen_variant(model)
+            .map_or(&model.memory_fit, |variant| &variant.memory_fit);
+        MemoryFit::from_protocol(fit).unwrap_or(MemoryFit::Unknown)
     }
+}
+
+/// A variant's size as the server spelled its kind.
+pub fn variant_size(variant: &proto::CatalogVariant) -> VariantSize {
+    VariantSize::from_protocol(&variant.size_kind, variant.weight_bytes)
 }

@@ -18,16 +18,19 @@ pub use cache::{
     CachedModel, PartialDownload, cached_repository_bytes, discover_cached_models_in,
     discover_external_models, discover_partial_downloads_in,
 };
-pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate, pending_variants};
+pub use download::{
+    DownloadedModel, Removal, TransferPhase, TransferUpdate, pending_bytes, pending_variants,
+};
 pub use fit::{
-    CatalogModel, CatalogVariant, Confidence, MachineMemory, MemoryFit, admission_status, rank,
+    CatalogModel, CatalogVariant, Confidence, MachineMemory, MemoryFit, VariantSize,
+    admission_status, rank,
 };
 pub use hub::{HubFacts, encoding_named};
 pub use preflight::RemoteHeaderPreflight;
 use queue::TransferQueue;
 
 use crate::{
-    config::Store,
+    config::{HubReference, Store},
     error::{Error, Result},
 };
 
@@ -91,13 +94,14 @@ impl Catalog {
             .map(|candidate| fit::evaluate(candidate, memory))
             .collect::<Vec<_>>();
         for model in &mut models {
+            let reference = model.id.parse::<HubReference>()?;
             for variant in &mut model.variants {
-                variant.downloaded =
-                    self.store.hub_model_downloaded(&format!("{}:{}", model.id, variant.name))?;
+                let id = reference.with_variant(&variant.name)?.to_string();
+                variant.downloaded = self.store.hub_model_downloaded(&id)?;
             }
-            model.downloaded = self.store.hub_model_downloaded(&model.id)?
-                || managed.contains(&model.id)
-                || model.variants.iter().any(|variant| variant.downloaded);
+            model.downloaded = model.target_downloaded(|| {
+                Ok(self.store.hub_model_downloaded(&model.id)? || managed.contains(&model.id))
+            })?;
             model.local_source = if model.downloaded {
                 "mirmir"
             } else if partial.contains(&model.id) {

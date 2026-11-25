@@ -57,7 +57,9 @@ impl CatalogPort for NativeRuntime {
                 }
             }
         });
-        let result = self.catalog.pull(repo_id, revision, native_updates, cancellation).await;
+        let memory = self.catalog_memory();
+        let result =
+            self.catalog.pull(repo_id, revision, memory, native_updates, cancellation).await;
         forward.await.map_err(|error| Error::Infrastructure(error.to_string()))?;
         Ok(result?)
     }

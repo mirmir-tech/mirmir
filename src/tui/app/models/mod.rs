@@ -142,7 +142,7 @@ impl App {
                 || model.downloaded
                 || model.local_source != "remote"
                 || (model.compatibility != "unsupported"
-                    && self.catalog_fit(model) != "does_not_fit")
+                    && self.catalog_fit(model) != catalog::MemoryFit::DoesNotFit)
         })
     }
 
@@ -215,7 +215,7 @@ impl App {
         &self,
         catalog: &proto::CatalogModel,
     ) -> Option<&proto::LocalModelInfo> {
-        let target = self.pull_target(catalog);
+        let target = self.pull_target(catalog).ok()?;
         self.local_models.iter().find(|local| local.repo_id == target)
     }
 

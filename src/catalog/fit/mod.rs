@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 pub use estimate::{Confidence, MemoryFit, admission_status, rank};
 use libmir::{AdmissionStatus, WeightContainer};
 use sysinfo::System;
-pub use variants::{CatalogVariant, variants};
+pub use variants::{CatalogVariant, VariantSize, variants};
 
 use super::hub::{Features, HubModel};
 use crate::model::format::{Ecosystem, ModelEncoding, ModelFormat};
@@ -45,7 +45,7 @@ pub struct CatalogModel {
     pub preflight_bytes: Option<u64>,
     pub preflight_error: Option<String>,
     pub features: Features,
-    /// A GGUF repository's quantizations, fewest bits first; empty for
+    /// A GGUF-only repository's quantizations, fewest bits first; empty for
     /// other repositories.
     pub variants: Vec<CatalogVariant>,
     /// The variant a download without one takes; the row's size and fit
@@ -98,7 +98,9 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     let facts = model.facts();
     let format = ModelFormat::remote(model.library_name.as_deref(), facts);
     let gguf = model.gguf_variants();
-    let (variants, default_variant) = if facts.container == Some(WeightContainer::Gguf) {
+    // Variants only where a pull takes one: a repository with `SafeTensors`
+    // weights beside its GGUF files downloads those.
+    let (variants, default_variant) = if gguf.gguf_only() {
         let parameters = model.gguf.as_ref().and_then(|gguf| gguf.total);
         variants::variants(&gguf, parameters, memory)
     } else {

@@ -28,6 +28,7 @@ pub use removal::RemoveDialog;
 pub(super) use telemetry::RefreshSnapshot;
 pub use telemetry::TelemetryPoint;
 use tokio::sync::mpsc;
+pub use variants::variant_size;
 pub use viewport::ListView;
 
 use crate::{media::AttachedImage, rpc::proto};

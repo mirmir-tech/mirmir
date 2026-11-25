@@ -161,3 +161,63 @@ fn a_current_import_is_found_without_reading_headers() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// An unreadable GGUF file beside the text model is skipped; a folder with
+/// no readable text model reports why.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_gguf_file_does_not_block_the_folder() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let root = root("unreadable");
+    let folder = root.join("models/Mixed-GGUF");
+    fs::create_dir_all(&folder)?;
+    Metadata::llama().write(&folder.join("model.gguf"))?;
+    let broken = folder.join("broken.gguf");
+    fs::write(&broken, b"GGUF")?;
+    fs::set_permissions(&broken, fs::Permissions::from_mode(0o000))?;
+    let folder = fs::canonicalize(&folder)?;
+    let store = store(&root);
+    let imported = store.gguf_import(&folder);
+    let linked = imported
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .is_some_and(|directory| imports(directory, &folder.join("model.gguf")));
+    fs::remove_file(folder.join("model.gguf"))?;
+    let alone = super::super::source(&folder);
+    fs::set_permissions(&broken, fs::Permissions::from_mode(0o644))?;
+    imported?;
+    assert!(linked);
+    assert!(alone.is_err());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// A legacy import that cannot be removed stays behind without failing the
+/// lookup.
+#[cfg(unix)]
+#[test]
+fn a_stuck_legacy_import_does_not_block_loading() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let root = root("stuck-legacy");
+    let model = root.join("models/Qwen2.5-GGUF");
+    fs::create_dir_all(&model)?;
+    Metadata::llama().write(&model.join("model.gguf"))?;
+    let model = fs::canonicalize(&model)?;
+    let store = store(&root);
+    let directory = store.gguf_import(&model)?.unwrap_or_default();
+    let legacy = store
+        .paths
+        .gguf_imports_dir
+        .join(crate::config::folder_key(&model.with_extension("")));
+    fs::create_dir_all(legacy.join("locked"))?;
+    fs::write(legacy.join("locked/file"), b"")?;
+    std::os::unix::fs::symlink(model.join("model.gguf"), legacy.join("model.gguf"))?;
+    fs::set_permissions(legacy.join("locked"), fs::Permissions::from_mode(0o555))?;
+    fs::remove_file(directory.join("import.json"))?;
+    let found = store.gguf_import(&model);
+    fs::set_permissions(legacy.join("locked"), fs::Permissions::from_mode(0o755))?;
+    assert_eq!(found?, Some(directory));
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

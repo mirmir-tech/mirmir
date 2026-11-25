@@ -18,7 +18,7 @@ impl NativeRuntime {
         Ok(self.catalog.variants(repo_id, self.catalog_memory()).await?)
     }
 
-    fn catalog_memory(&self) -> MachineMemory {
+    pub(super) fn catalog_memory(&self) -> MachineMemory {
         self.library
             .memory_snapshot()
             .map_or_else(|_| MachineMemory::detect(), |memory| MachineMemory::from_runtime(&memory))

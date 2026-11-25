@@ -22,38 +22,44 @@ impl Catalog {
             .into_iter()
             .map(|file| RepoFile { path: file.path, size: Some(file.size) })
             .collect::<Vec<_>>();
-        let (mut variants, default_variant) =
-            fit::variants(&GgufRepository::from_files(&files), None, memory);
+        let gguf = GgufRepository::from_files(&files);
+        // Variants only for a repository a pull treats as GGUF-only, as the
+        // search shows it.
+        if !gguf.gguf_only() {
+            return Ok(ModelVariants {
+                variants: Vec::new(),
+                default_variant: None,
+            });
+        }
+        let (mut variants, default_variant) = fit::variants(&gguf, None, memory);
         for variant in &mut variants {
-            let id = format!("{}:{}", reference.repository(), variant.name);
-            variant.downloaded = self.store.hub_model_downloaded(&id)?;
+            let id = reference.with_variant(&variant.name)?;
+            variant.downloaded = self.store.hub_model_downloaded(&id.to_string())?;
         }
         Ok(ModelVariants { variants, default_variant })
     }
 
+    /// Pulls `repo_id`; a GGUF repository without a variant takes the
+    /// default the search shows for `memory`.
     pub async fn pull(
         &self,
         repo_id: &str,
         revision: Option<&str>,
+        memory: MachineMemory,
         updates: tokio::sync::mpsc::Sender<TransferUpdate>,
         cancellation: &CancellationToken,
     ) -> Result<DownloadedModel> {
-        let managed = discover_cached_models_in(&self.store.paths().hub_cache_dir)
-            .into_iter()
-            .any(|model| model.repo_id == repo_id);
-        if self.store.hub_model_downloaded(repo_id)? || managed {
+        if self.store.hub_model_downloaded(repo_id)? {
             return Err(Error::Config(format!("model `{repo_id}` is already downloaded")));
         }
-        self.start_transfer(repo_id)?;
-        let result = self.pull_reserved(repo_id, revision, updates, cancellation).await;
-        self.finish_transfer(repo_id);
-        result
+        let _transfer = self.reserve(repo_id)?;
+        self.pull_reserved(repo_id, (revision, memory), updates, cancellation).await
     }
 
     async fn pull_reserved(
         &self,
         repo_id: &str,
-        revision: Option<&str>,
+        (revision, memory): (Option<&str>, MachineMemory),
         updates: tokio::sync::mpsc::Sender<TransferUpdate>,
         cancellation: &CancellationToken,
     ) -> Result<DownloadedModel> {
@@ -71,20 +77,20 @@ impl Catalog {
         let revision =
             resumable::pin(&self.store, reference.repository(), revision.unwrap_or("main")).await?;
         let revision = &revision;
+        // The variant chosen below transfers under its own id too, so its
+        // row is neither removed nor pulled again meanwhile.
+        #[expect(clippy::collection_is_never_read, reason = "a guard held until the pull ends")]
+        let mut _chosen = None;
         // A GGUF repository pulled without a variant takes the catalog's
         // default one.
         if reference.variant().is_none()
-            && let Some(chosen) = download::default_variant(
-                &self.store,
-                &reference,
-                revision,
-                MachineMemory::detect(),
-            )
-            .await?
+            && let Some(chosen) =
+                download::default_variant(&self.store, &reference, revision, memory).await?
         {
             if self.store.hub_model_downloaded(&chosen.to_string())? {
                 return Err(Error::Config(format!("model `{chosen}` is already downloaded")));
             }
+            _chosen = Some(self.reserve(&chosen.to_string())?);
             download::send(
                 &updates,
                 TransferPhase::Checking,
@@ -94,6 +100,15 @@ impl Catalog {
             )
             .await;
             reference = chosen;
+        }
+        // A whole-repository snapshot already in the cache is that model;
+        // a variant's snapshot of a GGUF-only repository is not.
+        if reference.variant().is_none()
+            && discover_cached_models_in(&self.store.paths().hub_cache_dir)
+                .into_iter()
+                .any(|model| model.repo_id == repo_id)
+        {
+            return Err(Error::Config(format!("model `{repo_id}` is already downloaded")));
         }
         if reference.variant().is_some() {
             download::send(
@@ -158,7 +173,8 @@ impl Catalog {
         download::remove(&self.store, repo_id).await
     }
 
-    fn start_transfer(&self, repo_id: &str) -> Result<()> {
+    /// Registers `repo_id`'s transfer until the returned guard drops.
+    fn reserve(&self, repo_id: &str) -> Result<Transfer<'_>> {
         let Ok(mut active) = self.active_transfers.lock() else {
             return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
         };
@@ -166,13 +182,10 @@ impl Catalog {
             return Err(Error::Config(format!("model `{repo_id}` is already downloading")));
         }
         drop(active);
-        Ok(())
-    }
-
-    fn finish_transfer(&self, repo_id: &str) {
-        if let Ok(mut active) = self.active_transfers.lock() {
-            active.remove(repo_id);
-        }
+        Ok(Transfer {
+            catalog: self,
+            repo_id: repo_id.to_owned(),
+        })
     }
 
     fn is_transferring(&self, repo_id: &str) -> Result<bool> {
@@ -182,3 +195,20 @@ impl Catalog {
         Ok(active.contains(repo_id))
     }
 }
+
+/// A registered transfer, forgotten when dropped, however the pull ends.
+struct Transfer<'a> {
+    catalog: &'a Catalog,
+    repo_id: String,
+}
+
+impl Drop for Transfer<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.catalog.active_transfers.lock() {
+            active.remove(&self.repo_id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

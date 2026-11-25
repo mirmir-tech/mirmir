@@ -7,7 +7,10 @@ use serde_json::Value;
 
 use crate::{
     config::GenerationConfig,
-    model::format::{Ecosystem, ModelEncoding, ModelFormat},
+    model::{
+        class,
+        format::{Ecosystem, ModelEncoding, ModelFormat},
+    },
 };
 
 pub(super) struct ModelPresentation {
@@ -129,14 +132,11 @@ fn template(path: &Path) -> Option<String> {
 /// import's configuration, derived from the file's metadata, names only the
 /// latter.
 fn model_class(config: &Value) -> String {
-    config
-        .get("architectures")
-        .and_then(Value::as_array)
-        .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
-        .filter(|value| !value.is_empty())
-        .or_else(|| config.get("model_type").and_then(Value::as_str).map(str::to_owned))
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "unknown".to_owned())
+    let architectures = config.get("architectures").and_then(Value::as_array);
+    class::name(
+        architectures.into_iter().flatten().filter_map(Value::as_str),
+        [config.get("model_type").and_then(Value::as_str)],
+    )
 }
 
 fn weight_size(path: &Path) -> u64 {

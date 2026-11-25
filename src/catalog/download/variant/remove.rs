@@ -76,6 +76,45 @@ fn blob_of(_snapshot_file: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Removes the files a downloading `reference` recorded, final or partial,
+/// except blobs a sibling variant links; the bytes freed.
+pub(in crate::catalog::download) fn remove_pending(
+    store: &Store,
+    reference: &HubReference,
+) -> Result<u64> {
+    let Some(pending) = super::pending::recorded(store.paths(), reference) else {
+        return Ok(0);
+    };
+    let kept = siblings(store, reference)?
+        .iter()
+        .flat_map(|sibling| fs::read_dir(sibling).into_iter().flatten().flatten())
+        .filter_map(|entry| blob_of(&entry.path().canonicalize().ok()?))
+        .collect::<HashSet<_>>();
+    let root = store
+        .paths()
+        .hub_cache_dir
+        .join(format!("models--{}", crate::config::model_key(reference.repository())?));
+    let snapshot = root.join("snapshots").join(&pending.commit);
+    let mut freed = 0;
+    for ((blob, partial), file) in pending.blobs(store.paths())?.into_iter().zip(&pending.files) {
+        if blob.canonicalize().is_ok_and(|blob| kept.contains(&blob)) {
+            continue;
+        }
+        for path in [partial, blob] {
+            if let Ok(metadata) = fs::metadata(&path) {
+                freed += metadata.len();
+                fs::remove_file(path)?;
+            }
+        }
+        // The snapshot's hard link of a finished blob.
+        match fs::remove_file(snapshot.join(&file.path)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {},
+        }
+    }
+    Ok(freed)
+}
+
 /// Removes the variant's directory and import, and the snapshot files and
 /// blobs no sibling links; the bytes freed.
 pub(in crate::catalog::download) fn remove_files(

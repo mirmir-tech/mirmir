@@ -3,8 +3,8 @@ mod variant;
 use hf_hub::HFClient;
 use libmir::CancellationToken;
 use tokio::sync::mpsc;
-pub use variant::pending_variants;
 pub(super) use variant::{check_variant, default_variant};
+pub use variant::{pending_bytes, pending_variants};
 
 use super::{
     cache::discover_external_models,
@@ -97,8 +97,9 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
     if reference.variant().is_some() {
         let pending = variant::pending_variants(store.paths()).contains(&reference);
         let downloaded = store.paths().gguf_variants_dir.join(reference.key()).exists();
+        let mut freed_bytes = variant::remove_pending(store, &reference)?;
         variant::end_pending(store, &reference)?;
-        let mut freed_bytes = variant::remove_files(store, &reference)?;
+        freed_bytes += variant::remove_files(store, &reference)?;
         let removed_config = store.remove_hub_model_config(repo_id)?;
         let existed = pending || downloaded || removed_config;
         // The last variant takes the repository's cache with it; a variant

@@ -10,7 +10,7 @@ use std::{
 
 use libmir::{
     WeightContainer,
-    gguf::{GgufModel, Import, ImportManifest, files_in, projector, shard_paths},
+    gguf::{GgufHeader, GgufModel, Import, ImportManifest, files_in, shard_paths},
 };
 
 use super::{Store, folder::named_key, folder_key};
@@ -47,7 +47,10 @@ impl Store {
         // Earlier versions keyed a file by its path without the extension and
         // cut a directory's name at its first dot.
         let legacy = self.paths.gguf_imports_dir.join(folder_key(&path.with_extension("")));
-        adopt(&legacy, &directory, &source)?;
+        // A migration only: a legacy import that cannot move stays behind.
+        if let Err(error) = adopt(&legacy, &directory, &source) {
+            tracing::warn!(legacy = %legacy.display(), %error, "keeping a legacy GGUF import");
+        }
         write(&source, &directory)?;
         Ok(Some(directory))
     }
@@ -74,11 +77,28 @@ fn source(path: &Path) -> libmir::Result<Option<Source>> {
         return Ok(None);
     }
     // The header, not the file name, tells the projector from the text model.
-    let vision = projector(path)?;
-    Ok(files_in(path)?
-        .into_iter()
-        .find(|file| Some(file) != vision.as_ref())
-        .map(|text| Source { text, vision }))
+    // A file whose header cannot be read is skipped, unless no text model is
+    // readable at all.
+    let (mut text, mut vision, mut unreadable) = (None, None, None);
+    for file in files_in(path)? {
+        match GgufHeader::read(&file) {
+            Ok(header) if header.is_projector() => {
+                vision.get_or_insert(file);
+            },
+            Ok(_) => {
+                text.get_or_insert(file);
+            },
+            Err(error) => {
+                tracing::warn!(file = %file.display(), %error, "skipping an unreadable GGUF file");
+                unreadable.get_or_insert(error);
+            },
+        }
+    }
+    match (text, unreadable) {
+        (Some(text), _) => Ok(Some(Source { text, vision })),
+        (None, Some(error)) => Err(error.into()),
+        (None, None) => Ok(None),
+    }
 }
 
 /// Moves the `legacy` import of `source`, made under an earlier key, to

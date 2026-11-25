@@ -5,7 +5,9 @@ use std::collections::HashSet;
 
 use crate::{
     application::{LocalModelInfo, LocalModelState},
-    catalog::{PartialDownload, cached_repository_bytes, discover_partial_downloads_in},
+    catalog::{
+        PartialDownload, cached_repository_bytes, discover_partial_downloads_in, pending_bytes,
+    },
     config::{HubReference, Paths, model_key},
 };
 
@@ -22,7 +24,10 @@ pub(super) fn append(
 ) {
     for variant in pending {
         let repository = variant.repository().to_owned();
-        if let Some(downloaded_bytes) = cached_repository_bytes(&paths.hub_cache_dir, &repository) {
+        // Its own files; a marker from an earlier version names none.
+        let downloaded_bytes = pending_bytes(paths, &variant)
+            .or_else(|| cached_repository_bytes(&paths.hub_cache_dir, &repository));
+        if let Some(downloaded_bytes) = downloaded_bytes {
             let partial = PartialDownload {
                 repo_id: variant.to_string(),
                 downloaded_bytes,

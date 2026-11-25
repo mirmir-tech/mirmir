@@ -216,7 +216,10 @@ fn search_chooses_a_gguf_repositorys_quantization() -> Result<(), std::convert::
     app.cycle_variant(1);
     let text = rendered(&mut app, 140, 36)?;
     assert!(text.contains("‹Q8_0› 2/3") && text.contains("TIGHT"));
-    assert_eq!(app.pull_target(&app.catalog[0]), "ggml-org/gemma-4-E4B-it-GGUF:Q8_0");
+    assert_eq!(
+        app.pull_target(&app.catalog[0]).ok().as_deref(),
+        Some("ggml-org/gemma-4-E4B-it-GGUF:Q8_0")
+    );
     // Downloaded since the search, from any client: the local list says so.
     let downloaded =
         local_model("ggml-org--gemma-4-E4B-it-GGUF--Q8_0", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0");

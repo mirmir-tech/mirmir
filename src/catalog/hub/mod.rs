@@ -23,7 +23,7 @@ impl HubModel {
 }
 use serde::Deserialize;
 
-use crate::error::Result;
+use crate::{error::Result, model::class};
 
 const MODELS_ENDPOINT: &str = "https://huggingface.co/api/models";
 const WHOAMI_ENDPOINT: &str = "https://huggingface.co/api/whoami-v2";
@@ -164,16 +164,11 @@ impl HubModel {
     /// carry a `config.json`.
     #[must_use]
     pub fn model_class(&self) -> String {
-        if !self.config.architectures.is_empty() {
-            return self.config.architectures.join(", ");
-        }
-        self.config
-            .model_type
-            .as_deref()
-            .or_else(|| self.gguf.as_ref().and_then(|gguf| gguf.architecture.as_deref()))
-            .filter(|value| !value.is_empty())
-            .unwrap_or("unknown")
-            .to_owned()
+        let architecture = self.gguf.as_ref().and_then(|gguf| gguf.architecture.as_deref());
+        class::name(
+            self.config.architectures.iter().map(String::as_str),
+            [self.config.model_type.as_deref(), architecture],
+        )
     }
 
     #[must_use]
@@ -183,58 +178,4 @@ impl HubModel {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decodes_search_metadata_used_by_fit_estimator() -> Result<()> {
-        let json = r#"[{
-            "id":"Qwen/Qwen2.5-0.5B-Instruct",
-            "library_name":"transformers",
-            "downloads":42,
-            "likes":7,
-            "gated":false,
-            "config":{"architectures":["Qwen2ForCausalLM"],"model_type":"qwen2"},
-            "safetensors":{"parameters":{"BF16":494032768},"total":494032768},
-            "tags":["transformers","safetensors","text-generation"]
-        }]"#;
-        let models: Vec<HubModel> = serde_json::from_str(json)?;
-        assert_eq!(models[0].model_class(), "Qwen2ForCausalLM");
-        assert_eq!(models[0].library_name.as_deref(), Some("transformers"));
-        assert_eq!(
-            models[0].safetensors.as_ref().map(|value| value.parameters["BF16"]),
-            Some(494_032_768)
-        );
-        assert!(!models[0].is_gated());
-        Ok(())
-    }
-
-    #[test]
-    fn names_a_class_without_architectures() -> Result<()> {
-        let json = r#"[
-            {"id":"a/typed","config":{"model_type":"qwen3"}},
-            {"id":"a/gguf","gguf":{"total":4000000000,"architecture":"gemma4"}},
-            {"id":"a/bare"}
-        ]"#;
-        let models: Vec<HubModel> = serde_json::from_str(json)?;
-        let classes = models.iter().map(HubModel::model_class).collect::<Vec<_>>();
-        assert_eq!(classes, ["qwen3", "gemma4", "unknown"]);
-        Ok(())
-    }
-
-    #[test]
-    fn extracts_the_next_page_cursor_from_link_header() {
-        let header = reqwest::header::HeaderValue::from_static(
-            "<https://huggingface.co/api/models?limit=20&cursor=next%3D%3D>; rel=\"next\"",
-        );
-        assert_eq!(parse_next_cursor(&header).as_deref(), Some("next=="));
-    }
-
-    #[test]
-    fn searches_across_model_tasks_without_a_pipeline_filter() {
-        let parameters = search_parameters("reranker", "20");
-
-        assert!(parameters.iter().any(|(key, value)| *key == "search" && *value == "reranker"));
-        assert!(!parameters.iter().any(|(key, _)| *key == "filter"));
-    }
-}
+mod tests;

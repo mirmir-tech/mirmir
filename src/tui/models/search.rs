@@ -7,10 +7,16 @@ use ratatui::{
 };
 
 use super::{
-    super::{app::App, theme},
+    super::{
+        app::{App, variant_size},
+        theme,
+    },
     bytes,
 };
-use crate::rpc::proto::{CatalogModel, CatalogVariant};
+use crate::{
+    catalog::{MemoryFit, VariantSize},
+    rpc::proto::{CatalogModel, CatalogVariant},
+};
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = title(app);
@@ -69,9 +75,10 @@ fn name(model: &CatalogModel) -> String {
 /// What the download needs; `~` marks a size estimated before its files
 /// are listed.
 fn size(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
-    let (required, estimated) = variant
-        .map_or((model.estimated_required_bytes, false), |variant| {
-            (variant.required_bytes, variant.size_kind == "estimated")
+    let (required, estimated) =
+        variant.map_or((model.estimated_required_bytes, false), |variant| {
+            let estimated = matches!(variant_size(variant), VariantSize::Estimated(_));
+            (variant.required_bytes, estimated)
         });
     required.map_or_else(
         || "—".to_owned(),
@@ -119,15 +126,15 @@ fn title(app: &App) -> String {
     }
 }
 
-fn status(fit: &str, downloaded: bool) -> Line<'static> {
+fn status(fit: MemoryFit, downloaded: bool) -> Line<'static> {
     let (value, color) = if downloaded {
         ("DOWNLOADED", theme::SUCCESS)
     } else {
         match fit {
-            "fits" => ("FITS", theme::SUCCESS),
-            "tight" => ("TIGHT", theme::SIGNAL),
-            "does_not_fit" => ("NO FIT", theme::DANGER),
-            _ => ("UNKNOWN", theme::MUTED),
+            MemoryFit::Fits => ("FITS", theme::SUCCESS),
+            MemoryFit::Tight => ("TIGHT", theme::SIGNAL),
+            MemoryFit::DoesNotFit => ("NO FIT", theme::DANGER),
+            MemoryFit::Unknown => ("UNKNOWN", theme::MUTED),
         }
     };
     Line::from(Span::styled(format!(" {value} "), Style::new().fg(color).bg(theme::RAISED)))

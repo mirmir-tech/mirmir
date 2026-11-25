@@ -2,7 +2,10 @@ use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
 use super::App;
-use crate::rpc::{Client, proto};
+use crate::{
+    catalog::MemoryFit,
+    rpc::{Client, proto},
+};
 
 impl App {
     pub(super) fn start_pull(&mut self, client: &Client) {
@@ -27,13 +30,15 @@ impl App {
                 Some("this remote weight format cannot be inspected by libmir".to_owned());
             return;
         }
-        if self.catalog_fit(model) == "does_not_fit" {
+        if self.catalog_fit(model) == MemoryFit::DoesNotFit {
             self.action_message =
                 Some("estimated model memory exceeds the current device budget".to_owned());
             return;
         }
-        let repo_id = self.pull_target(model);
-        self.start_pull_repo(client, repo_id);
+        match self.pull_target(model) {
+            Ok(repo_id) => self.start_pull_repo(client, repo_id),
+            Err(error) => self.action_message = Some(error.to_string()),
+        }
     }
 
     pub(super) fn resume_selected_pull(&mut self, client: &Client) {
