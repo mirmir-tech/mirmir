@@ -76,6 +76,7 @@ impl Store {
         if !self.paths.models_dir.exists() {
             return Ok(Vec::new());
         }
+        self.migrate_variant_keys()?;
         let mut models = Vec::new();
         for entry in fs::read_dir(&self.paths.models_dir)? {
             let entry = entry?;
@@ -141,6 +142,11 @@ impl Store {
 
     pub(super) fn load_model_config(&self, key: &str) -> Result<ModelConfig> {
         let path = self.model_config_path(key);
+        // A variant downloaded before its key took `@` is still saved under
+        // its legacy key.
+        if !path.exists() && key.contains('@') {
+            self.migrate_variant_keys()?;
+        }
         if !path.exists() {
             return Err(Error::ModelNotFound(key.to_owned()));
         }
@@ -165,5 +171,6 @@ pub(super) fn selector_key(selector: &str) -> String {
     model_key(selector).unwrap_or_else(|_| selector.to_owned())
 }
 
+mod legacy;
 #[cfg(test)]
 mod tests;
