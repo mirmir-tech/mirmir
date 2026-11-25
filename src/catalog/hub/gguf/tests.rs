@@ -82,7 +82,7 @@ fn finds_a_vision_tower_named_anywhere_and_orders_without_sizes() {
 }
 
 #[test]
-fn defaults_to_q4_k_m_then_q8_0_then_the_largest_that_fits_then_the_smallest() {
+fn defaults_to_q8_0_that_fits_then_q4_k_m_then_the_largest_that_fits_then_the_smallest() {
     let repository = GgufRepository::from_files(&files(&[
         ("m-Q2_K.gguf", 2),
         ("m-Q4_K_M.gguf", 4),
@@ -93,6 +93,9 @@ fn defaults_to_q4_k_m_then_q8_0_then_the_largest_that_fits_then_the_smallest() {
             .default_variant(|variant| variant.bytes().is_some_and(|bytes| bytes <= budget))
             .map(|variant| variant.name.clone())
     };
+    // Q8_0 when it fits, else Q4_K_M even when that does not fit either.
+    assert_eq!(name(&repository, 8).as_deref(), Some("Q8_0"));
+    assert_eq!(name(&repository, 7).as_deref(), Some("Q4_K_M"));
     assert_eq!(name(&repository, 1).as_deref(), Some("Q4_K_M"));
     // Without Q4_K_M: Q8_0 when it fits, even beside a larger one that fits.
     let without = GgufRepository::from_files(&files(&[

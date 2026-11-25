@@ -110,15 +110,16 @@ impl GgufRepository {
         })
     }
 
-    /// The variant to download when none is named, as llama.cpp's `-hf`
-    /// takes `Q4_K_M`; without it `Q8_0` when it `fits`, then the largest that
-    /// fits, else the smallest.
+    /// The variant to download when none is named: `Q8_0` when it `fits`,
+    /// nearly lossless at half of BF16's size; else `Q4_K_M`, which
+    /// llama.cpp's `-hf` takes; else the largest that fits, else the smallest.
     pub fn default_variant(&self, fits: impl Fn(&GgufVariant) -> bool) -> Option<&GgufVariant> {
         let named = |name: &str| {
             self.variants.iter().find(|variant| variant.name.eq_ignore_ascii_case(name))
         };
-        named("Q4_K_M")
-            .or_else(|| named("Q8_0").filter(|variant| fits(variant)))
+        named("Q8_0")
+            .filter(|variant| fits(variant))
+            .or_else(|| named("Q4_K_M"))
             .or_else(|| self.variants.iter().rev().find(|variant| fits(variant)))
             .or_else(|| self.variants.first())
     }
