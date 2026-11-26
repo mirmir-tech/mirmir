@@ -2361,6 +2361,7 @@ dependencies = [
 name = "libmir-models"
 version = "0.7.0"
 dependencies = [
+ "blake3",
  "image",
  "libmir-core",
  "minijinja",

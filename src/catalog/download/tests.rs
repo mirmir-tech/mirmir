@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    remove::{remove_cache_repo, validated_cache_repo},
+    *,
+};
 
 fn root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
@@ -34,7 +37,7 @@ async fn removes_verified_external_cache_repository() -> Result<()> {
     std::fs::create_dir_all(weights.parent().unwrap_or(&model))?;
     std::fs::write(&weights, b"weights")?;
 
-    let freed = remove_cache_repo(model.clone(), cache, None).await?;
+    let freed = remove_cache_repo(model.clone(), cache).await?;
     assert_eq!(freed, 7);
     assert!(!model.exists());
     std::fs::remove_dir_all(root)?;
@@ -53,7 +56,7 @@ async fn removes_the_managed_partial_repository() -> Result<()> {
     let incomplete = repo.join("blobs/weights.incomplete");
     std::fs::create_dir_all(incomplete.parent().unwrap_or(&repo))?;
     std::fs::write(&incomplete, b"partial")?;
-    let removal = remove(&Store::new(paths), "Qwen/Partial").await?;
+    let removal = remove(&Store::new(paths), "Qwen/Partial").await?.removal;
     assert!(removal.removed);
     assert_eq!(removal.freed_bytes, 7);
     assert!(!repo.exists());
@@ -77,7 +80,7 @@ async fn removing_an_absent_variant_keeps_the_base_model() -> Result<()> {
     std::fs::write(snapshot.join("model.safetensors"), b"weights")?;
     let store = Store::new(paths);
     store.save_hub_model("owner/review", "main", "abc", snapshot.clone())?;
-    let removal = remove(&store, "owner/review:Q8_0").await?;
+    let removal = remove(&store, "owner/review:Q8_0").await?.removal;
     assert!(!removal.removed);
     assert_eq!(removal.freed_bytes, 0);
     assert_eq!(std::fs::read(snapshot.join("model.safetensors"))?, b"weights");

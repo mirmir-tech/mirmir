@@ -41,6 +41,9 @@ pub struct Catalog {
     active_transfers: Arc<Mutex<pull::Transfers>>,
     transfer_queue: TransferQueue,
     preflight_cache: preflight::Cache,
+    /// Removals run one at a time: whether a removal leaves its repository
+    /// with nothing is decided by the others having finished.
+    removals: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// A GGUF repository's variants with their listed sizes.
@@ -64,6 +67,7 @@ impl Catalog {
             active_transfers: Arc::new(Mutex::new(pull::Transfers::new())),
             transfer_queue: TransferQueue::serial(),
             preflight_cache: preflight::Cache::default(),
+            removals: Arc::default(),
         }
     }
 
@@ -78,15 +82,15 @@ impl Catalog {
         let page = hub::search(&self.client, token.as_deref(), query, limit, cursor).await?;
         let external = discover_external_models(self.store.paths())
             .into_iter()
-            .map(|model| model.repo_id)
+            .map(|model| model.repo_id.to_ascii_lowercase())
             .collect::<HashSet<_>>();
         let managed = discover_cached_models_in(&self.store.paths().hub_cache_dir)
             .into_iter()
-            .map(|model| model.repo_id)
+            .map(|model| model.repo_id.to_ascii_lowercase())
             .collect::<HashSet<_>>();
         let partial = discover_partial_downloads_in(&self.store.paths().hub_cache_dir)
             .into_iter()
-            .map(|model| model.repo_id)
+            .map(|model| model.repo_id.to_ascii_lowercase())
             .collect::<HashSet<_>>();
         let mut models = page
             .models
@@ -95,19 +99,21 @@ impl Catalog {
             .collect::<Vec<_>>();
         // The configurations are read once for every model and variant.
         let downloaded = self.store.downloaded_models()?;
+        // Caches by repository in any spelling, as the Hub resolves it.
         for model in &mut models {
             let reference = model.id.parse::<HubReference>()?;
+            let id = model.id.to_ascii_lowercase();
             for variant in &mut model.variants {
                 variant.downloaded = downloaded.contains(&reference.with_variant(&variant.name)?);
             }
             model.downloaded = model.target_downloaded(|| {
-                Ok(downloaded.contains(&reference) || managed.contains(&model.id))
+                Ok(downloaded.contains(&reference) || managed.contains(&id))
             })?;
             model.local_source = if model.downloaded {
                 "mirmir"
-            } else if partial.contains(&model.id) {
+            } else if partial.contains(&id) {
                 "partial"
-            } else if external.contains(&model.id) {
+            } else if external.contains(&id) {
                 "hf_cache"
             } else {
                 "remote"

@@ -25,7 +25,7 @@ pub(in crate::catalog::download) fn siblings(
         .into_iter()
         .filter_map(|model| {
             let other = model.hub?.repo_id.parse::<HubReference>().ok()?;
-            (other.repository() == reference.repository() && other != *reference)
+            (other.same_repository(reference) && !other.is_same_model(reference))
                 .then_some(model.path)
         })
         .collect())
@@ -48,27 +48,6 @@ fn kept_files(siblings: &[PathBuf]) -> HashSet<PathBuf> {
         }
     }
     kept
-}
-
-/// Whether `reference`'s repository holds anything besides it: another
-/// variant, downloaded or downloading, or the repository's own model.
-pub(in crate::catalog::download) fn holds_more(
-    store: &Store,
-    reference: &HubReference,
-) -> Result<bool> {
-    let same = |other: &HubReference| other.repository() == reference.repository();
-    if super::pending_variants(store.paths())
-        .iter()
-        .any(|other| same(other) && other != reference)
-    {
-        return Ok(true);
-    }
-    Ok(store.list_model_configs()?.into_iter().any(|model| {
-        model
-            .hub
-            .and_then(|hub| hub.repo_id.parse::<HubReference>().ok())
-            .is_some_and(|other| same(&other) && other != *reference)
-    }))
 }
 
 /// The file `path` names, as its device and inode: every hard link of a
@@ -111,9 +90,9 @@ struct Downloading {
 
 fn downloading(store: &Store, reference: &HubReference) -> Downloading {
     let mut claimed = Downloading::default();
-    let others = super::pending_variants(store.paths()).into_iter().filter(|other| {
-        !other.is_same_model(reference) && other.repository() == reference.repository()
-    });
+    let others = super::pending_variants(store.paths())
+        .into_iter()
+        .filter(|other| other.same_repository(reference) && !other.is_same_model(reference));
     for other in others {
         let Some(pending) = super::pending::recorded(store.paths(), &other) else {
             continue;
@@ -172,23 +151,48 @@ pub(in crate::catalog::download) fn remove_pending(
     Ok(freed)
 }
 
-/// Removes the variant's directory and import, and the snapshot files and
-/// blobs no sibling links nor a downloading variant records; the bytes
-/// freed.
+/// Removes the view of the variant `reference` saved under its own key.
 pub(in crate::catalog::download) fn remove_files(
     store: &Store,
     reference: &HubReference,
 ) -> Result<u64> {
     let view = store.paths().gguf_variants_dir.join(reference.key());
-    if !view.exists() {
+    if !view.is_dir() {
         return Ok(0);
     }
+    remove_view(store, reference, &view)
+}
+
+/// The views of the model `reference` names, or of every model of a
+/// repository it names, by their key in any spelling: one on a
+/// case-insensitive file system, maybe more saved by an earlier version on
+/// another, and views whose configuration cannot be read.
+pub(in crate::catalog::download) fn views_of(
+    store: &Store,
+    reference: &HubReference,
+) -> Vec<PathBuf> {
+    let entries = fs::read_dir(&store.paths().gguf_variants_dir).into_iter().flatten().flatten();
+    entries
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter(|entry| entry.file_name().to_str().is_some_and(|name| reference.owns_key(name)))
+        .map(|entry| entry.path())
+        .collect()
+}
+
+/// Removes the variant directory `view` of `reference` and its import, and
+/// the snapshot files and blobs no other model of the repository links nor
+/// a downloading one records; the bytes freed.
+pub(in crate::catalog::download) fn remove_view(
+    store: &Store,
+    reference: &HubReference,
+    view: &Path,
+) -> Result<u64> {
     let kept = kept_files(&siblings(store, reference)?);
     // A snapshot of another commit links the same blob at another path.
     let kept_blobs = kept.iter().filter_map(|file| identity(file)).collect::<HashSet<_>>();
     let downloading = downloading(store, reference);
     let mut freed = 0;
-    for entry in fs::read_dir(&view)?.flatten() {
+    for entry in fs::read_dir(view)?.flatten() {
         // The snapshot file the view links, a hard link of its blob.
         let Ok(snapshot_file) = entry.path().canonicalize() else {
             continue;

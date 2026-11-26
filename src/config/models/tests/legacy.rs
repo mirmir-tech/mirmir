@@ -179,3 +179,14 @@ fn another_spelling_of_a_variant_key_keeps_its_configuration() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// A selection of a legacy key spelled in another case finds its variant
+/// once it moved.
+#[test]
+fn a_legacy_selection_in_another_case_finds_its_variant() -> Result<()> {
+    let (store, _, root) = legacy("legacy-case", "owner/m:Q8", "owner--m--Q8")?;
+    assert_eq!(store.list_model_configs()?.len(), 1);
+    assert_eq!(store.selected_model("OWNER--m--q8")?.key, "owner--m@Q8");
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

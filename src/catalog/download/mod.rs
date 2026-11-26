@@ -1,15 +1,16 @@
+mod remove;
+mod spelling;
 mod variant;
 
 use hf_hub::HFClient;
 use libmir::CancellationToken;
+pub use remove::{remove, remove_emptied};
+pub(super) use spelling::spelled;
 use tokio::sync::mpsc;
 pub(super) use variant::{canonical_variant, check_variant, default_variant};
 pub use variant::{pending_bytes, pending_variants};
 
-use super::{
-    cache::discover_external_models,
-    resumable::{self, ListedFile, Pinned},
-};
+use super::resumable::{self, ListedFile, Pinned};
 use crate::{
     config::{HubReference, ModelConfig, Store},
     error::{Error, Result},
@@ -84,95 +85,6 @@ pub async fn pull(
     Ok(DownloadedModel { config: model, load_unavailable_reason })
 }
 
-pub async fn remove(store: &Store, repo_id: &str) -> Result<Removal> {
-    let reference = repo_id.parse::<HubReference>()?;
-    if reference.variant().is_some() {
-        // A variant saved under its legacy key is found by its current one.
-        store.migrate_variant(&reference)?;
-        // Everything below is found by the installed or downloading variant
-        // the label names in any case, as it was saved, before any of it
-        // is touched.
-        let reference = variant::identity(store, &reference)?;
-        let repo_id = &reference.to_string();
-        let pending = variant::pending_variants(store.paths()).contains(&reference);
-        let downloaded = store.paths().gguf_variants_dir.join(reference.key()).exists();
-        let mut freed_bytes = variant::remove_pending(store, &reference)?;
-        variant::end_pending(store, &reference)?;
-        freed_bytes += variant::remove_files(store, &reference)?;
-        let removed_config = store.remove_hub_model_config(repo_id)?;
-        let existed = pending || downloaded || removed_config;
-        // The last variant takes the repository's cache with it; a variant
-        // that never existed, a base model or another variant, downloaded or
-        // downloading, keeps it.
-        if existed && !variant::holds_more(store, &reference)? {
-            freed_bytes += Box::pin(remove(store, reference.repository())).await?.freed_bytes;
-        }
-        return Ok(Removal { removed: existed, freed_bytes });
-    }
-    // The repository takes every downloaded and downloading variant with it.
-    for pending in variant::pending_variants(store.paths()) {
-        if pending.repository() == reference.repository() {
-            variant::end_pending(store, &pending)?;
-        }
-    }
-    for model in store.list_model_configs()? {
-        let Some(variant) = model.hub.and_then(|hub| hub.repo_id.parse::<HubReference>().ok())
-        else {
-            continue;
-        };
-        if variant.variant().is_some() && variant.repository() == reference.repository() {
-            variant::remove_files(store, &variant)?;
-            store.remove_hub_model_config(&variant.to_string())?;
-        }
-    }
-    let key = reference.key();
-    let cache = client(store)?.scan_cache().send().await?;
-    let managed = cache
-        .repos
-        .into_iter()
-        .find(|repo| repo.repo_type == "model" && repo.repo_id == repo_id);
-    let external = || {
-        let root = store.paths().external_hub_cache.clone()?;
-        discover_external_models(store.paths())
-            .into_iter()
-            .find(|model| model.repo_id == repo_id)
-            .map(|model| (model.repo_path, root, None))
-    };
-    let target = managed
-        .map(|repo| (repo.repo_path, store.paths().hub_cache_dir.clone(), None))
-        .or_else(external)
-        .or_else(|| {
-            let cache = store.paths().hub_cache_dir.clone();
-            let repo = cache.join(format!("models--{key}"));
-            repo.exists().then_some((repo, cache, None))
-        });
-    let removed_cache = target.is_some();
-    let freed_bytes = if let Some((path, root, known_size)) = target {
-        remove_cache_repo(path, root, known_size).await?
-    } else {
-        0
-    };
-    let removed_config = store.remove_hub_model_config(repo_id)?;
-    Ok(Removal {
-        removed: removed_cache || removed_config,
-        freed_bytes,
-    })
-}
-
-async fn remove_cache_repo(
-    path: std::path::PathBuf,
-    cache: std::path::PathBuf,
-    known_size: Option<u64>,
-) -> Result<u64> {
-    tokio::task::spawn_blocking(move || {
-        let path = validated_cache_repo(&path, &cache)?;
-        let size = known_size.unwrap_or_else(|| directory_size(&path));
-        std::fs::remove_dir_all(path)?;
-        Ok(size)
-    })
-    .await?
-}
-
 pub(super) fn client(store: &Store) -> Result<HFClient> {
     let mut builder = HFClient::builder()
         .cache_dir(&store.paths().hub_cache_dir)
@@ -181,25 +93,6 @@ pub(super) fn client(store: &Store) -> Result<HFClient> {
         builder = builder.token(token);
     }
     Ok(builder.build()?)
-}
-
-fn validated_cache_repo(
-    path: &std::path::Path,
-    cache: &std::path::Path,
-) -> Result<std::path::PathBuf> {
-    let cache = cache.canonicalize()?;
-    let path = path.canonicalize()?;
-    let is_model_repo = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("models--"));
-    if path.parent() == Some(cache.as_path()) && is_model_repo {
-        return Ok(path);
-    }
-    Err(Error::Config(format!(
-        "refusing to remove model cache outside {}",
-        cache.display()
-    )))
 }
 
 pub(super) async fn send(

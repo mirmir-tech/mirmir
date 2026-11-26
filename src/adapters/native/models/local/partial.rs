@@ -1,8 +1,7 @@
 //! Downloads in progress or interrupted in the Hub cache: the GGUF
 //! variants downloading into a repository's cache, else the repository.
 
-use std::collections::HashSet;
-
+use super::known::Repositories;
 use crate::{
     application::{LocalModelInfo, LocalModelState},
     catalog::{
@@ -20,7 +19,7 @@ pub(super) fn append(
     listed: &mut Vec<LocalModelInfo>,
     paths: &Paths,
     pending: Vec<HubReference>,
-    known: &mut HashSet<String>,
+    known: &mut Repositories,
 ) {
     for variant in pending {
         let repository = variant.repository().to_owned();
@@ -32,19 +31,19 @@ pub(super) fn append(
                 repo_id: variant.to_string(),
                 downloaded_bytes,
             };
-            append_one(listed, partial, known);
+            append_one(listed, &partial, known);
         }
-        known.insert(repository);
+        known.insert(&repository);
     }
     for partial in discover_partial_downloads_in(&paths.hub_cache_dir) {
-        append_one(listed, partial, known);
+        append_one(listed, &partial, known);
     }
 }
 
 fn append_one(
     listed: &mut Vec<LocalModelInfo>,
-    partial: PartialDownload,
-    known: &mut HashSet<String>,
+    partial: &PartialDownload,
+    known: &mut Repositories,
 ) {
     if known.contains(&partial.repo_id) {
         return;
@@ -77,5 +76,5 @@ fn append_one(
         thinking: false,
         vision: false,
     });
-    known.insert(partial.repo_id);
+    known.insert(&partial.repo_id);
 }

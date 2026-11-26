@@ -120,7 +120,7 @@ async fn a_legacy_variant_is_removed_as_the_first_operation() -> Result<()> {
         models.join("owner--model-GGUF--Q4_0.toml"),
         config.replace("owner--model-GGUF@Q4_0", "owner--model-GGUF--Q4_0"),
     )?;
-    let removal = crate::catalog::download::remove(&store, "owner/model-GGUF:Q4_0").await?;
+    let removal = crate::catalog::download::remove(&store, "owner/model-GGUF:Q4_0").await?.removal;
     assert!(removal.removed && removal.freed_bytes > 0);
     assert!(!old.exists() && !view.exists());
     assert!(!store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
@@ -229,5 +229,7 @@ fn removing_a_pending_variant_keeps_what_another_one_resumes() -> Result<()> {
     Ok(())
 }
 
+mod damaged;
+mod repository;
 mod revisions;
 mod spelling;

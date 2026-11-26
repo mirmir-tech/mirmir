@@ -15,34 +15,6 @@ pub struct ResolvedModel {
 }
 
 impl Store {
-    pub fn list_model_configs(&self) -> Result<Vec<ModelConfig>> {
-        self.model_configs(Keys::Migrate)
-    }
-
-    fn model_configs(&self, keys: Keys) -> Result<Vec<ModelConfig>> {
-        if !self.paths.models_dir.exists() {
-            return Ok(Vec::new());
-        }
-        // Once per listing: every configuration below is under its own key.
-        if keys == Keys::Migrate {
-            self.migrate_variant_keys()?;
-        }
-        let mut models = Vec::new();
-        for entry in fs::read_dir(&self.paths.models_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("toml") {
-                continue;
-            }
-            let Some(key) = path.file_stem().and_then(|value| value.to_str()) else {
-                continue;
-            };
-            models.push(read_model_config(&path, key)?);
-        }
-        models.sort_by(|left, right| left.id.cmp(&right.id));
-        Ok(models)
-    }
-
     /// Records a downloaded Hub model: `reference` (`owner/name[:VARIANT]`)
     /// at `commit` of `revision`, loading from `path`.
     pub fn save_hub_model(
@@ -82,6 +54,12 @@ impl Store {
         let key = model_key(repo_id)?;
         let model = match self.load_model_config(&key) {
             Err(Error::ModelNotFound(_)) => return Ok(false),
+            // A variant's own key holds no other model: unreadable, it goes.
+            Err(error) if key.contains('@') => {
+                tracing::warn!(model = %repo_id, %error, "removing a configuration that cannot be read");
+                fs::remove_file(self.model_config_path(&key)?)?;
+                return Ok(true);
+            },
             model => model?,
         };
         if model.hub.as_ref().is_none_or(|hub| hub.repo_id != repo_id) {
@@ -177,6 +155,7 @@ pub(super) fn selector_key(selector: &str) -> Result<String> {
 
 mod installed;
 mod legacy;
+mod listing;
 mod select;
 #[cfg(test)]
 mod tests;

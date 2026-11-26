@@ -29,13 +29,17 @@ fn excludes(held: &(HubReference, Activity), wanted: &(HubReference, Activity)) 
     let removal = [held_activity, wanted_activity].contains(&&Activity::Removal);
     held.is_same_model(wanted)
         || (removal
-            && held.repository() == wanted.repository()
+            && held.same_repository(wanted)
             && (held.variant().is_none() || wanted.variant().is_none()))
 }
 
 impl Catalog {
     /// Registers `repo_id`'s `activity` until the returned guard drops.
-    pub(super) fn reserve(&self, repo_id: &str, activity: Activity) -> Result<Transfer<'_>> {
+    pub(in crate::catalog) fn reserve(
+        &self,
+        repo_id: &str,
+        activity: Activity,
+    ) -> Result<Transfer<'_>> {
         let entry = (repo_id.parse::<HubReference>()?, activity);
         let Ok(mut active) = self.active_transfers.lock() else {
             return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
@@ -62,7 +66,7 @@ impl Catalog {
 }
 
 /// A registered pull or removal, forgotten when dropped, however it ends.
-pub(super) struct Transfer<'a> {
+pub(in crate::catalog) struct Transfer<'a> {
     catalog: &'a Catalog,
     entry: (HubReference, Activity),
 }

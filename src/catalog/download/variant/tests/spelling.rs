@@ -66,3 +66,26 @@ fn removing_a_variant_keeps_the_entry_a_download_claims() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// The repository's owner spelled otherwise is the same repository: the
+/// removal takes the installed `Q4_0` alone and keeps the cache `Q8_0`
+/// still reads its weights from.
+#[tokio::test]
+async fn removing_by_another_owner_spelling_keeps_the_other_variant() -> Result<()> {
+    let (store, repo, root) = cache("owner-spelling")?;
+    let catalog = Catalog::new(store);
+    let removal = catalog.remove("Owner/model-GGUF:Q4_0").await?;
+    assert!(removal.removed && removal.freed_bytes == 4);
+    let store = &catalog.store;
+    assert!(!store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
+    assert!(repo.join("blobs/b2").exists() && repo.join("blobs/b3").exists());
+    let other = store.selected_model("OWNER/Model-gguf:q8_0")?;
+    assert_eq!(other.key, "owner--model-GGUF@Q8_0");
+    assert_eq!(fs::read(other.path.join("m-Q8_0.gguf"))?.len(), 8);
+    assert_eq!(fs::read(other.path.join("mmproj-F16.gguf"))?.len(), 2);
+    // The last variant, spelled otherwise again, takes the cache with it.
+    assert!(catalog.remove("OWNER/model-gguf:Q8_0").await?.removed);
+    assert!(!repo.exists());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

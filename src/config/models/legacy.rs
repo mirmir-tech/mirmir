@@ -53,7 +53,9 @@ impl Store {
     pub(super) fn current_variant_id(&self, legacy: &str, keys: Keys) -> Result<Option<String>> {
         Ok(self.model_configs(keys)?.into_iter().find_map(|model| {
             let reference = model.hub?.repo_id.parse::<HubReference>().ok()?;
-            (legacy_key(&reference.key()).as_deref() == Some(legacy)).then_some(model.id)
+            legacy_key(&reference.key())
+                .is_some_and(|key| key.eq_ignore_ascii_case(legacy))
+                .then_some(model.id)
         }))
     }
 

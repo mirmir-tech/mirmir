@@ -66,7 +66,7 @@ fn append_cached(
     listed: &mut Vec<LocalModelInfo>,
     cached: CachedModel,
     managed: bool,
-    known_repos: &mut HashSet<String>,
+    known_repos: &mut known::Repositories,
     known_paths: &mut HashSet<PathBuf>,
     models: &Resident<'_>,
     loading: &HashSet<String>,
@@ -95,7 +95,7 @@ fn append_cached(
         &details,
         models.get(selector.as_str()).copied(),
     ));
-    known_repos.insert(cached.repo_id);
+    known_repos.insert(&cached.repo_id);
     known_paths.insert(snapshot);
 }
 

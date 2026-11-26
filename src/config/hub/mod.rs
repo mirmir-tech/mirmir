@@ -39,15 +39,48 @@ impl HubReference {
         })
     }
 
-    /// Whether `other` names this model: a variant is found by its label in
-    /// any case, as the repository's listing matches it.
+    /// Whether `other` names this repository: the Hub resolves an owner and
+    /// a name in any case, as a case-insensitive file system does their key.
+    #[must_use]
+    pub fn same_repository(&self, other: &Self) -> bool {
+        self.repository.eq_ignore_ascii_case(&other.repository)
+    }
+
+    /// Whether `other` names this model: its repository, and a variant by
+    /// its label, in any case, as the repository's listing matches it.
     #[must_use]
     pub fn is_same_model(&self, other: &Self) -> bool {
-        self.repository == other.repository
+        self.same_repository(other)
             && match (&self.variant, &other.variant) {
                 (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
                 (left, right) => left == right,
             }
+    }
+
+    /// Whether a file keyed `stem`, a configuration or a download marker,
+    /// may hold a model of this repository in any spelling: its key, a
+    /// variant's (`@`) or a legacy variant's (`--`). A namesake repository
+    /// `owner/name--x` keys alike; a caller unable to read the file treats
+    /// it as this repository's.
+    #[must_use]
+    pub fn may_key(&self, stem: &str) -> bool {
+        let key = self.repository.replace('/', "--").to_ascii_lowercase();
+        let stem = stem.to_ascii_lowercase();
+        stem.strip_prefix(&key)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('@') || rest.starts_with("--"))
+    }
+
+    /// Whether a file keyed `stem` is this model's own in any spelling: a
+    /// variant's key, or its legacy key when the repository has an owner
+    /// (no Hub repository's name holds `--`, so `owner--name--VARIANT` is
+    /// no other one's); a repository's key or any of its variants'.
+    #[must_use]
+    pub fn owns_key(&self, stem: &str) -> bool {
+        let (key, stem) = (self.key().to_ascii_lowercase(), stem.to_ascii_lowercase());
+        let legacy = self.repository.contains('/') && stem == key.replacen('@', "--", 1);
+        stem == key
+            || (self.variant.is_some() && legacy)
+            || (self.variant.is_none() && stem.starts_with(&format!("{key}@")))
     }
 
     /// The file-system key of the model: `owner--name`, then `@VARIANT`.

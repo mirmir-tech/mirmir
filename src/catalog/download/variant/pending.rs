@@ -5,14 +5,17 @@
 //! its own bytes, whose resume pulls that variant alone, and removing it
 //! removes those files.
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
     catalog::resumable::{ListedFile, Pinned},
     config::{HubReference, Paths, Store, model_key},
-    error::Result,
+    error::{Error, Result},
 };
 
 const EXTENSION: &str = "pending";
@@ -112,7 +115,12 @@ pub(super) fn begin(
             .collect(),
     };
     fs::create_dir_all(&store.paths().gguf_variants_dir)?;
-    fs::write(marker(store.paths(), reference), serde_json::to_vec_pretty(&pending)?)?;
+    // Whole or not there: a removal reading it half-written would take it
+    // for one that cannot be read.
+    let path = marker(store.paths(), reference);
+    let partial = path.with_extension(format!("{EXTENSION}.partial"));
+    fs::write(&partial, serde_json::to_vec_pretty(&pending)?)?;
+    fs::rename(partial, path)?;
     Ok(())
 }
 
@@ -141,18 +149,55 @@ pub fn pending_variants(paths: &Paths) -> Vec<HubReference> {
     };
     let mut pending = entries
         .flatten()
-        .filter(|entry| entry.path().extension().is_some_and(|extension| extension == EXTENSION))
-        .filter_map(|entry| fs::read_to_string(entry.path()).ok())
-        .filter_map(|text| {
-            serde_json::from_str::<Pending>(&text)
-                .map_or_else(|_| text.trim().to_owned(), |pending| pending.reference)
-                .parse::<HubReference>()
-                .ok()
-        })
-        .filter(|reference| reference.variant().is_some())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == EXTENSION))
+        .filter_map(|path| read_marker(&path))
         .collect::<Vec<_>>();
     pending.sort_by_key(ToString::to_string);
     pending
+}
+
+/// The variant the marker at `path` downloads: as recorded, or as an
+/// earlier version named it alone.
+fn read_marker(path: &Path) -> Option<HubReference> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<Pending>(&text)
+        .map_or_else(|_| text.trim().to_owned(), |pending| pending.reference)
+        .parse::<HubReference>()
+        .ok()
+        .filter(|reference| reference.variant().is_some())
+}
+
+/// The markers that cannot be read a removal of `reference` takes as its
+/// own, by their key in any spelling. Refuses when another may be a
+/// download of its repository: what it downloads is not known, so nothing
+/// it may share is removed on a guess.
+pub(in crate::catalog::download) fn damaged_markers_of(
+    paths: &Paths,
+    reference: &HubReference,
+) -> Result<Vec<PathBuf>> {
+    let Ok(entries) = fs::read_dir(&paths.gguf_variants_dir) else {
+        return Ok(Vec::new());
+    };
+    let mut own = Vec::new();
+    for path in entries.flatten().map(|entry| entry.path()) {
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let marker = path.extension().is_some_and(|extension| extension == EXTENSION);
+        if !marker || !reference.may_key(stem) || read_marker(&path).is_some() {
+            continue;
+        }
+        if !reference.owns_key(stem) {
+            return Err(Error::Config(format!(
+                "`{}` may be a download of `{}` but cannot be read; repair or remove it first",
+                path.display(),
+                reference.repository()
+            )));
+        }
+        own.push(path);
+    }
+    Ok(own)
 }
 
 /// The bytes `reference` has downloaded, by its own files; `None` for a
