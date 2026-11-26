@@ -121,6 +121,7 @@ async fn remove_repository(
     // Views left by configurations that cannot be read.
     for view in variant::views_of(store, reference) {
         variant::remove_view(store, reference, &view)?;
+        removed = true;
     }
     for path in damaged.into_iter().flatten() {
         fs::remove_file(path)?;

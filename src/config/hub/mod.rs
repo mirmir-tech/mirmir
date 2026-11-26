@@ -73,14 +73,18 @@ impl HubReference {
     /// Whether a file keyed `stem` is this model's own in any spelling: a
     /// variant's key, or its legacy key when the repository has an owner
     /// (no Hub repository's name holds `--`, so `owner--name--VARIANT` is
-    /// no other one's); a repository's key or any of its variants'.
+    /// no other one's); a repository's key or any of its variants', current
+    /// or legacy.
     #[must_use]
     pub fn owns_key(&self, stem: &str) -> bool {
         let (key, stem) = (self.key().to_ascii_lowercase(), stem.to_ascii_lowercase());
-        let legacy = self.repository.contains('/') && stem == key.replacen('@', "--", 1);
+        let has_owner = self.repository.contains('/');
+        let legacy_variant = has_owner && stem == key.replacen('@', "--", 1);
+        let repository_variant = stem.starts_with(&format!("{key}@"))
+            || (has_owner && stem.starts_with(&format!("{key}--")));
         stem == key
-            || (self.variant.is_some() && legacy)
-            || (self.variant.is_none() && stem.starts_with(&format!("{key}@")))
+            || (self.variant.is_some() && legacy_variant)
+            || (self.variant.is_none() && repository_variant)
     }
 
     /// The file-system key of the model: `owner--name`, then `@VARIANT`.

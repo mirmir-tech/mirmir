@@ -101,6 +101,7 @@ async fn a_models_own_damaged_files_go_with_it() -> Result<()> {
     assert!(catalog.remove("owner/model-GGUF:Q8_0").await?.removed);
     assert!(!models.join("owner--model-GGUF--Q8_0.toml").exists());
     fs::write(models.join("owner--model-GGUF.toml"), "path = [\n")?;
+    fs::write(models.join("owner--model-GGUF--Q6_K.toml"), "path = [\n")?;
     assert!(catalog.remove("owner/model-GGUF").await?.removed);
     assert!(fs::read_dir(&models)?.next().is_none() && !repo.exists());
     fs::remove_dir_all(root)?;
