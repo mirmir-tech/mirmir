@@ -1,7 +1,8 @@
 //! The models being pulled or removed. A repository's variants share its
-//! one Hub cache, so removing a repository excludes a transfer of any of
-//! its variants, and a pull that may choose any variant excludes removing
-//! one, for as long as either runs.
+//! one Hub cache, blobs such as a vision tower included, so a removal of
+//! anything of a repository excludes a pull or removal of anything else of
+//! it, for as long as either runs: what a removal keeps is decided by what
+//! the repository holds, which a pull changes as it goes.
 
 use std::collections::HashSet;
 
@@ -22,15 +23,11 @@ pub(in crate::catalog) enum Activity {
 pub(in crate::catalog) type Transfers = HashSet<(HubReference, Activity)>;
 
 /// Whether `held` keeps `wanted` from starting: the same model, or a
-/// removal and anything else of its repository where either names the
-/// whole repository.
+/// removal and anything of its repository.
 fn excludes(held: &(HubReference, Activity), wanted: &(HubReference, Activity)) -> bool {
     let ((held, held_activity), (wanted, wanted_activity)) = (held, wanted);
     let removal = [held_activity, wanted_activity].contains(&&Activity::Removal);
-    held.is_same_model(wanted)
-        || (removal
-            && held.same_repository(wanted)
-            && (held.variant().is_none() || wanted.variant().is_none()))
+    held.is_same_model(wanted) || (removal && held.same_repository(wanted))
 }
 
 impl Catalog {
@@ -44,10 +41,15 @@ impl Catalog {
         let Ok(mut active) = self.active_transfers.lock() else {
             return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
         };
-        if let Some((_, held)) = active.iter().find(|held| excludes(held, &entry)) {
-            return Err(Error::Config(match held {
-                Activity::Pull => format!("model `{repo_id}` is currently downloading"),
-                Activity::Removal => format!("model `{repo_id}` is being removed"),
+        if let Some((other, held)) = active.iter().find(|held| excludes(held, &entry)) {
+            let state = match held {
+                Activity::Pull => "is currently downloading",
+                Activity::Removal => "is being removed",
+            };
+            return Err(Error::Config(if other.is_same_model(&entry.0) {
+                format!("model `{repo_id}` {state}")
+            } else {
+                format!("model `{other}`, of the repository of `{repo_id}`, {state}")
             }));
         }
         active.insert(entry.clone());

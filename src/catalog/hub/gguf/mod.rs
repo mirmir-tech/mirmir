@@ -3,6 +3,7 @@
 //! the variants share. Multi-token prediction modules (`mtp-*`) are separate
 //! models and are left out.
 
+mod label;
 mod quantization;
 #[cfg(test)]
 mod tests;
@@ -98,19 +99,16 @@ impl GgufRepository {
             .iter()
             .enumerate()
             .all(|(index, kind)| kinds.iter().skip(index + 1).all(|other| !other.is(kind.label())));
-        let mut variants = groups
-            .into_iter()
-            .zip(kinds)
-            .map(|((stem, mut shards), quantization)| {
-                shards.sort_by(|left, right| left.path.cmp(&right.path));
-                let name = if unique {
-                    quantization.label().to_owned()
-                } else {
-                    stem.replace('/', "_")
-                };
-                GgufVariant { name, quantization, shards }
-            })
-            .collect::<Vec<_>>();
+        let named = groups.into_iter().zip(kinds).map(|((stem, mut shards), quantization)| {
+            shards.sort_by(|left, right| left.path.cmp(&right.path));
+            let name = if unique {
+                quantization.label().to_owned()
+            } else {
+                stem.replace('/', "_")
+            };
+            GgufVariant { name, quantization, shards }
+        });
+        let mut variants = label::labelled(named);
         variants.sort_by(|left, right| {
             let bits = |variant: &GgufVariant| variant.bits_per_weight().unwrap_or(f64::INFINITY);
             bits(left).total_cmp(&bits(right)).then_with(|| left.name.cmp(&right.name))

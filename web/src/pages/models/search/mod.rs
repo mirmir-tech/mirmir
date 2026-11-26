@@ -22,10 +22,6 @@ pub fn SearchPopup() -> impl IntoView {
     let loading = RwSignal::new(false);
     let show_incompatible = RwSignal::new(false);
     let generation = RwSignal::new(0_u64);
-    Effect::new(move || {
-        let local = state.models.get();
-        results.update(|current| sync_downloaded(current, &local));
-    });
     let visible_results = move || {
         results
             .get()
@@ -53,10 +49,7 @@ pub fn SearchPopup() -> impl IntoView {
             let path =
                 format!("/catalog/search?query={}&limit=20", urlencoding::encode(value.trim()));
             match api::get(&path).await {
-                Ok(mut found) => {
-                    sync_downloaded(&mut found, &state.models.get_untracked());
-                    results.set(found);
-                },
+                Ok(found) => results.set(found),
                 Err(error) => state.notify(error, true),
             }
             loading.set(false);
@@ -77,7 +70,7 @@ pub fn SearchPopup() -> impl IntoView {
                         if element.scroll_height() - element.scroll_top() - element.client_height() < 160 { load_more(state, query, results, loading); }
                     }>
                         <table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Features</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-                        <tbody><For each=visible_results key=|model| (model.id.clone(), model.downloaded) children=move |model| view! { <CatalogRow model=model /> } /></tbody></table>
+                        <tbody><For each=visible_results key=|model| model.id.clone() children=move |model| view! { <CatalogRow model=model /> } /></tbody></table>
                         <Show when=move || !loading.get() && !query.get().is_empty() && results.get().models.is_empty()><p class="empty">"No results."</p></Show>
                     </div>
                 </div>
@@ -106,8 +99,7 @@ fn load_more(
             urlencoding::encode(&cursor)
         );
         match api::get::<CatalogResults>(&path).await {
-            Ok(mut page) => {
-                sync_downloaded(&mut page, &state.models.get_untracked());
+            Ok(page) => {
                 results.update(|current| {
                     current.models.extend(page.models);
                     current.next_cursor = page.next_cursor;
@@ -119,18 +111,13 @@ fn load_more(
     });
 }
 
-/// Marks what the server lists as downloaded: a repository, or a GGUF
-/// repository's variants by their `id:name`.
-fn sync_downloaded(results: &mut CatalogResults, local: &[Model]) {
-    let on_server =
-        |id: &str| local.iter().any(|item| item.repo_id == id && item.state != "downloading");
-    for model in &mut results.models {
-        for variant in &mut model.variants {
-            variant.downloaded = on_server(&format!("{}:{}", model.id, variant.name));
-        }
-        model.downloaded =
-            on_server(&model.id) || model.variants.iter().any(|variant| variant.downloaded);
-    }
+/// Whether the server lists `target`, a repository or a GGUF variant as
+/// `id:name`, downloaded whole, in any case the Hub resolves it in: a
+/// paused, missing or failed download is not.
+pub(super) fn installed(local: &[Model], target: &str) -> bool {
+    local
+        .iter()
+        .any(|item| item.state.installed() && item.repo_id.eq_ignore_ascii_case(target))
 }
 
 pub(super) fn does_not_fit(state: &str) -> bool {
@@ -140,49 +127,47 @@ pub(super) fn does_not_fit(state: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::catalog::{CatalogModel, CatalogVariant};
+    use crate::types::ModelState;
 
-    #[test]
-    fn local_model_refresh_marks_matching_catalog_result_as_downloaded() {
-        let mut results = CatalogResults {
-            models: vec![CatalogModel {
-                id: "Qwen/Test".to_owned(),
-                ..Default::default()
-            }],
-            next_cursor: None,
-        };
-        let local = Model {
-            repo_id: "Qwen/Test".to_owned(),
+    fn local(repo_id: &str, state: ModelState) -> Model {
+        Model {
+            repo_id: repo_id.to_owned(),
+            state,
             ..Default::default()
-        };
-
-        sync_downloaded(&mut results, &[local]);
-
-        assert!(results.models[0].downloaded);
+        }
     }
 
     #[test]
-    fn a_downloaded_variant_marks_its_repository() {
-        let variant = |name: &str| CatalogVariant {
-            name: name.to_owned(),
-            ..Default::default()
-        };
-        let mut results = CatalogResults {
-            models: vec![CatalogModel {
-                id: "org/m-GGUF".to_owned(),
-                variants: vec![variant("Q4_K_M"), variant("Q8_0")],
-                ..Default::default()
-            }],
-            next_cursor: None,
-        };
-        let local = Model {
-            repo_id: "org/m-GGUF:Q8_0".to_owned(),
-            ..Default::default()
-        };
+    fn a_listed_model_is_downloaded_in_any_case() {
+        let local = [local("Qwen/Test", ModelState::Available)];
+        assert!(installed(&local, "Qwen/Test") && installed(&local, "qwen/test"));
+        assert!(!installed(&local, "Qwen/Other"));
+    }
 
-        sync_downloaded(&mut results, &[local]);
+    /// A variant is downloaded by its own `id:name`, not its repository's
+    /// or another variant's.
+    #[test]
+    fn a_downloaded_variant_is_its_own() {
+        let local = [local("org/m-GGUF:Q8_0", ModelState::Ready)];
+        assert!(installed(&local, "org/m-GGUF:q8_0"));
+        assert!(!installed(&local, "org/m-GGUF:Q4_K_M") && !installed(&local, "org/m-GGUF"));
+    }
 
-        let model = &results.models[0];
-        assert!(model.downloaded && !model.variants[0].downloaded && model.variants[1].downloaded);
+    /// Only whole files count: a paused, missing or unknown state, or a
+    /// download this dashboard started, is not downloaded; a model on disk
+    /// that does not load is.
+    #[test]
+    fn an_incomplete_model_is_not_downloaded() {
+        for state in
+            [ModelState::Paused, ModelState::Missing, ModelState::Downloading, ModelState::Unknown]
+        {
+            assert!(!installed(&[local("Qwen/Test", state)], "Qwen/Test"), "{state:?}");
+        }
+        for state in ["ready", "loading", "available", "error"] {
+            let parsed = serde_json::from_value::<ModelState>(serde_json::json!(state));
+            assert!(parsed.is_ok_and(ModelState::installed), "{state}");
+        }
+        let future = serde_json::from_value::<ModelState>(serde_json::json!("someday"));
+        assert!(future.is_ok_and(|state| state == ModelState::Unknown));
     }
 }

@@ -61,21 +61,27 @@ impl App {
         let model = self
             .selected_catalog_model()
             .ok_or_else(|| "no search result is selected".to_owned())?;
-        if !matches!(model.local_source.as_str(), "mirmir" | "hf_cache") {
-            return Err("model is not downloaded".to_owned());
-        }
+        // The chosen variant alone, never the repository with its others,
+        // unless another tool's cache holds the repository whole.
+        let target = self
+            .catalog_local_target(model)
+            .ok_or_else(|| "model is not downloaded".to_owned())?;
         let local = self.local_catalog_model(model);
         if local.is_some_and(|model| model.state == "ready") {
             return Err("unload the model before removing it".to_owned());
         }
+        // A variant is mirmir's own download; another tool's cache holds
+        // repositories whole.
+        let managed = target != model.id
+            || local.map_or(model.local_source == "mirmir", |local| local.managed);
         Ok(RemoveDialog {
-            id: model.id.clone(),
-            repo_id: model.id.clone(),
+            id: local.map_or_else(|| target.clone(), |local| local.id.clone()),
+            repo_id: target,
             path: local.map_or_else(
                 || "cache path will be resolved by the server".to_owned(),
                 |local| local.path.clone(),
             ),
-            source: source_name(model.local_source == "mirmir"),
+            source: source_name(managed),
         })
     }
 
@@ -130,12 +136,13 @@ impl App {
     }
 
     fn apply_removal(&mut self, repo_id: &str) {
-        if let Some(model) = self.catalog.iter_mut().find(|model| model.id == repo_id) {
-            model.downloaded = false;
-            "remote".clone_into(&mut model.local_source);
-        }
-        self.local_models.retain(|model| model.repo_id != repo_id);
+        self.mark_downloaded(repo_id, false);
+        self.local_models
+            .retain(|model| !super::variants::removes(repo_id, &model.repo_id));
         self.local_selected = self.local_selected.min(self.local_model_count().saturating_sub(1));
+        // A row no longer downloaded may leave the compatible filter.
+        let rows = self.visible_catalog_count().saturating_sub(1);
+        self.catalog_selected = self.catalog_selected.min(rows);
     }
 }
 
@@ -149,29 +156,4 @@ fn source_name(managed: bool) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn external_cache_model_opens_removal_confirmation() {
-        let mut app = App::new(true);
-        app.local_models.push(proto::LocalModelInfo {
-            id: "Qwen--External".to_owned(),
-            repo_id: "Qwen/External".to_owned(),
-            revision: "main".to_owned(),
-            commit: "abc123".to_owned(),
-            path: "/hf/models--Qwen--External/snapshots/abc123".to_owned(),
-            state: "available".to_owned(),
-            recent_rank: None,
-            selector: "/hf/models--Qwen--External/snapshots/abc123".to_owned(),
-            managed: false,
-            ..Default::default()
-        });
-
-        app.open_remove_dialog();
-
-        let dialog = app.remove_dialog.expect("confirmation should open");
-        assert_eq!(dialog.repo_id, "Qwen/External");
-        assert_eq!(dialog.source, "HF CACHE");
-    }
-}
+mod tests;

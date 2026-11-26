@@ -22,15 +22,27 @@ impl NativeRuntime {
         }
         let _memory = self.lifecycle.memory_gate()?;
         // A model's first configuration changes its id under this gate
-        // (`rekey_resident`): resolve again, so a load that waited for it
+        // (`rekey_resident`): select again, so a load that waited for it
         // uses the id the save gave and finds a copy loaded meanwhile.
+        let selected = self
+            .store
+            .selected_model(selector)
+            .map_err(|error| Error::InvalidModel(error.to_string()))?;
+        if let Some(model) = self.resident_model(&selected.key)? {
+            return Ok(model);
+        }
+        // Loading from here on: before its checkpoint, a GGUF model's
+        // import, is made, so a removal of it refuses meanwhile, and one
+        // under way refuses this load before it writes anything.
+        let _loading = self.lifecycle.begin_loading(&selected.key)?;
         let resolved = self
             .store
             .resolve_model(selector)
             .map_err(|error| Error::InvalidModel(error.to_string()))?;
-        if let Some(model) = self.resident_model(&resolved.key)? {
-            return Ok(model);
-        }
+        // The gate keeps the id; a legacy variant moved since is held too.
+        let _moved = (resolved.key != selected.key)
+            .then(|| self.lifecycle.begin_loading(&resolved.key))
+            .transpose()?;
         loop {
             match self.preflight(
                 &resolved.path,
@@ -44,7 +56,6 @@ impl NativeRuntime {
                 Check::Pressure { message, .. } => return Err(Error::MemoryPressure(message)),
             }
         }
-        let _loading = self.lifecycle.begin_loading(&resolved.key)?;
         let defaults = generation_defaults(&resolved.generation);
         let loaded = loop {
             let attempt = self.library.load_with_options(

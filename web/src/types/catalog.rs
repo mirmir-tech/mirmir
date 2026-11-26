@@ -11,7 +11,6 @@ pub struct CatalogModel {
     pub id: String,
     pub memory_fit: String,
     pub reason: String,
-    pub downloaded: bool,
     pub estimated_weight_bytes: Option<u64>,
     pub ecosystem: String,
     pub container: String,
@@ -28,6 +27,8 @@ pub struct CatalogModel {
 }
 
 /// One quantization of a GGUF repository; it downloads as `id:name`.
+/// Whether it, or a repository, is downloaded the server's live model list
+/// tells, as a pull or removal changes it, not the search.
 #[derive(Clone, Default, Deserialize)]
 pub struct CatalogVariant {
     pub name: String,
@@ -35,7 +36,6 @@ pub struct CatalogVariant {
     pub size_kind: String,
     pub weight_bytes: Option<u64>,
     pub memory_fit: String,
-    pub downloaded: bool,
 }
 
 /// A repository's variants with the sizes of their listed files.

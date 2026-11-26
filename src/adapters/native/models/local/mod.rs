@@ -190,12 +190,14 @@ fn state(
         LocalModelState::Ready
     } else if loading.contains(selector) {
         LocalModelState::Loading
-    } else if !loadable {
-        LocalModelState::Error
-    } else if path.exists() {
+    } else if !path.exists() {
+        // Before its load error, which files that are gone always have:
+        // `Error` is a model on disk that does not load.
+        LocalModelState::Missing
+    } else if loadable {
         LocalModelState::Available
     } else {
-        LocalModelState::Missing
+        LocalModelState::Error
     }
 }
 

@@ -106,11 +106,8 @@ impl App {
         }
         self.transfer_total_bytes = event.total_bytes.or(self.transfer_total_bytes);
         self.action_message = Some(event.message);
-        if event.phase == "available"
-            && let Some(model) = self.catalog.iter_mut().find(|model| model.id == event.repo_id)
-        {
-            model.downloaded = true;
-            "mirmir".clone_into(&mut model.local_source);
+        if event.phase == "available" {
+            self.mark_downloaded(&event.repo_id, true);
         }
     }
 }

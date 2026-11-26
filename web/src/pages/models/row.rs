@@ -7,7 +7,7 @@ use crate::{
     api,
     components::{FeaturePills, Icon, StatePill, TypePill},
     state::{Page, RuntimeState, bytes},
-    types::{Activity, Model},
+    types::{Activity, Model, ModelState},
 };
 
 #[component]
@@ -18,13 +18,13 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     let format_detail = format!("{} · {}", model.ecosystem, model.container);
     let backends =
         [("Metal", model.metal_compatibility.clone()), ("CUDA", model.cuda_compatibility.clone())];
-    let is_active = model.state == "active";
+    let is_active = model.state == ModelState::Active;
     let id = StoredValue::new(model.id.clone());
     let selector = StoredValue::new(model.selector.clone());
     let repo_id = StoredValue::new(model.repo_id.clone());
     let stored_model = StoredValue::new(model.clone());
-    let model_state = model.state.clone();
-    let can_unload = model_state == "ready" || model_state == "active";
+    let model_state = model.state.as_str().to_owned();
+    let can_unload = model.state.loaded();
     let activity =
         move || activity_for(state, &id.get_value(), &selector.get_value(), &repo_id.get_value());
     let operation = move || activity().filter(live);

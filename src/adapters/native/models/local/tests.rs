@@ -191,3 +191,18 @@ fn a_partial_variant_download_lists_as_the_variant() -> std::io::Result<()> {
     assert!(listed(&mut other).is_empty());
     Ok(())
 }
+
+/// A model whose files are gone is missing, not failing to load; one on
+/// disk that does not load is an error, a state that still counts as
+/// downloaded.
+#[test]
+fn gone_files_are_missing_and_unloadable_ones_an_error() -> std::io::Result<()> {
+    let hub = LinkedHub::new()?;
+    let (resident, loading) = (HashMap::new(), HashSet::new());
+    let gone = hub.root.join("gone");
+    assert_eq!(state("gone", &gone, false, &resident, &loading), LocalModelState::Missing);
+    let present = &hub.linked_snapshot;
+    assert_eq!(state("bad", present, false, &resident, &loading), LocalModelState::Error);
+    assert_eq!(state("good", present, true, &resident, &loading), LocalModelState::Available);
+    Ok(())
+}

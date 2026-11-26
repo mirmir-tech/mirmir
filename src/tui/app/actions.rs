@@ -5,7 +5,9 @@ impl App {
     pub(super) async fn activate_selected_model(&mut self, client: &mut Client) {
         let action = if self.searching_models() {
             self.selected_catalog_model().map_or(ModelAction::None, |model| {
-                if model.local_source == "remote" {
+                // The chosen variant's, not the row's default download, or
+                // the repository another tool's cache holds whole.
+                if self.catalog_local_target(model).is_none() {
                     ModelAction::Download
                 } else if self
                     .local_catalog_model(model)

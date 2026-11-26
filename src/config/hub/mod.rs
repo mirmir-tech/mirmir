@@ -87,6 +87,12 @@ impl HubReference {
             || (self.variant.is_none() && repository_variant)
     }
 
+    /// Whether `label` can name a variant: `owner/name:LABEL`.
+    #[must_use]
+    pub fn is_variant_label(label: &str) -> bool {
+        valid_variant(label).is_ok()
+    }
+
     /// The file-system key of the model: `owner--name`, then `@VARIANT`.
     /// No repository or variant part holds `@`, so a variant of `name`
     /// (`name@VARIANT`) never meets the repository `name/VARIANT`

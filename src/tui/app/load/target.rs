@@ -2,7 +2,7 @@ use super::{App, LoadTarget};
 use crate::{config::model_key, rpc::proto, tui::app::actions::selector};
 
 impl App {
-    pub(super) fn load_target(&mut self) -> Option<LoadTarget> {
+    pub(in crate::tui::app) fn load_target(&mut self) -> Option<LoadTarget> {
         if self.searching_models() {
             return self.catalog_load_target();
         }
@@ -20,10 +20,11 @@ impl App {
 
     fn catalog_load_target(&mut self) -> Option<LoadTarget> {
         let model = self.selected_catalog_model()?;
-        if !matches!(model.local_source.as_str(), "mirmir" | "hf_cache") {
+        // The chosen variant, which the row's default may not be.
+        let Some(target) = self.catalog_local_target(model) else {
             self.action_message = Some("download the model before loading it".to_owned());
             return None;
-        }
+        };
         if let Some(local) = self.local_catalog_model(model) {
             if local.state == "missing" || local.state == "ready" {
                 self.action_message = Some(format!("model is already {}", local.state));
@@ -36,9 +37,9 @@ impl App {
             return Some(local_load_target(local));
         }
         Some(LoadTarget {
-            selector: model.id.clone(),
-            config_id: model_key(&model.id).unwrap_or_else(|_| model.id.clone()),
-            repo_id: model.id.clone(),
+            selector: target.clone(),
+            config_id: model_key(&target).unwrap_or_else(|_| target.clone()),
+            repo_id: target,
             revision: String::new(),
             commit: String::new(),
         })

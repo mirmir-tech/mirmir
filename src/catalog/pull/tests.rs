@@ -27,8 +27,9 @@ fn a_chosen_variant_transfers_under_its_own_id() -> Result<()> {
     Ok(())
 }
 
-/// Removing a repository while one of its variants downloads is refused
-/// and leaves the variant's partial blob in the shared cache.
+/// Removing a repository, or another of its variants, while one of its
+/// variants downloads is refused and leaves the variant's partial blob in
+/// the shared cache.
 #[tokio::test]
 async fn a_repository_is_not_removed_under_a_variant_download() -> Result<()> {
     let (catalog, root) = catalog("remove-during-pull");
@@ -39,9 +40,12 @@ async fn a_repository_is_not_removed_under_a_variant_download() -> Result<()> {
     let refused = catalog.remove("owner/model").await;
     assert!(refused.is_err_and(|error| error.to_string().contains("downloading")));
     assert_eq!(std::fs::read(blobs.join("blob.incomplete"))?, b"partial");
-    // Another variant's removal does not touch the downloading one.
-    drop(catalog.reserve("owner/model:Q4_0", Activity::Removal)?);
+    // Nor is another variant's, whose files the downloading one may share.
+    let refused = catalog.remove("owner/model:Q4_0").await;
+    assert!(refused.is_err_and(|error| error.to_string().contains("owner/model:Q8_0")));
+    assert!(catalog.reserve("owner/model:Q4_0", Activity::Removal).is_err());
     drop(pull);
+    assert!(catalog.reserve("owner/model:Q4_0", Activity::Removal).is_ok());
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -97,6 +101,40 @@ async fn a_pull_by_file_stem_holds_the_variants_label() -> Result<()> {
     // The label asked in another case is the same reservation, not another.
     let lower = "owner/m:q8_0".parse::<HubReference>()?;
     assert!(catalog.reserve_label(&lower, &files)?.is_none());
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// A pull queued behind another transfer, during which its model is
+/// installed (by the pull holding the slot, or another process), refuses
+/// once it has the slot, before any request.
+#[tokio::test]
+async fn a_queued_pull_rechecks_the_installation() -> Result<()> {
+    let (catalog, root) = catalog("queued-installed");
+    let memory = MachineMemory {
+        total: None,
+        available: None,
+        budget: None,
+        source: "test",
+    };
+    let cancellation = CancellationToken::new();
+    // Another transfer holds the only slot.
+    let slot = catalog.transfer_queue.acquire(&cancellation).await?;
+    let (updates, mut received) = tokio::sync::mpsc::channel(8);
+    let queued = catalog.pull("owner/m:q4_k_m", None, memory, updates, &cancellation);
+    let installed = async {
+        // The pull is queued once it says so.
+        let queued = received.recv().await.map(|update| update.phase);
+        assert_eq!(queued, Some(TransferPhase::Queued));
+        let view = catalog.store.paths().gguf_variants_dir.join("owner--m@Q4_K_M");
+        std::fs::create_dir_all(&view)?;
+        catalog.store.save_hub_model("owner/m:Q4_K_M", "main", "abc", view)?;
+        drop(slot);
+        Ok::<_, crate::error::Error>(())
+    };
+    let (refused, installed) = tokio::join!(queued, installed);
+    installed?;
+    assert!(refused.is_err_and(|error| error.to_string().contains("already downloaded")));
     std::fs::remove_dir_all(root)?;
     Ok(())
 }

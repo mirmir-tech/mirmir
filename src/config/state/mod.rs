@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use super::{Store, file::write_toml, schema::SCHEMA_VERSION, store::StateRecovery};
+use super::{HubReference, Store, file::write_toml, schema::SCHEMA_VERSION, store::StateRecovery};
 use crate::error::{Error, Result};
 
 const RECENT_LIMIT: usize = 10;
@@ -66,12 +66,28 @@ impl Store {
     }
 
     pub fn deactivate_model(&self, id: &str) -> Result<()> {
+        self.deactivate(|active| active == id)
+    }
+
+    /// Deactivates every model `asked` names in any spelling: a model, or a
+    /// repository with each of its variants.
+    pub fn deactivate_models_of(&self, asked: &HubReference) -> Result<()> {
+        self.deactivate(|active| {
+            asked.owns_key(active)
+                || active.parse::<HubReference>().is_ok_and(|reference| match asked.variant() {
+                    Some(_) => asked.is_same_model(&reference),
+                    None => asked.same_repository(&reference),
+                })
+        })
+    }
+
+    fn deactivate(&self, gone: impl Fn(&str) -> bool) -> Result<()> {
         self.paths.ensure_config_dirs()?;
         let _guard = self.lock_state()?;
         let mut state = self.load_ux_state()?;
         let previous = state.active_models.clone();
         self.normalize_active_models(&mut state);
-        state.active_models.retain(|active| active != id);
+        state.active_models.retain(|active| !gone(active));
         if state.active_models != previous {
             write_toml(&self.paths.ux_state_file, &state, false)?;
         }

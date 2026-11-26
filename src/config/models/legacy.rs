@@ -9,6 +9,7 @@ use std::{
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
+    sync::{Mutex, PoisonError},
 };
 
 use super::{
@@ -16,6 +17,14 @@ use super::{
     Keys,
 };
 use crate::error::Result;
+
+/// Serializes the moves of legacy variants in this process, whichever
+/// `Store` makes them. Each step tolerates another move having made it
+/// first, as another process's may; the lock keeps a move from acting on
+/// what it read before another one finished: having read the legacy file,
+/// it would rename the selections of, and remove, a namesake repository's
+/// configuration saved at that key since.
+static MIGRATION: Mutex<()> = Mutex::new(());
 
 /// The key the variant keyed `key` (`owner--name@VARIANT`) had before:
 /// `owner--name--VARIANT`; `None` for a key that is no variant's.
@@ -39,13 +48,27 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the variant `reference` from its legacy key, if it is saved
-    /// there, before anything looks for it by its current key.
+    /// Moves the variant `reference` from its legacy key in any spelling,
+    /// if it is saved there, before anything looks for it by its current
+    /// key.
     pub(crate) fn migrate_variant(&self, reference: &HubReference) -> Result<()> {
-        match legacy_key(&reference.key()) {
-            Some(legacy) => self.migrate_variant_key(&self.model_config_path(&legacy)?),
-            None => Ok(()),
+        let Some(legacy) = legacy_key(&reference.key()) else {
+            return Ok(());
+        };
+        let Ok(entries) = fs::read_dir(&self.paths.models_dir) else {
+            return Ok(());
+        };
+        let named = |path: &Path| {
+            path.extension().and_then(|value| value.to_str()) == Some("toml")
+                && path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|stem| stem.eq_ignore_ascii_case(&legacy))
+        };
+        for path in entries.flatten().map(|entry| entry.path()).filter(|path| named(path)) {
+            self.migrate_variant_key(&path)?;
         }
+        Ok(())
     }
 
     /// The current id of the variant whose legacy key is `legacy`, an id a
@@ -60,10 +83,13 @@ impl Store {
     }
 
     /// Moves the configuration at `path` to its own key when it records a
-    /// variant saved under its legacy key, which may be a namesake's. Under
-    /// any other name it stays: on a case-insensitive file system, another
-    /// spelling of its own key names the configuration itself.
+    /// variant saved under its legacy key, which may be a namesake's, in any
+    /// case: on a case-insensitive file system, a namesake's path in another
+    /// spelling opens the variant's file. Under any other name it stays.
+    /// One migration runs at a time in this process; another process's,
+    /// moving a file first, leaves this one nothing to move.
     pub(super) fn migrate_variant_key(&self, path: &Path) -> Result<()> {
+        let _migration = MIGRATION.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
             return Ok(());
         };
@@ -82,25 +108,32 @@ impl Store {
             return Ok(());
         };
         let key = reference.key();
-        if legacy_key(&key).as_deref() != Some(stem) {
+        // The legacy key as the variant was saved under it, which names its
+        // view, marker and selections, whatever spelling `path` has.
+        let Some(legacy) = legacy_key(&key).filter(|legacy| legacy.eq_ignore_ascii_case(stem))
+        else {
             return Ok(());
-        }
+        };
         let target = self.model_config_path(&key)?;
         if same_file(path, &target) {
             return Ok(());
         }
+        let saved_id = model.id.clone();
         if !target.exists() {
-            self.move_view(&mut model, stem, &key)?;
+            self.move_view(&mut model, &legacy, &key)?;
             let variants = &self.paths.gguf_variants_dir;
             let marker = |key: &str| variants.join(format!("{key}.pending"));
-            if marker(stem).exists() {
-                fs::rename(marker(stem), marker(&key))?;
+            if marker(&legacy).exists() {
+                moved(&marker(&legacy), &marker(&key))?;
             }
             model.id.clone_from(&key);
             write_toml(&target, &model, false)?;
         }
         // Selections of the legacy key follow before a namesake can take it.
-        self.rename_selections(stem, &key)?;
+        self.rename_selections(&legacy, &key)?;
+        if saved_id != legacy {
+            self.rename_selections(&saved_id, &key)?;
+        }
         // The current key's configuration, new or found, supersedes it.
         match fs::remove_file(path) {
             Err(error) if error.kind() != ErrorKind::NotFound => Err(error.into()),
@@ -120,7 +153,7 @@ impl Store {
             return Ok(());
         }
         if old_view.exists() && !view.exists() {
-            fs::rename(&old_view, &view)?;
+            moved(&old_view, &view)?;
         }
         if !view.exists() {
             return Ok(());
@@ -146,12 +179,24 @@ fn move_import(imports: &[PathBuf], target: &Path) -> Result<()> {
             continue;
         }
         if target.exists() {
-            fs::remove_dir_all(import)?;
+            match fs::remove_dir_all(import) {
+                Err(error) if error.kind() != ErrorKind::NotFound => return Err(error.into()),
+                _ => {},
+            }
         } else {
-            fs::rename(import, target)?;
+            moved(import, target)?;
         }
     }
     Ok(())
+}
+
+/// Renames `from` to `to`, unless another migration moved it first: `from`
+/// gone, or `to` there already.
+fn moved(from: &Path, to: &Path) -> Result<()> {
+    match fs::rename(from, to) {
+        Err(error) if !(error.kind() == ErrorKind::NotFound || to.exists()) => Err(error.into()),
+        _ => Ok(()),
+    }
 }
 
 fn same_file(left: &Path, right: &Path) -> bool {

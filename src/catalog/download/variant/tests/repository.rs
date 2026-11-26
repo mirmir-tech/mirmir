@@ -65,17 +65,20 @@ async fn every_spelling_of_a_variant_goes_together() -> Result<()> {
     Ok(())
 }
 
-/// The last variant's removal leaves the repository's cache while a pull of
-/// another of its variants is under way, before that pull wrote anything.
+/// No variant is removed while a pull of another of its repository is under
+/// way, before that pull wrote anything: what the removal keeps of the
+/// shared cache is what the pull is about to reuse.
 #[tokio::test]
-async fn a_last_variant_leaves_the_cache_to_a_pull_under_way() -> Result<()> {
+async fn no_variant_goes_while_a_sibling_pulls() -> Result<()> {
     let (store, repo, root) = cache("pull-under-way")?;
     let catalog = Catalog::new(store);
     let pull = catalog.reserve("owner/model-GGUF:Q6_K", crate::catalog::pull::Activity::Pull)?;
+    assert!(catalog.remove("owner/model-GGUF:Q4_0").await.is_err());
+    assert!(catalog.store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
+    drop(pull);
     assert!(catalog.remove("owner/model-GGUF:Q4_0").await?.removed);
     assert!(catalog.remove("owner/model-GGUF:Q8_0").await?.removed);
-    assert!(repo.exists());
-    drop(pull);
+    assert!(!repo.exists());
     fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -148,6 +151,19 @@ async fn an_orphaned_view_counts_as_removed() -> Result<()> {
     let catalog = Catalog::new(Store::new(paths));
     assert!(catalog.remove("owner/orphan-GGUF").await?.removed);
     assert!(!view.exists());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// Removing a repository reports every byte it freed once: each variant's
+/// text file and the vision tower they share, however many links name it.
+#[tokio::test]
+async fn a_repository_removal_counts_every_byte_once() -> Result<()> {
+    let (store, repo, root) = cache("repository-bytes")?;
+    let catalog = Catalog::new(store);
+    let removal = catalog.remove("owner/model-GGUF").await?;
+    assert!(removal.removed && !repo.exists());
+    assert_eq!(removal.freed_bytes, 4 + 8 + 2);
     fs::remove_dir_all(root)?;
     Ok(())
 }

@@ -7,7 +7,7 @@
 
 use std::fs;
 
-use super::{Removal, client, directory_size, variant};
+use super::{Removal, client, freed, variant};
 use crate::{
     catalog::discover_external_models,
     config::{HubReference, Store},
@@ -102,7 +102,8 @@ async fn remove_repository(
         store.damaged_configs_of(reference)?,
         variant::damaged_markers_of(store.paths(), reference)?,
     ];
-    let mut removed = false;
+    let (mut removed, mut freed_bytes) = (false, 0);
+    // Their partial blobs go with the caches.
     for pending in variant::pending_variants(store.paths()) {
         if pending.same_repository(reference) {
             variant::end_pending(store, &pending)?;
@@ -114,13 +115,13 @@ async fn remove_repository(
         .filter(|saved| saved.same_repository(reference))
     {
         if saved.variant().is_some() {
-            variant::remove_files(store, &saved)?;
+            freed_bytes += variant::remove_files(store, &saved)?;
         }
         removed |= store.remove_hub_model_config(&saved.to_string())?;
     }
     // Views left by configurations that cannot be read.
     for view in variant::views_of(store, reference) {
-        variant::remove_view(store, reference, &view)?;
+        freed_bytes += variant::remove_view(store, reference, &view)?;
         removed = true;
     }
     for path in damaged.into_iter().flatten() {
@@ -134,10 +135,10 @@ async fn remove_repository(
     } else {
         caches
     };
-    let (removed_cache, freed_bytes) = remove_caches(store, reference, caches).await?;
+    let (removed_cache, cache_bytes) = remove_caches(store, reference, caches).await?;
     Ok(Removal {
         removed: removed || removed_cache,
-        freed_bytes,
+        freed_bytes: freed_bytes + cache_bytes,
     })
 }
 
@@ -196,9 +197,7 @@ pub(super) async fn remove_cache_repo(
 ) -> Result<u64> {
     tokio::task::spawn_blocking(move || {
         let path = validated_cache_repo(&path, &cache)?;
-        let size = directory_size(&path);
-        std::fs::remove_dir_all(path)?;
-        Ok(size)
+        Ok(freed::remove_tree(&path)?)
     })
     .await?
 }

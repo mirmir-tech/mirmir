@@ -5,13 +5,13 @@
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
-use super::super::row::cancel;
+use super::{super::row::cancel, installed};
 use crate::{
     api,
     components::{FeaturePills, Icon, StatePill, TypePill},
     state::{RuntimeState, bytes},
     types::{
-        Activity, Model,
+        Activity, Model, ModelState,
         catalog::{CatalogModel, CatalogVariant, ModelVariants},
     },
 };
@@ -40,12 +40,9 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
         let id = stored.with_value(|model| model.id.clone());
         variant().map_or_else(|| id.clone(), |variant| format!("{id}:{}", variant.name))
     };
-    let downloaded = move || {
-        variant().map_or_else(
-            || stored.with_value(|model| model.downloaded),
-            |variant| variant.downloaded,
-        )
-    };
+    // From the server's live list, which a pull or removal of any variant
+    // changes, not from the search result.
+    let downloaded = move || state.models.with(|models| installed(models, &target()));
     let operation = move || pull_activity(state, &target());
     let busy = move || state.busy.get().contains_key(&target());
     let display_state = move || {
@@ -111,19 +108,7 @@ fn VariantSelect(
         spawn_local(async move {
             match api::get::<ModelVariants>(&path).await {
                 Ok(found) => {
-                    variants.update(|current| {
-                        let downloaded = |name: &str| {
-                            current.iter().any(|variant| variant.name == name && variant.downloaded)
-                        };
-                        *current = found
-                            .variants
-                            .into_iter()
-                            .map(|variant| CatalogVariant {
-                                downloaded: downloaded(&variant.name),
-                                ..variant
-                            })
-                            .collect();
-                    });
+                    variants.set(found.variants);
                     if chosen.get_untracked().is_none() {
                         chosen.set(found.default_variant);
                     }
@@ -134,7 +119,7 @@ fn VariantSelect(
     };
     view! {
         <select class="variant-select" aria-label="Quantization" data-tooltip="Quantization to download" prop:value=move || chosen.get().unwrap_or_default() on:focus=list on:change=move |event| chosen.set(Some(event_target_value(&event)))>
-            <For each=move || variants.get() key=|variant| (variant.name.clone(), variant.size_kind.clone(), variant.downloaded) children=move |variant| { let label = format!("{} · {}{}", variant.name, size_label(&variant), if variant.downloaded { " ✓" } else { "" }); view! { <option value=variant.name>{label}</option> } } />
+            <For each=move || variants.get() key=|variant| (variant.name.clone(), variant.size_kind.clone()) children=move |variant| { let target = format!("{repo}:{}", variant.name); let label = format!("{} · {}", variant.name, size_label(&variant)); let mark = move || if state.models.with(|models| installed(models, &target)) { " ✓" } else { "" }; view! { <option value=variant.name>{label}{mark}</option> } } />
         </select>
     }
 }
@@ -185,7 +170,7 @@ fn download_placeholder(model: &CatalogModel, repo_id: &str) -> Model {
         id: repo_id.to_owned(),
         repo_id: repo_id.to_owned(),
         revision: "main".to_owned(),
-        state: "downloading".to_owned(),
+        state: ModelState::Downloading,
         selector: repo_id.to_owned(),
         ecosystem: model.ecosystem.clone(),
         container: model.container.clone(),

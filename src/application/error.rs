@@ -10,6 +10,8 @@ pub enum Error {
     ModelAlreadyLoading(String),
     #[error("model `{0}` must be unloaded before removal")]
     ModelLoaded(String),
+    #[error("model `{0}` is being removed")]
+    ModelBeingRemoved(String),
     #[error("model request is invalid: {0}")]
     InvalidModel(String),
     #[error("generation request is invalid: {0}")]
@@ -53,9 +55,10 @@ impl Error {
             | Self::InvalidRequest(_)
             | Self::InvalidContext(_)
             | Self::Configuration(_) => ErrorClass::InvalidArgument,
-            Self::ModelInUse(_) | Self::ModelAlreadyLoading(_) | Self::ModelLoaded(_) => {
-                ErrorClass::Conflict
-            },
+            Self::ModelInUse(_)
+            | Self::ModelAlreadyLoading(_)
+            | Self::ModelLoaded(_)
+            | Self::ModelBeingRemoved(_) => ErrorClass::Conflict,
             Self::MemoryPressure(_) => ErrorClass::ResourceExhausted,
             Self::InvalidModelOutput(_) => ErrorClass::InvalidModelOutput,
             Self::Cancelled => ErrorClass::Cancelled,

@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use super::super::freed;
 use crate::{
     config::{HubReference, Store},
     error::Result,
@@ -136,16 +137,15 @@ pub(in crate::catalog::download) fn remove_pending(
         {
             continue;
         }
-        for path in [partial, blob] {
-            if let Ok(metadata) = fs::metadata(&path) {
-                freed += metadata.len();
-                fs::remove_file(path)?;
+        // The snapshot's hard link of a finished blob too.
+        for path in [partial, blob, snapshot.join(&file.path)] {
+            match freed::remove_file(&path) {
+                Ok(bytes) => freed += bytes,
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                },
+                Err(_) => {},
             }
-        }
-        // The snapshot's hard link of a finished blob.
-        match fs::remove_file(snapshot.join(&file.path)) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
-            _ => {},
         }
     }
     Ok(freed)
@@ -206,17 +206,15 @@ pub(in crate::catalog::download) fn remove_view(
         let needed = etag.is_some_and(|etag| downloading.blobs.contains(&etag))
             || identity(&snapshot_file).is_some_and(|file| kept_blobs.contains(&file));
         if let Some(blob) = blob.filter(|_| !needed) {
-            freed += fs::metadata(&blob).map_or(0, |metadata| metadata.len());
-            fs::remove_file(blob)?;
+            freed += freed::remove_file(&blob)?;
         }
         // Its blob kept, the entry only names it; else its bytes go with it.
-        fs::remove_file(snapshot_file)?;
+        freed += freed::remove_file(&snapshot_file)?;
     }
     let view = view.canonicalize()?;
     let import = store.gguf_import_dir(&view);
     if import.exists() {
-        fs::remove_dir_all(import)?;
+        freed += freed::remove_tree(&import)?;
     }
-    fs::remove_dir_all(view)?;
-    Ok(freed)
+    Ok(freed + freed::remove_tree(&view)?)
 }

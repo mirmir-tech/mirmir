@@ -34,6 +34,21 @@ fn persists_the_active_model_set() -> Result<()> {
     Ok(())
 }
 
+/// A removed model leaves the active set in whichever spelling it was
+/// activated, and a removed repository takes each of its variants along.
+#[test]
+fn a_removal_deactivates_every_spelling_it_names() -> Result<()> {
+    let (store, _) = test_store("active-removed");
+    for key in ["Org--Repo@Q4_K_M", "Org--Repo@Q8_0", "Org--Repo-GGUF@Q8_0", "Org--Other"] {
+        store.activate_model(key)?;
+    }
+    store.deactivate_models_of(&"org/repo:q4_k_m".parse()?)?;
+    assert_eq!(store.active_models()?, ["Org--Repo@Q8_0", "Org--Repo-GGUF@Q8_0", "Org--Other"]);
+    store.deactivate_models_of(&"org/repo".parse()?)?;
+    assert_eq!(store.active_models()?, ["Org--Repo-GGUF@Q8_0", "Org--Other"]);
+    Ok(())
+}
+
 #[test]
 fn canonicalizes_active_model_paths_and_removes_aliases() -> Result<()> {
     let (store, root) = test_store("active-alias");

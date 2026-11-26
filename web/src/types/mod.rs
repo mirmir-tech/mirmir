@@ -49,7 +49,7 @@ pub struct Model {
     pub repo_id: String,
     pub revision: String,
     pub commit: String,
-    pub state: String,
+    pub state: ModelState,
     pub selector: String,
     pub image_input: bool,
     pub load_unavailable_reason: String,
@@ -62,6 +62,57 @@ pub struct Model {
     pub tool_use: bool,
     pub thinking: bool,
     pub vision: bool,
+}
+
+/// A local model's state as the server spells it, parsed once here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelState {
+    Ready,
+    Loading,
+    Error,
+    Available,
+    Missing,
+    Paused,
+    /// The model a demonstration shows in use.
+    Active,
+    /// A pull this dashboard started, before the server lists it.
+    Downloading,
+    /// A state this dashboard does not know.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+impl ModelState {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Loading => "loading",
+            Self::Error => "error",
+            Self::Available => "available",
+            Self::Missing => "missing",
+            Self::Paused => "paused",
+            Self::Active => "active",
+            Self::Downloading => "downloading",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Whether the model's files are on the server whole, as the server
+    /// counts a model downloaded: not paused, missing or still downloading.
+    /// An `Error` is a model on disk that does not load.
+    #[must_use]
+    pub const fn installed(self) -> bool {
+        matches!(self, Self::Ready | Self::Loading | Self::Available | Self::Active | Self::Error)
+    }
+
+    /// Whether the model is loaded.
+    #[must_use]
+    pub const fn loaded(self) -> bool {
+        matches!(self, Self::Ready | Self::Active)
+    }
 }
 
 #[derive(Clone, Default, Deserialize)]

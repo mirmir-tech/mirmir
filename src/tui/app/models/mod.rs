@@ -141,8 +141,8 @@ impl App {
             self.catalog_filter == CatalogFilter::All
                 || model.downloaded
                 || model.local_source != "remote"
-                || (model.compatibility != "unsupported"
-                    && self.catalog_fit(model) != catalog::MemoryFit::DoesNotFit)
+                || model.variants.iter().any(|variant| variant.downloaded)
+                || (model.compatibility != "unsupported" && Self::catalog_row_fits(model))
         })
     }
 
@@ -215,8 +215,11 @@ impl App {
         &self,
         catalog: &proto::CatalogModel,
     ) -> Option<&proto::LocalModelInfo> {
-        let target = self.pull_target(catalog).ok()?;
-        self.local_models.iter().find(|local| local.repo_id == target)
+        let target =
+            self.catalog_local_target(catalog).or_else(|| self.pull_target(catalog).ok())?;
+        self.local_models
+            .iter()
+            .find(|local| super::variants::same_model(&local.repo_id, &target))
     }
 
     pub(super) fn reset_search_results(&mut self) {

@@ -15,7 +15,7 @@ use self::{
 use crate::{
     state::RuntimeState,
     types::{
-        Model,
+        Model, ModelState,
         catalog::{ContextChoice, GenerationSettings, Inspection},
     },
 };
@@ -70,10 +70,10 @@ pub fn ModelsPage() -> impl IntoView {
     }
 }
 
-fn model_key(model: &Model) -> (String, String, String, u64) {
+fn model_key(model: &Model) -> (String, ModelState, String, u64) {
     (
         model.selector.clone(),
-        model.state.clone(),
+        model.state,
         model.load_unavailable_reason.clone(),
         model.size_bytes,
     )
@@ -87,11 +87,11 @@ mod tests {
     fn model_state_changes_replace_the_keyed_row() {
         let ready = Model {
             selector: "Qwen/Test".to_owned(),
-            state: "ready".to_owned(),
+            state: ModelState::Ready,
             ..Default::default()
         };
         let mut unloaded = ready.clone();
-        unloaded.state = "available".to_owned();
+        unloaded.state = ModelState::Available;
 
         assert_ne!(model_key(&ready), model_key(&unloaded));
     }

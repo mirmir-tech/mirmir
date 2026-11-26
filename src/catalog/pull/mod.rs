@@ -81,6 +81,11 @@ impl Catalog {
         // would be a second cache and configuration of one Hub repository.
         let mut reference = download::spelled(&self.store, &repo_id.parse::<HubReference>()?)?;
         let repo_id = &reference.to_string();
+        // Installed while this pull waited for its slot, by another process
+        // or a pull that held it.
+        if self.store.hub_model_downloaded(repo_id)? {
+            return Err(Error::Config(format!("model `{repo_id}` is already downloaded")));
+        }
         // One commit for the choice, the header checks and every file.
         let revision =
             resumable::pin(&self.store, reference.repository(), revision.unwrap_or("main")).await?;
@@ -218,20 +223,15 @@ impl Catalog {
         Ok(())
     }
 
-    /// Removes `repo_id`, excluding any transfer of it, or of any of its
-    /// variants when it names a repository, until its files are gone.
+    /// Removes `repo_id`, excluding any pull or removal of anything of its
+    /// repository until its files, and the repository cache its last
+    /// variant leaves, are gone.
     pub async fn remove(&self, repo_id: &str) -> Result<Removal> {
         let _serial = self.removals.lock().await;
-        let reservation = self.reserve(repo_id, Activity::Removal)?;
+        let _reservation = self.reserve(repo_id, Activity::Removal)?;
         let removed = download::remove(&self.store, repo_id).await?;
-        drop(reservation);
         let mut removal = removed.removal;
-        // A last variant's repository cache goes only while nothing of the
-        // repository transfers: a pull of another of its variants, under
-        // way or started meanwhile, keeps it.
-        if let Some(repository) = removed.emptied
-            && let Ok(_repository) = self.reserve(&repository.to_string(), Activity::Removal)
-        {
+        if let Some(repository) = removed.emptied {
             // The variant is gone either way; a cache that could not go is
             // listed, and removed with its repository.
             match download::remove_emptied(&self.store, &repository).await {

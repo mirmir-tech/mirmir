@@ -18,10 +18,19 @@ use crate::{
 /// The first request: most headers, vocabulary included, fit in 8 MiB.
 const FIRST_BYTES: u64 = 8 * 1024 * 1024;
 /// Headers larger than this are refused rather than fetched.
-const MAX_HEADER_BYTES: u64 = 128 * 1024 * 1024;
+pub(super) const MAX_HEADER_BYTES: u64 = 128 * 1024 * 1024;
 /// Configuration vectors larger than this are refused rather than fetched;
 /// a `rope_freqs` of F32 per rotated pair is a few hundred bytes.
 const MAX_VECTOR_BYTES: u64 = 1024 * 1024;
+
+/// The next fetch after `wanted` bytes left a header `needed` bytes long:
+/// what the parser asks for, at least doubling, within the file and
+/// [`MAX_HEADER_BYTES`]; `None` where `needed` is beyond either or no
+/// longer than what was fetched.
+pub(super) fn grown(wanted: u64, needed: u64, size: u64) -> Option<u64> {
+    let limit = size.min(MAX_HEADER_BYTES);
+    (needed <= limit && needed > wanted).then(|| needed.max(wanted.saturating_mul(2)).min(limit))
+}
 
 /// The variant's contract, or libmir's refusal of its headers, and the
 /// header bytes fetched for it; an error when the headers could not be read.
@@ -52,17 +61,14 @@ pub(in crate::catalog) async fn inspect(
             bytes.extend(range::fetch(client, token, url.clone(), start, end).await?);
             match GgufHeader::parse(&bytes, Some(size)) {
                 Ok(header) => break header,
-                Err(ParseError::Truncated { needed })
-                    if needed <= MAX_HEADER_BYTES && wanted < size =>
-                {
-                    // Fetch what the parser asks for, at least doubling.
-                    wanted = needed.max(wanted.saturating_mul(2)).min(size);
-                },
                 Err(ParseError::Truncated { needed }) => {
-                    return Err(Error::Config(format!(
-                        "{} needs {needed} header bytes, beyond the file or the preflight limit",
-                        shard.path
-                    )));
+                    wanted = grown(wanted, needed, size).ok_or_else(|| {
+                        Error::Config(format!(
+                            "{} needs {needed} header bytes, beyond the file or the preflight \
+                             limit",
+                            shard.path
+                        ))
+                    })?;
                 },
                 Err(ParseError::Invalid(error)) => return Err(libmir::Error::from(error).into()),
             }

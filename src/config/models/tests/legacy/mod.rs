@@ -190,3 +190,5 @@ fn a_legacy_selection_in_another_case_finds_its_variant() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+mod race;

@@ -206,3 +206,40 @@ fn tells_gguf_only_listings_and_estimates_the_vision_tower() {
     assert_eq!(unnamed.estimated_vision_bytes(), Some(1_200_000_000));
     assert_eq!(GgufRepository::default().estimated_vision_bytes(), None);
 }
+
+/// A file name no label takes still names a variant a reference can name,
+/// and the listing offers every other variant beside it.
+#[test]
+fn names_every_variant_by_a_label_a_reference_takes() {
+    let repository = GgufRepository::from_files(&files(&[
+        ("Model-Q4_K_M.gguf", 4),
+        ("Model-Q4_K_M (imatrix).gguf", 4),
+        ("Model-Q8_0--v2.gguf", 8),
+        ("Model-Q5_K_M+é.gguf", 5),
+    ]));
+    let names = repository
+        .variants
+        .iter()
+        .map(|variant| variant.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Q4_K_M", "Q4_K_M__imatrix_", "Q5_K_M__", "Q8_0-v2"]);
+    let reference = "owner/m-GGUF".parse::<crate::config::HubReference>();
+    for name in names {
+        assert!(reference.as_ref().is_ok_and(|reference| reference.with_variant(name).is_ok()));
+    }
+    // A label another variant has as its own name stays that one's; the
+    // variant turned into it takes a suffix rather than going unlisted.
+    let clash = GgufRepository::from_files(&files(&[
+        ("b/M-x+y.gguf", 3),
+        ("a/M-x y.gguf", 1),
+        ("M-x_y.gguf", 2),
+    ]));
+    let kept = clash
+        .variants
+        .iter()
+        .map(|variant| (variant.name.as_str(), variant.shards[0].path.as_str()))
+        .collect::<Vec<_>>();
+    let expected =
+        [("M-x_y", "M-x_y.gguf"), ("M-x_y_2", "a/M-x y.gguf"), ("M-x_y_3", "b/M-x+y.gguf")];
+    assert_eq!(kept, expected);
+}

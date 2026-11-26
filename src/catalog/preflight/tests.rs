@@ -219,3 +219,16 @@ fn parse_range(value: &reqwest::header::HeaderValue) -> Option<(usize, usize)> {
     let (start, end) = value.split_once('-')?;
     Some((start.parse().ok()?, end.parse().ok()?))
 }
+
+/// A GGUF header fetch grows within the preflight limit, never doubling
+/// past it, and stops once the parser asks for no more than it has.
+#[test]
+fn gguf_header_fetches_grow_within_the_limit() {
+    use gguf::{MAX_HEADER_BYTES, grown};
+    let size = 4 * MAX_HEADER_BYTES;
+    assert_eq!(grown(MAX_HEADER_BYTES - 1, MAX_HEADER_BYTES, size), Some(MAX_HEADER_BYTES));
+    assert_eq!(grown(16, 20, size), Some(32));
+    assert_eq!(grown(16, 20, 24), Some(24));
+    assert_eq!(grown(16, 16, size), None);
+    assert_eq!(grown(16, MAX_HEADER_BYTES + 1, size), None);
+}
