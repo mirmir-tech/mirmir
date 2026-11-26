@@ -23,7 +23,9 @@ fn a_namesake_in_another_case_moves_the_legacy_variant_first() -> Result<()> {
     assert_eq!(variant.key, "Org--Repo@Q4_K_M");
     assert_eq!(variant.path, paths.gguf_variants_dir.join("Org--Repo@Q4_K_M").canonicalize()?);
     assert_eq!(variant.generation.max_tokens, Some(8));
-    assert_eq!(store.resolve_model("org/repo--q4_k_m")?.path, snapshot);
+    // Resolved paths are canonical (on macOS the temporary directory is
+    // reached through /var -> /private/var).
+    assert_eq!(store.resolve_model("org/repo--q4_k_m")?.path, snapshot.canonicalize()?);
     assert_eq!(store.list_model_configs()?.len(), 2);
     fs::remove_dir_all(root)?;
     Ok(())
