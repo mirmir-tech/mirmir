@@ -93,14 +93,15 @@ impl Catalog {
             .into_iter()
             .map(|candidate| fit::evaluate(candidate, memory))
             .collect::<Vec<_>>();
+        // The configurations are read once for every model and variant.
+        let downloaded = self.store.downloaded_models()?;
         for model in &mut models {
             let reference = model.id.parse::<HubReference>()?;
             for variant in &mut model.variants {
-                let id = reference.with_variant(&variant.name)?.to_string();
-                variant.downloaded = self.store.hub_model_downloaded(&id)?;
+                variant.downloaded = downloaded.contains(&reference.with_variant(&variant.name)?);
             }
             model.downloaded = model.target_downloaded(|| {
-                Ok(self.store.hub_model_downloaded(&model.id)? || managed.contains(&model.id))
+                Ok(downloaded.contains(&reference) || managed.contains(&model.id))
             })?;
             model.local_source = if model.downloaded {
                 "mirmir"

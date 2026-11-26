@@ -57,13 +57,19 @@ impl Store {
         }
         let key = selector_key(selector)?;
         let model = match self.model_config(&key, keys) {
-            // A selection saved before its variant moved names its legacy
-            // key, which holds no `@`.
-            Err(Error::ModelNotFound(missing)) if !key.contains('@') => {
-                match self.current_variant_id(&key, keys)? {
-                    Some(id) => self.model_config(&id, keys)?,
-                    None => return Err(Error::ModelNotFound(missing)),
-                }
+            Err(Error::ModelNotFound(missing)) => {
+                let found = if key.contains('@') {
+                    // A variant's label spelled otherwise than it was saved.
+                    self.spelled_variant(&key, keys)?
+                } else {
+                    // A selection saved before its variant moved names its
+                    // legacy key, which holds no `@`.
+                    match self.current_variant_id(&key, keys)? {
+                        Some(id) => Some(self.model_config(&id, keys)?),
+                        None => None,
+                    }
+                };
+                found.ok_or(Error::ModelNotFound(missing))?
             },
             model => model?,
         };

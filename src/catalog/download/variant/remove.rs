@@ -99,16 +99,35 @@ fn blob_of(snapshot_file: &Path) -> Option<PathBuf> {
         .find(|blob| identity(blob) == Some(wanted))
 }
 
-/// The blobs, by `ETag`, of the other variants of `reference`'s repository
-/// still downloading: one they share with it, such as a vision tower, is
-/// theirs to resume from.
-fn pending_blobs(store: &Store, reference: &HubReference) -> HashSet<String> {
-    super::pending_variants(store.paths())
-        .into_iter()
-        .filter(|other| other != reference && other.repository() == reference.repository())
-        .filter_map(|other| super::pending::recorded(store.paths(), &other))
-        .flat_map(|other| other.files.into_iter().map(|file| file.etag))
-        .collect()
+/// What the other variants of a repository still downloading claim: their
+/// blobs, by `ETag`, which one they share, such as a vision tower, is theirs
+/// to resume from, and their snapshot entries, canonical, which a finished
+/// blob is linked at before their view links it.
+#[derive(Default)]
+struct Downloading {
+    blobs: HashSet<String>,
+    entries: HashSet<PathBuf>,
+}
+
+fn downloading(store: &Store, reference: &HubReference) -> Downloading {
+    let mut claimed = Downloading::default();
+    let others = super::pending_variants(store.paths()).into_iter().filter(|other| {
+        !other.is_same_model(reference) && other.repository() == reference.repository()
+    });
+    for other in others {
+        let Some(pending) = super::pending::recorded(store.paths(), &other) else {
+            continue;
+        };
+        let snapshot = super::pending::snapshot(store.paths(), &pending)
+            .and_then(|snapshot| snapshot.canonicalize().ok());
+        for file in pending.files {
+            if let Some(snapshot) = &snapshot {
+                claimed.entries.insert(snapshot.join(&file.path));
+            }
+            claimed.blobs.insert(file.etag);
+        }
+    }
+    claimed
 }
 
 /// Removes the files a downloading `reference` recorded, final or partial,
@@ -130,7 +149,7 @@ pub(in crate::catalog::download) fn remove_pending(
         .hub_cache_dir
         .join(format!("models--{}", crate::config::model_key(reference.repository())?));
     let snapshot = root.join("snapshots").join(&pending.commit);
-    let downloading = pending_blobs(store, reference);
+    let downloading = downloading(store, reference).blobs;
     let mut freed = 0;
     for ((blob, partial), file) in pending.blobs(store.paths())?.into_iter().zip(&pending.files) {
         if downloading.contains(&file.etag)
@@ -167,19 +186,20 @@ pub(in crate::catalog::download) fn remove_files(
     let kept = kept_files(&siblings(store, reference)?);
     // A snapshot of another commit links the same blob at another path.
     let kept_blobs = kept.iter().filter_map(|file| identity(file)).collect::<HashSet<_>>();
-    let downloading = pending_blobs(store, reference);
+    let downloading = downloading(store, reference);
     let mut freed = 0;
     for entry in fs::read_dir(&view)?.flatten() {
         // The snapshot file the view links, a hard link of its blob.
         let Ok(snapshot_file) = entry.path().canonicalize() else {
             continue;
         };
-        if kept.contains(&snapshot_file) {
+        // Linked by a sibling, or claimed by a download it is to publish.
+        if kept.contains(&snapshot_file) || downloading.entries.contains(&snapshot_file) {
             continue;
         }
         let blob = blob_of(&snapshot_file);
         let etag = blob.as_ref().and_then(|blob| blob.file_name()?.to_str().map(str::to_owned));
-        let needed = etag.is_some_and(|etag| downloading.contains(&etag))
+        let needed = etag.is_some_and(|etag| downloading.blobs.contains(&etag))
             || identity(&snapshot_file).is_some_and(|file| kept_blobs.contains(&file));
         if let Some(blob) = blob.filter(|_| !needed) {
             freed += fs::metadata(&blob).map_or(0, |metadata| metadata.len());

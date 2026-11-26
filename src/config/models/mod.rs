@@ -15,18 +15,6 @@ pub struct ResolvedModel {
 }
 
 impl Store {
-    pub fn hub_model_downloaded(&self, repo_id: &str) -> Result<bool> {
-        let key = model_key(repo_id)?;
-        match self.load_model_config(&key) {
-            Ok(model) => {
-                Ok(model.hub.as_ref().is_some_and(|hub| hub.repo_id == repo_id)
-                    && model.path.exists())
-            },
-            Err(Error::ModelNotFound(_)) => Ok(false),
-            Err(error) => Err(error),
-        }
-    }
-
     pub fn list_model_configs(&self) -> Result<Vec<ModelConfig>> {
         self.model_configs(Keys::Migrate)
     }
@@ -187,6 +175,7 @@ pub(super) fn selector_key(selector: &str) -> Result<String> {
     model_key(selector).or_else(|_| Ok(config_id(selector)?.to_owned()))
 }
 
+mod installed;
 mod legacy;
 mod select;
 #[cfg(test)]

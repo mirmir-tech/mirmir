@@ -230,3 +230,4 @@ fn removing_a_pending_variant_keeps_what_another_one_resumes() -> Result<()> {
 }
 
 mod revisions;
+mod spelling;

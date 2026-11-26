@@ -143,6 +143,10 @@ fn an_active_selection_spelled_another_way_resolves_without_waiting() -> Result<
     worker.join().expect("listing should not panic");
     assert!(saved.exists(), "the installed variant's configuration went");
     assert!(store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
+    // Restored as the installed variant, which loads from its view.
+    let active = store.active_models()?;
+    assert_eq!(active, ["owner--model-GGUF@Q4_0"]);
+    assert_eq!(store.resolve_model(&active[0])?.path, view.canonicalize()?);
     fs::remove_dir_all(root)?;
     Ok(())
 }

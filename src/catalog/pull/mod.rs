@@ -36,9 +36,10 @@ impl Catalog {
             });
         }
         let (mut variants, default_variant) = fit::variants(&gguf, None, memory);
+        // The configurations are read once for every variant listed.
+        let downloaded = self.store.downloaded_models()?;
         for variant in &mut variants {
-            let id = reference.with_variant(&variant.name)?;
-            variant.downloaded = self.store.hub_model_downloaded(&id.to_string())?;
+            variant.downloaded = downloaded.contains(&reference.with_variant(&variant.name)?);
         }
         Ok(ModelVariants { variants, default_variant })
     }
@@ -166,7 +167,7 @@ impl Catalog {
         files: &[ListedFile],
     ) -> Result<Option<(HubReference, registry::Transfer<'_>)>> {
         let canonical = download::canonical_variant(reference, files)?;
-        if registry::same_model(&canonical, reference) {
+        if canonical.is_same_model(reference) {
             return Ok(None);
         }
         if self.store.hub_model_downloaded(&canonical.to_string())? {

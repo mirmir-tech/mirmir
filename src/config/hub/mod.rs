@@ -39,6 +39,17 @@ impl HubReference {
         })
     }
 
+    /// Whether `other` names this model: a variant is found by its label in
+    /// any case, as the repository's listing matches it.
+    #[must_use]
+    pub fn is_same_model(&self, other: &Self) -> bool {
+        self.repository == other.repository
+            && match (&self.variant, &other.variant) {
+                (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
+                (left, right) => left == right,
+            }
+    }
+
     /// The file-system key of the model: `owner--name`, then `@VARIANT`.
     /// No repository or variant part holds `@`, so a variant of `name`
     /// (`name@VARIANT`) never meets the repository `name/VARIANT`

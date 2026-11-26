@@ -184,6 +184,21 @@ fn gguf_bytes(wanted: &[String], gguf: &GgufRepository) -> u64 {
         .sum()
 }
 
+/// The variant `reference` names as it was saved, installed or still
+/// downloading: its label may be asked in another case.
+pub(in crate::catalog::download) fn identity(
+    store: &Store,
+    reference: &HubReference,
+) -> Result<HubReference> {
+    if let Some(installed) = store.installed_reference(reference)? {
+        return Ok(installed);
+    }
+    Ok(pending_variants(store.paths())
+        .into_iter()
+        .find(|pending| pending.is_same_model(reference))
+        .unwrap_or_else(|| reference.clone()))
+}
+
 /// The variant's directory: a link per file into `snapshot`, recreated.
 fn link(
     store: &Store,

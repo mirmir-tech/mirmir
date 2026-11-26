@@ -63,6 +63,13 @@ impl Pending {
     }
 }
 
+/// The snapshot of the commit `pending` downloads, where its finished
+/// blobs are linked under their paths.
+pub(in crate::catalog::download) fn snapshot(paths: &Paths, pending: &Pending) -> Option<PathBuf> {
+    let root = repository_root(paths, &pending.reference).ok()?;
+    Some(root.join("snapshots").join(&pending.commit))
+}
+
 fn repository_root(paths: &Paths, reference: &str) -> Result<PathBuf> {
     let repository = reference.parse::<HubReference>()?;
     Ok(paths
