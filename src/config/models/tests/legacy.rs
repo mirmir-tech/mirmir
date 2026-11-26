@@ -137,3 +137,28 @@ fn an_active_legacy_variant_survives_its_namesake() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// Another spelling of a variant's key, a second name of its configuration
+/// as on a case-insensitive file system, is no legacy key: looking it up
+/// moves nothing and removes nothing.
+#[test]
+fn another_spelling_of_a_variant_key_keeps_its_configuration() -> Result<()> {
+    let unique = NEXT_STORE.fetch_add(1, Ordering::Relaxed);
+    let root =
+        std::env::temp_dir().join(format!("mirmir-spelling-{}-{unique}", std::process::id()));
+    let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
+    let store = Store::new(paths.clone());
+    let view = paths.gguf_variants_dir.join("owner--model-GGUF@Q4_0");
+    fs::create_dir_all(&view)?;
+    store.save_hub_model("owner/model-GGUF:Q4_0", "main", "abc", view.canonicalize()?)?;
+    let saved = paths.models_dir.join("owner--model-GGUF@Q4_0.toml");
+    let spelling = paths.models_dir.join("owner--model-GGUF@q4_0.toml");
+    fs::hard_link(&saved, &spelling)?;
+    assert!(!matches!(store.hub_model_downloaded("owner/model-GGUF:q4_0"), Ok(true)));
+    assert!(saved.exists() && spelling.exists());
+    fs::remove_file(spelling)?;
+    assert!(store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
+    assert!(view.exists());
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

@@ -81,8 +81,9 @@ impl Store {
     fn normalize_active_models(&self, state: &mut UxState) -> bool {
         let mut normalized = Vec::with_capacity(state.active_models.len());
         for selector in &state.active_models {
+            // `lock_state` moved every legacy variant before this lock.
             let key = self
-                .selected_model(selector)
+                .select(selector, super::models::Keys::Migrated)
                 .map_or_else(|_| selector.clone(), |model| model.key);
             if !normalized.contains(&key) {
                 normalized.push(key);

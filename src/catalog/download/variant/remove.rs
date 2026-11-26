@@ -71,13 +71,23 @@ pub(in crate::catalog::download) fn holds_more(
     }))
 }
 
+/// The file `path` names, as its device and inode: every hard link of a
+/// blob, in any commit's snapshot, has the blob's.
+#[cfg(unix)]
+fn identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn identity(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
 /// The cache blob `snapshot_file` hard-links: the file of the same inode in
 /// the repository's `blobs`.
-#[cfg(unix)]
 fn blob_of(snapshot_file: &Path) -> Option<PathBuf> {
-    use std::os::unix::fs::MetadataExt;
-    let identity = |metadata: &fs::Metadata| (metadata.dev(), metadata.ino());
-    let wanted = identity(&fs::metadata(snapshot_file).ok()?);
+    let wanted = identity(snapshot_file)?;
     let root = snapshot_file
         .ancestors()
         .find(|path| path.file_name() == Some("snapshots".as_ref()))?;
@@ -86,12 +96,7 @@ fn blob_of(snapshot_file: &Path) -> Option<PathBuf> {
         .ok()?
         .flatten()
         .map(|entry| entry.path())
-        .find(|blob| fs::metadata(blob).is_ok_and(|metadata| identity(&metadata) == wanted))
-}
-
-#[cfg(not(unix))]
-fn blob_of(_snapshot_file: &Path) -> Option<PathBuf> {
-    None
+        .find(|blob| identity(blob) == Some(wanted))
 }
 
 /// The blobs, by `ETag`, of the other variants of `reference`'s repository
@@ -160,6 +165,8 @@ pub(in crate::catalog::download) fn remove_files(
         return Ok(0);
     }
     let kept = kept_files(&siblings(store, reference)?);
+    // A snapshot of another commit links the same blob at another path.
+    let kept_blobs = kept.iter().filter_map(|file| identity(file)).collect::<HashSet<_>>();
     let downloading = pending_blobs(store, reference);
     let mut freed = 0;
     for entry in fs::read_dir(&view)?.flatten() {
@@ -167,15 +174,18 @@ pub(in crate::catalog::download) fn remove_files(
         let Ok(snapshot_file) = entry.path().canonicalize() else {
             continue;
         };
-        let blob = blob_of(&snapshot_file);
-        let etag = blob.as_ref().and_then(|blob| blob.file_name()?.to_str().map(str::to_owned));
-        if kept.contains(&snapshot_file) || etag.is_some_and(|etag| downloading.contains(&etag)) {
+        if kept.contains(&snapshot_file) {
             continue;
         }
-        freed += fs::metadata(&snapshot_file).map_or(0, |metadata| metadata.len());
-        if let Some(blob) = blob {
+        let blob = blob_of(&snapshot_file);
+        let etag = blob.as_ref().and_then(|blob| blob.file_name()?.to_str().map(str::to_owned));
+        let needed = etag.is_some_and(|etag| downloading.contains(&etag))
+            || identity(&snapshot_file).is_some_and(|file| kept_blobs.contains(&file));
+        if let Some(blob) = blob.filter(|_| !needed) {
+            freed += fs::metadata(&blob).map_or(0, |metadata| metadata.len());
             fs::remove_file(blob)?;
         }
+        // Its blob kept, the entry only names it; else its bytes go with it.
         fs::remove_file(snapshot_file)?;
     }
     let view = view.canonicalize()?;

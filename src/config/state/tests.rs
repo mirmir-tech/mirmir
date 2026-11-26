@@ -72,3 +72,43 @@ fn quarantines_corrupt_managed_state_and_resets_it() -> Result<()> {
     assert_eq!(store.active_models()?, Vec::<String>::new());
     Ok(())
 }
+
+/// Resolving the active selections, under the UX state lock, never takes
+/// that lock again, even for a selection whose configuration still needs
+/// moving, as a selection's other spelling on a case-insensitive file
+/// system once did: the restoration finishes and the next operation too.
+#[test]
+fn resolving_active_models_never_waits_on_its_own_lock() -> Result<()> {
+    let (store, root) = test_store("active-lock");
+    let view = store.paths.gguf_variants_dir.join("m--Q8");
+    fs::create_dir_all(&view)?;
+    fs::create_dir_all(&store.paths.models_dir)?;
+    fs::write(
+        store.paths.models_dir.join("m--Q8.toml"),
+        format!(
+            "schema_version = 1\nid = \"m--Q8\"\npath = \"{}\"\n\n[hub]\nrepo_id = \"m:Q8\"\n\
+             revision = \"main\"\ncommit = \"abc\"\n",
+            view.canonicalize()?.display()
+        ),
+    )?;
+    fs::write(
+        &store.paths.ux_state_file,
+        "schema_version = 1\nrecent_models = []\nactive_models = [\"m--Q8\"]\n",
+    )?;
+    let store = std::sync::Arc::new(store);
+    let guard = store.ux_state_guard()?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let resolving = std::sync::Arc::clone(&store);
+    let worker = std::thread::spawn(move || {
+        let mut state = resolving.load_ux_state().expect("state should load");
+        resolving.normalize_active_models(&mut state);
+        drop(sender.send(state.active_models));
+    });
+    let resolved = receiver.recv_timeout(std::time::Duration::from_secs(5));
+    drop(guard);
+    worker.join().expect("resolution should not panic");
+    assert_eq!(resolved.expect("resolution should not wait on the held lock"), ["m--Q8"]);
+    assert_eq!(store.active_models()?, ["m@Q8"]);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

@@ -15,65 +15,6 @@ pub struct ResolvedModel {
 }
 
 impl Store {
-    /// The model `selector` names, with the checkpoint it loads from: a GGUF
-    /// model's import, written only when missing or older than its files.
-    pub(crate) fn resolve_model(&self, selector: &str) -> Result<ResolvedModel> {
-        let model = self.selected_model(selector)?;
-        // A model whose files are gone keeps its path, for its load to name.
-        let path = if model.path.exists() {
-            self.checkpoint(&model.path)?
-        } else {
-            model.path
-        };
-        Ok(ResolvedModel { path, ..model })
-    }
-
-    /// The model `selector` names, at the path it was configured or named
-    /// by, without reading its checkpoint.
-    pub(crate) fn selected_model(&self, selector: &str) -> Result<ResolvedModel> {
-        let direct = Path::new(selector);
-        if direct.exists() {
-            let canonical = fs::canonicalize(direct)?;
-            if let Some(model) = self
-                .list_model_configs()
-                .unwrap_or_default()
-                .into_iter()
-                .find(|model| fs::canonicalize(&model.path).is_ok_and(|path| path == canonical))
-            {
-                return Ok(ResolvedModel {
-                    key: model.id,
-                    path: model.path,
-                    generation: model.generation,
-                    runtime: model.runtime,
-                });
-            }
-            return Ok(ResolvedModel {
-                key: canonical.display().to_string(),
-                path: canonical,
-                generation: GenerationConfig::default(),
-                runtime: super::model_runtime::ModelRuntimeConfig::default(),
-            });
-        }
-        let key = selector_key(selector)?;
-        let model = match self.load_model_config(&key) {
-            // A selection saved before its variant moved names its legacy
-            // key, which holds no `@`.
-            Err(Error::ModelNotFound(missing)) if !key.contains('@') => {
-                match self.current_variant_id(&key)? {
-                    Some(id) => self.load_model_config(&id)?,
-                    None => return Err(Error::ModelNotFound(missing)),
-                }
-            },
-            model => model?,
-        };
-        Ok(ResolvedModel {
-            key: model.id,
-            path: model.path,
-            generation: model.generation,
-            runtime: model.runtime,
-        })
-    }
-
     pub fn hub_model_downloaded(&self, repo_id: &str) -> Result<bool> {
         let key = model_key(repo_id)?;
         match self.load_model_config(&key) {
@@ -87,11 +28,17 @@ impl Store {
     }
 
     pub fn list_model_configs(&self) -> Result<Vec<ModelConfig>> {
+        self.model_configs(Keys::Migrate)
+    }
+
+    fn model_configs(&self, keys: Keys) -> Result<Vec<ModelConfig>> {
         if !self.paths.models_dir.exists() {
             return Ok(Vec::new());
         }
         // Once per listing: every configuration below is under its own key.
-        self.migrate_variant_keys()?;
+        if keys == Keys::Migrate {
+            self.migrate_variant_keys()?;
+        }
         let mut models = Vec::new();
         for entry in fs::read_dir(&self.paths.models_dir)? {
             let entry = entry?;
@@ -157,16 +104,22 @@ impl Store {
     }
 
     pub(super) fn load_model_config(&self, key: &str) -> Result<ModelConfig> {
+        self.model_config(key, Keys::Migrate)
+    }
+
+    fn model_config(&self, key: &str, keys: Keys) -> Result<ModelConfig> {
         let path = self.model_config_path(key)?;
         // A variant downloaded before its key took `@` is saved under its
         // legacy key, which may be this one, a namesake repository's: either
         // moves to the variant's own key first.
-        if path.exists() {
-            self.migrate_variant_key(&path)?;
-        } else if let Some(legacy) = legacy::legacy_key(key) {
-            self.migrate_variant_key(&self.model_config_path(&legacy)?)?;
+        if keys == Keys::Migrate {
+            if saved(&path) {
+                self.migrate_variant_key(&path)?;
+            } else if let Some(legacy) = legacy::legacy_key(key) {
+                self.migrate_variant_key(&self.model_config_path(&legacy)?)?;
+            }
         }
-        if !path.exists() {
+        if !saved(&path) {
             return Err(Error::ModelNotFound(key.to_owned()));
         }
         read_model_config(&path, key)
@@ -176,6 +129,28 @@ impl Store {
     pub(super) fn model_config_path(&self, key: &str) -> Result<PathBuf> {
         Ok(self.paths.models_dir.join(format!("{}.toml", config_id(key)?)))
     }
+}
+
+/// Whether a lookup moves legacy variant keys first, or its caller moved
+/// them and holds the UX state lock, which moving takes again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::config) enum Keys {
+    Migrate,
+    Migrated,
+}
+
+/// Whether a configuration is saved at `path` under that very name: on a
+/// case-insensitive file system, a key's file answers to its other
+/// spellings too, which are other keys.
+fn saved(path: &Path) -> bool {
+    let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
+        return false;
+    };
+    fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| entry.file_name() == name)
 }
 
 fn read_model_config(path: &Path, key: &str) -> Result<ModelConfig> {
@@ -213,5 +188,6 @@ pub(super) fn selector_key(selector: &str) -> Result<String> {
 }
 
 mod legacy;
+mod select;
 #[cfg(test)]
 mod tests;

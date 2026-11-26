@@ -11,7 +11,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::super::{HubReference, ModelConfig, Store, file::write_toml, folder_key};
+use super::{
+    super::{HubReference, ModelConfig, Store, file::write_toml, folder_key},
+    Keys,
+};
 use crate::error::Result;
 
 /// The key the variant keyed `key` (`owner--name@VARIANT`) had before:
@@ -47,15 +50,17 @@ impl Store {
 
     /// The current id of the variant whose legacy key is `legacy`, an id a
     /// selection saved before it moved.
-    pub(super) fn current_variant_id(&self, legacy: &str) -> Result<Option<String>> {
-        Ok(self.list_model_configs()?.into_iter().find_map(|model| {
+    pub(super) fn current_variant_id(&self, legacy: &str, keys: Keys) -> Result<Option<String>> {
+        Ok(self.model_configs(keys)?.into_iter().find_map(|model| {
             let reference = model.hub?.repo_id.parse::<HubReference>().ok()?;
             (legacy_key(&reference.key()).as_deref() == Some(legacy)).then_some(model.id)
         }))
     }
 
     /// Moves the configuration at `path` to its own key when it records a
-    /// variant saved under another: its legacy key, or a namesake's.
+    /// variant saved under its legacy key, which may be a namesake's. Under
+    /// any other name it stays: on a case-insensitive file system, another
+    /// spelling of its own key names the configuration itself.
     pub(super) fn migrate_variant_key(&self, path: &Path) -> Result<()> {
         let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
             return Ok(());
@@ -75,10 +80,13 @@ impl Store {
             return Ok(());
         };
         let key = reference.key();
-        if key == stem {
+        if legacy_key(&key).as_deref() != Some(stem) {
             return Ok(());
         }
         let target = self.model_config_path(&key)?;
+        if same_file(path, &target) {
+            return Ok(());
+        }
         if !target.exists() {
             self.move_view(&mut model, stem, &key)?;
             let variants = &self.paths.gguf_variants_dir;
