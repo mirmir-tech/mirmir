@@ -112,3 +112,37 @@ fn resolving_active_models_never_waits_on_its_own_lock() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// The reviewer's case on a case-insensitive file system (macOS APFS): an
+/// installed `owner/model-GGUF:Q4_0` and an active selection spelled
+/// `owner/model-GGUF:q4_0`, whose key names the same configuration file
+/// there. Listing the active models finishes, the next state operation too,
+/// and the configuration stays. Elsewhere the spellings are two names, and
+/// the same calls hold.
+#[test]
+fn an_active_selection_spelled_another_way_resolves_without_waiting() -> Result<()> {
+    let (store, root) = test_store("active-spelling");
+    let view = store.paths.gguf_variants_dir.join("owner--model-GGUF@Q4_0");
+    fs::create_dir_all(&view)?;
+    store.save_hub_model("owner/model-GGUF:Q4_0", "main", "abc", view.canonicalize()?)?;
+    let saved = store.paths.models_dir.join("owner--model-GGUF@Q4_0.toml");
+    fs::write(
+        &store.paths.ux_state_file,
+        "schema_version = 1\nrecent_models = []\nactive_models = [\"owner/model-GGUF:q4_0\"]\n",
+    )?;
+    let store = std::sync::Arc::new(store);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let listing = std::sync::Arc::clone(&store);
+    let worker = std::thread::spawn(move || {
+        let active = listing.active_models();
+        let next = listing.recent_models();
+        sender.send((active.is_ok(), next.is_ok())).ok();
+    });
+    let finished = receiver.recv_timeout(std::time::Duration::from_secs(5));
+    assert_eq!(finished.ok(), Some((true, true)), "listing or the next operation waited");
+    worker.join().expect("listing should not panic");
+    assert!(saved.exists(), "the installed variant's configuration went");
+    assert!(store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

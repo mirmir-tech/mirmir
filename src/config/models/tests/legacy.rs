@@ -153,10 +153,20 @@ fn another_spelling_of_a_variant_key_keeps_its_configuration() -> Result<()> {
     store.save_hub_model("owner/model-GGUF:Q4_0", "main", "abc", view.canonicalize()?)?;
     let saved = paths.models_dir.join("owner--model-GGUF@Q4_0.toml");
     let spelling = paths.models_dir.join("owner--model-GGUF@q4_0.toml");
-    fs::hard_link(&saved, &spelling)?;
+    // A case-insensitive file system (macOS APFS) already names the
+    // configuration so; elsewhere a hard link stands in for it.
+    let linked = match fs::hard_link(&saved, &spelling) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(error) => return Err(error.into()),
+    };
     assert!(!matches!(store.hub_model_downloaded("owner/model-GGUF:q4_0"), Ok(true)));
     assert!(saved.exists() && spelling.exists());
-    fs::remove_file(spelling)?;
+    // Only the stand-in goes: on a case-insensitive file system the
+    // spelling is the configuration itself.
+    if linked {
+        fs::remove_file(spelling)?;
+    }
     assert!(store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
     assert!(view.exists());
     fs::remove_dir_all(root)?;
