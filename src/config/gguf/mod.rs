@@ -30,6 +30,12 @@ struct Listed {
     target: SourceFile,
 }
 
+/// The paths of a directory's entries; none when it cannot be read.
+fn entries(directory: &Path) -> Vec<PathBuf> {
+    let entries = fs::read_dir(directory).into_iter().flatten().flatten();
+    entries.map(|entry| entry.path()).collect()
+}
+
 /// The GGUF files of a directory, as they are now.
 fn listing(path: &Path) -> Result<Vec<Listed>> {
     // libmir's model errors convert to its own error, which converts to ours.
@@ -86,6 +92,35 @@ impl Store {
             fs::write(directory.join(LISTING), serde_json::to_vec_pretty(&listing)?)?;
         }
         Ok(Some(directory))
+    }
+
+    /// The GGUF imports of `root`, canonical, and, current or legacy, of
+    /// every file and folder below it by its canonical path, as listing or
+    /// loading a model by a path there makes them: a snapshot's, or a file's
+    /// linked into one, which resolves to its blob. A link resolving out of
+    /// `root` names a file that stays, and its import with it. Taken before
+    /// `root` goes, as an import's key tells a file from a folder.
+    pub(crate) fn gguf_imports_within(&self, root: &Path) -> Vec<PathBuf> {
+        let mut imports = vec![self.gguf_import_dir(root)];
+        let mut below = entries(root);
+        while let Some(path) = below.pop() {
+            // Real folders only: a snapshot's links name files in the cache.
+            if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_dir()) {
+                below.extend(entries(&path));
+            }
+            let Some(path) = fs::canonicalize(&path).ok().filter(|path| path.starts_with(root))
+            else {
+                continue;
+            };
+            let legacy = self.paths.gguf_imports_dir.join(folder_key(&path.with_extension("")));
+            for import in [self.gguf_import_dir(&path), legacy] {
+                if !imports.contains(&import) {
+                    imports.push(import);
+                }
+            }
+        }
+        imports.retain(|import| import.exists());
+        imports
     }
 
     /// Where a canonical GGUF `path` imports to: a file under its stem; a

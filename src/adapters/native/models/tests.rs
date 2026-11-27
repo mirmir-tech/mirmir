@@ -1,7 +1,7 @@
 use super::super::NativeRuntime;
 use crate::{
     application::Error,
-    config::{AppConfig, HubReference, Paths, Store},
+    config::{AppConfig, HubReference, Paths, RemovalScope, Store},
 };
 
 /// No load of a model being removed starts, nor makes its GGUF import,
@@ -18,7 +18,7 @@ fn no_load_resolves_a_model_being_removed() -> crate::error::Result<()> {
     store.save_hub_model("owner/m-GGUF:Q4_0", "main", "abc", view.canonicalize()?)?;
     let import = store.gguf_import_dir(&view.canonicalize()?);
     let runtime = NativeRuntime::new(&AppConfig::default(), store);
-    let asked = "Owner/M-gguf".parse::<HubReference>()?;
+    let asked = RemovalScope::new("Owner/M-gguf".parse::<HubReference>()?, Vec::new());
     let removal = runtime.lifecycle.begin_removal(&asked);
     assert!(removal.is_ok());
     let refused = runtime.load_model("owner/m-GGUF:Q4_0", false, &mut |_| {});

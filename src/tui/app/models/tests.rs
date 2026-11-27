@@ -186,3 +186,42 @@ fn a_variant_change_keeps_the_repositorys_own_state() {
     app.mark_downloaded("owner/m-GGUF", false);
     assert_eq!(app.catalog[0].local_source, "remote");
 }
+
+/// A checkpoint without variants that another tool's cache holds lists, in
+/// the local list, as not mirmir's: its row reads HF CACHE and loads from
+/// that cache, as a GGUF repository's there does; mirmir's own reads
+/// downloaded.
+#[test]
+fn another_tools_cache_is_not_a_download_in_the_local_list() {
+    use super::super::CatalogPresence;
+    let snapshot = "/cache/models--Qwen--Test/snapshots/abc";
+    let cached = |repo_id: &str, managed: bool| proto::LocalModelInfo {
+        id: repo_id.replace('/', "--"),
+        repo_id: repo_id.to_owned(),
+        selector: snapshot.to_owned(),
+        state: "available".to_owned(),
+        loadable: true,
+        managed,
+        ..Default::default()
+    };
+    let mut app = App::new(true);
+    app.search_query = "Qwen".to_owned();
+    app.catalog.push(row("Qwen/Test", "supported", "fits"));
+    "hf_cache".clone_into(&mut app.catalog[0].local_source);
+    app.local_models.push(cached("Qwen/Test", false));
+    assert_eq!(app.catalog_presence(&app.catalog[0]), CatalogPresence::ExternalCache);
+    let target = app.load_target().map(|target| target.selector);
+    assert_eq!(target.as_deref(), Some(snapshot));
+    app.local_models[0].managed = true;
+    assert_eq!(app.catalog_presence(&app.catalog[0]), CatalogPresence::Downloaded);
+
+    let mut app = searched(vec![variant("Q4_K_M", "fits", false), variant("Q8_0", "fits", false)]);
+    "hf_cache".clone_into(&mut app.catalog[0].local_source);
+    app.local_models.push(cached("owner/m-GGUF", false));
+    for step in [-1, 1] {
+        app.cycle_variant(step);
+        assert_eq!(app.catalog_presence(&app.catalog[0]), CatalogPresence::ExternalCache);
+        let target = app.load_target().map(|target| target.selector);
+        assert_eq!(target.as_deref(), Some(snapshot));
+    }
+}

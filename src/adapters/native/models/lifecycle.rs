@@ -34,14 +34,14 @@ impl NativeRuntime {
         // Loading from here on: before its checkpoint, a GGUF model's
         // import, is made, so a removal of it refuses meanwhile, and one
         // under way refuses this load before it writes anything.
-        let _loading = self.lifecycle.begin_loading(&selected.key)?;
+        let _loading = self.lifecycle.begin_loading(&selected.key, &selected.path)?;
         let resolved = self
             .store
             .resolve_model(selector)
             .map_err(|error| Error::InvalidModel(error.to_string()))?;
         // The gate keeps the id; a legacy variant moved since is held too.
         let _moved = (resolved.key != selected.key)
-            .then(|| self.lifecycle.begin_loading(&resolved.key))
+            .then(|| self.lifecycle.begin_loading(&resolved.key, &selected.path))
             .transpose()?;
         loop {
             match self.preflight(
@@ -90,6 +90,7 @@ impl NativeRuntime {
                 &loaded,
             ),
             model: loaded,
+            source: selected.path.canonicalize().unwrap_or_else(|_| selected.path.clone()),
             last_used: self.lifecycle.next_residency(),
         };
         let mut state = self.lifecycle.state()?;

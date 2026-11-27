@@ -91,8 +91,12 @@ impl App {
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();
         drop(tokio::spawn(async move {
-            let result = crate::tui::string_result(client.remove_model(request).await)
-                .map(tonic::Response::into_inner);
+            // A refusal says why in its message, without the status's code.
+            let result = client
+                .remove_model(request)
+                .await
+                .map(tonic::Response::into_inner)
+                .map_err(|status| status.message().to_owned());
             drop(sender.send(result).await);
         }));
         self.action_message = Some(format!("removing {}…", target.id));

@@ -15,6 +15,9 @@ pub enum Error {
     /// Another pull or removal of the model or its repository is under way.
     #[error("{0}")]
     ModelTransferring(crate::catalog::TransferConflict),
+    /// A removal would delete the files of a model configured of its own.
+    #[error("{0}")]
+    CacheHeld(crate::config::HeldCache),
     #[error("model request is invalid: {0}")]
     InvalidModel(String),
     #[error("generation request is invalid: {0}")]
@@ -62,7 +65,8 @@ impl Error {
             | Self::ModelAlreadyLoading(_)
             | Self::ModelLoaded(_)
             | Self::ModelBeingRemoved(_)
-            | Self::ModelTransferring(_) => ErrorClass::Conflict,
+            | Self::ModelTransferring(_)
+            | Self::CacheHeld(_) => ErrorClass::Conflict,
             Self::MemoryPressure(_) => ErrorClass::ResourceExhausted,
             Self::InvalidModelOutput(_) => ErrorClass::InvalidModelOutput,
             Self::Cancelled => ErrorClass::Cancelled,
@@ -85,6 +89,7 @@ impl From<crate::error::Error> for Error {
             | crate::error::Error::TomlEncode(_)) => Self::Configuration(error.to_string()),
             crate::error::Error::ModelNotFound(model) => Self::InvalidModel(model),
             crate::error::Error::ModelTransferring(conflict) => Self::ModelTransferring(conflict),
+            crate::error::Error::CacheHeld(held) => Self::CacheHeld(held),
             crate::error::Error::Io(error) => Self::Persistence(error.to_string()),
             error @ (crate::error::Error::Http(_)
             | crate::error::Error::Hub(_)

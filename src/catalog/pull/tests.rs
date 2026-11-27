@@ -146,3 +146,46 @@ async fn a_queued_pull_rechecks_the_installation() -> Result<()> {
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// A removal's scope is taken once no other removal or pull of its
+/// repository runs: one waiting for another sees what that one left, and
+/// none is prepared while a pull of the repository transfers.
+#[tokio::test]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "each prepared removal's exclusion moves into `run`, which holds it while deleting"
+)]
+async fn a_removal_is_scoped_after_the_removal_before_it() -> Result<()> {
+    use crate::config::{CacheKind, RepositoryCache};
+    let root = std::env::temp_dir().join(format!("mirmir-scope-race-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&root));
+    let mut paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
+    paths.external_hub_cache = Some(root.join("hf"));
+    let snapshot = root.join("hf/models--Owner--Ext/snapshots/abc");
+    std::fs::create_dir_all(&snapshot)?;
+    std::fs::write(snapshot.join("config.json"), b"{}")?;
+    let store = Store::new(paths);
+    store.save_hub_model("Owner/Ext", "main", "abc", snapshot.canonicalize()?)?;
+    let catalog = Catalog::new(store);
+    let kinds = |prepared: &PreparedRemoval<'_>| {
+        prepared.scope().caches().iter().map(RepositoryCache::kind).collect::<Vec<_>>()
+    };
+
+    let pull = catalog.reserve("owner/ext:Q4_0", Activity::Pull)?;
+    assert!(catalog.prepare_removal("owner/ext").await.is_err());
+    drop(pull);
+    // Its configuration held, the other tool's cache is not the first's.
+    let first = catalog.prepare_removal("owner/ext").await?;
+    assert!(kinds(&first).is_empty());
+    let second = catalog.prepare_removal("Owner/Ext");
+    tokio::pin!(second);
+    let waiting = tokio::time::timeout(std::time::Duration::from_millis(50), &mut second);
+    assert!(waiting.await.is_err());
+    assert!(first.run().await?.removed);
+    let second = second.await?;
+    assert_eq!(kinds(&second), [CacheKind::External]);
+    assert!(second.run().await?.removed);
+    assert!(!snapshot.exists());
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

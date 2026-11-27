@@ -1,11 +1,15 @@
 use std::{
     fs,
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 
-use super::{HubReference, Store, file::write_toml, schema::SCHEMA_VERSION, store::StateRecovery};
+use super::{
+    HubReference, RemovalScope, Store, file::write_toml, schema::SCHEMA_VERSION,
+    store::StateRecovery,
+};
 use crate::error::{Error, Result};
 
 const RECENT_LIMIT: usize = 10;
@@ -69,11 +73,15 @@ impl Store {
         self.deactivate(|active| active == id)
     }
 
-    /// Deactivates every model `asked` names in any spelling: a model, or a
-    /// repository with each of its variants.
-    pub fn deactivate_models_of(&self, asked: &HubReference) -> Result<()> {
+    /// Deactivates every model the removal `scope` took: one it names in
+    /// any spelling, a model or a repository with each of its variants, and
+    /// one activated by its path within a cache it deleted, the files gone.
+    pub fn deactivate_models_of(&self, scope: &RemovalScope) -> Result<()> {
+        let asked = scope.asked();
         self.deactivate(|active| {
+            let path = Path::new(active);
             asked.owns_key(active)
+                || (scope.holds_path(path) && !path.exists())
                 || active.parse::<HubReference>().is_ok_and(|reference| match asked.variant() {
                     Some(_) => asked.is_same_model(&reference),
                     None => asked.same_repository(&reference),

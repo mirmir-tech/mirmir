@@ -1,13 +1,16 @@
 //! Pulling and removing Hub models, one transfer per model at a time.
 
 mod registry;
+mod removal;
 
 use libmir::{BackendTarget, CancellationToken};
 pub(super) use registry::Transfers;
 pub use registry::{Activity, TransferConflict};
+#[cfg(test)]
+use removal::PreparedRemoval;
 
 use super::{
-    Catalog, DownloadedModel, MachineMemory, ModelVariants, Removal, TransferPhase, TransferUpdate,
+    Catalog, DownloadedModel, MachineMemory, ModelVariants, TransferPhase, TransferUpdate,
     discover_cached_models_in, download, fit,
     hub::{GgufRepository, RepoFile},
     resumable::{self, ListedFile},
@@ -221,25 +224,6 @@ impl Catalog {
             "remote SafeTensors headers validated"
         );
         Ok(())
-    }
-
-    /// Removes `repo_id`, excluding any pull or removal of anything of its
-    /// repository until its files, and the repository cache its last
-    /// variant leaves, are gone.
-    pub async fn remove(&self, repo_id: &str) -> Result<Removal> {
-        let _serial = self.removals.lock().await;
-        let _reservation = self.reserve(repo_id, Activity::Removal)?;
-        let removed = download::remove(&self.store, repo_id).await?;
-        let mut removal = removed.removal;
-        if let Some(repository) = removed.emptied {
-            // The variant is gone either way; a cache that could not go is
-            // listed, and removed with its repository.
-            match download::remove_emptied(&self.store, &repository).await {
-                Ok(freed) => removal.freed_bytes += freed,
-                Err(error) => tracing::warn!(%repository, %error, "repository cache not removed"),
-            }
-        }
-        Ok(removal)
     }
 }
 

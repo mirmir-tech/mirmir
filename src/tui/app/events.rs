@@ -18,17 +18,14 @@ impl App {
                 }
                 return false;
             }
-            let navigation_available = self.load_dialog.is_none()
-                && self.chat_settings_dialog.is_none()
-                && self.remove_dialog.is_none()
-                && self.configuration_edit.is_none()
-                && !self.navigation.exit_dialog;
-            if navigation_available
-                && matches!(
-                    mouse.kind,
-                    MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
-                )
-                && self.handle_workspace_click(mouse.column, mouse.row)
+            // A dialog is modal: nothing behind it takes a click or a scroll.
+            if self.modal_open() {
+                return false;
+            }
+            if matches!(
+                mouse.kind,
+                MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+            ) && self.handle_workspace_click(mouse.column, mouse.row)
             {
                 return false;
             }
@@ -36,7 +33,7 @@ impl App {
             return false;
         }
         if let Event::Paste(value) = event {
-            if self.screen == Screen::Chat {
+            if self.screen == Screen::Chat && !self.help_open && !self.modal_open() {
                 self.handle_chat_paste(value);
             }
             return false;
@@ -46,6 +43,10 @@ impl App {
         };
         if self.dismiss_help(*key) {
             return false;
+        }
+        // The exit confirmation, drawn over any dialog, takes its keys first.
+        if self.navigation.exit_dialog {
+            return self.handle_navigation_key(*key).unwrap_or(false);
         }
         if self.remove_dialog.is_some() {
             if key.kind == KeyEventKind::Press {
@@ -66,9 +67,13 @@ impl App {
         if self.open_help(*key) {
             return false;
         }
-        // A load dialog opened from search results takes its keys before the
-        // search field does, or Enter would never load.
-        if self.handle_load_dialog_key(*key, client) {
+        // A load dialog is modal wherever it opened, from search results
+        // too: what it does not take, Esc, q and the function keys, is
+        // navigation's, never the search field's or the screen's behind it.
+        if self.load_dialog.is_some() {
+            if !self.handle_load_dialog_key(*key, client) {
+                return self.handle_navigation_key(*key).unwrap_or(false);
+            }
             return false;
         }
         if self.editing_search {
@@ -103,6 +108,15 @@ impl App {
             self.handle_models_key(*key, client).await;
         }
         false
+    }
+
+    /// Whether a dialog holds the keyboard and the mouse.
+    const fn modal_open(&self) -> bool {
+        self.load_dialog.is_some()
+            || self.chat_settings_dialog.is_some()
+            || self.remove_dialog.is_some()
+            || self.configuration_edit.is_some()
+            || self.navigation.exit_dialog
     }
 
     fn handle_load_dialog_key(&mut self, key: crossterm::event::KeyEvent, client: &Client) -> bool {

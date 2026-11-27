@@ -1,11 +1,13 @@
 mod freed;
 mod remove;
+mod scope;
 mod spelling;
 mod variant;
 
 use hf_hub::HFClient;
 use libmir::CancellationToken;
 pub use remove::{remove, remove_emptied};
+pub use scope::removal_scope;
 pub(super) use spelling::spelled;
 use tokio::sync::mpsc;
 pub(super) use variant::{canonical_variant, check_variant, default_variant};

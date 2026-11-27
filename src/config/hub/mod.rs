@@ -9,8 +9,11 @@ use crate::error::{Error, Result};
 /// Joins a repository's key to its variant's.
 const VARIANT_KEY: char = '@';
 
+mod scope;
 #[cfg(test)]
 mod tests;
+
+pub use scope::{CacheKind, HeldCache, RemovalScope, RepositoryCache};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HubReference {
@@ -85,6 +88,13 @@ impl HubReference {
         stem == key
             || (self.variant.is_some() && legacy_variant)
             || (self.variant.is_none() && repository_variant)
+    }
+
+    /// The name of the repository's directory in a Hugging Face cache:
+    /// `models--owner--name`, whichever variant the reference names.
+    #[must_use]
+    pub fn cache_directory(&self) -> String {
+        format!("models--{}", self.repository.replace('/', "--"))
     }
 
     /// Whether `label` can name a variant: `owner/name:LABEL`.

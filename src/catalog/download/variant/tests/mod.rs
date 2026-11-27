@@ -120,7 +120,8 @@ async fn a_legacy_variant_is_removed_as_the_first_operation() -> Result<()> {
         models.join("owner--model-GGUF--Q4_0.toml"),
         config.replace("owner--model-GGUF@Q4_0", "owner--model-GGUF--Q4_0"),
     )?;
-    let removal = crate::catalog::download::remove(&store, "owner/model-GGUF:Q4_0").await?.removal;
+    let scope = crate::catalog::download::removal_scope(&store, &"owner/model-GGUF:Q4_0".parse()?)?;
+    let removal = crate::catalog::download::remove(&store, &scope).await?.removal;
     assert!(removal.removed && removal.freed_bytes > 0);
     assert!(!old.exists() && !view.exists());
     assert!(!store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);

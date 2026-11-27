@@ -5,12 +5,11 @@
 //! variant goes with the files no other model of its repository holds; a
 //! repository with all of it.
 
-use std::fs;
+use std::{fs, io, path::Path};
 
-use super::{Removal, client, freed, variant};
+use super::{Removal, freed, variant};
 use crate::{
-    catalog::discover_external_models,
-    config::{HubReference, Store},
+    config::{CacheKind, HubReference, RemovalScope, RepositoryCache, Store},
     error::{Error, Result},
 };
 
@@ -21,10 +20,11 @@ pub struct Removed {
     pub emptied: Option<HubReference>,
 }
 
-pub async fn remove(store: &Store, repo_id: &str) -> Result<Removed> {
-    let asked = repo_id.parse::<HubReference>()?;
+/// Removes what `scope` asks for, deleting no cache it does not name.
+pub async fn remove(store: &Store, scope: &RemovalScope) -> Result<Removed> {
+    let asked = scope.asked().clone();
     if asked.variant().is_none() {
-        let removal = remove_repository(store, &asked, Caches::AnyKnown).await?;
+        let removal = remove_repository(store, scope, Caches::AnyKnown).await?;
         return Ok(Removed { removal, emptied: None });
     }
     // A variant saved under its legacy key is found by its current one.
@@ -66,11 +66,15 @@ pub async fn remove(store: &Store, repo_id: &str) -> Result<Removed> {
 
 /// Removes the cache a last variant left of `repository`, unless anything
 /// of it was saved or began downloading since; the bytes freed.
-pub async fn remove_emptied(store: &Store, repository: &HubReference) -> Result<u64> {
+pub async fn remove_emptied(
+    store: &Store,
+    repository: &HubReference,
+    scope: &RemovalScope,
+) -> Result<u64> {
     if variant::holds_any(store, repository)? {
         return Ok(0);
     }
-    Ok(remove_caches(store, repository, Caches::Managed).await?.1)
+    Ok(remove_caches(store, scope, Caches::Managed).await?.1)
 }
 
 /// The Hub models saved, by the references their configurations record.
@@ -93,11 +97,8 @@ enum Caches {
 /// Removes the repository `reference` with every model of it in any
 /// spelling: its variants, downloaded and downloading, its own
 /// configurations, their unreadable files, and its caches.
-async fn remove_repository(
-    store: &Store,
-    reference: &HubReference,
-    caches: Caches,
-) -> Result<Removal> {
+async fn remove_repository(store: &Store, scope: &RemovalScope, caches: Caches) -> Result<Removal> {
+    let reference = scope.asked();
     let damaged = [
         store.damaged_configs_of(reference)?,
         variant::damaged_markers_of(store.paths(), reference)?,
@@ -135,71 +136,58 @@ async fn remove_repository(
     } else {
         caches
     };
-    let (removed_cache, cache_bytes) = remove_caches(store, reference, caches).await?;
+    let (removed_cache, cache_bytes) = remove_caches(store, scope, caches).await?;
     Ok(Removal {
         removed: removed || removed_cache,
         freed_bytes: freed_bytes + cache_bytes,
     })
 }
 
-/// Removes the caches of the repository `reference` in any spelling, all
-/// one repository to the Hub; whether there were any, and the bytes freed.
-async fn remove_caches(
-    store: &Store,
-    reference: &HubReference,
-    caches: Caches,
-) -> Result<(bool, u64)> {
-    let repo_id = reference.to_string();
-    let same = |id: &str| id.eq_ignore_ascii_case(&repo_id);
-    let own = store.paths().hub_cache_dir.clone();
-    let cache = client(store)?.scan_cache().send().await?;
-    let mut targets = cache
-        .repos
-        .into_iter()
-        .filter(|repo| repo.repo_type == "model" && same(&repo.repo_id))
-        .map(|repo| (repo.repo_path, own.clone()))
-        .collect::<Vec<_>>();
-    // Partial caches the scan does not list.
-    let name = format!("models--{}", reference.key());
-    for entry in fs::read_dir(&own).into_iter().flatten().flatten() {
-        let path = entry.path();
-        let named = entry
-            .file_name()
-            .to_str()
-            .is_some_and(|entry| entry.eq_ignore_ascii_case(&name));
-        let listed = |target: &std::path::PathBuf| {
-            fs::canonicalize(target).ok() == fs::canonicalize(&path).ok()
-        };
-        if named && !targets.iter().any(|(target, _)| listed(target)) {
-            targets.push((path, own.clone()));
-        }
-    }
+/// Removes the repository caches `scope` names that are there: mirmir's
+/// own, else, as `caches` lets it, another tool's; whether there were any,
+/// and the bytes freed.
+async fn remove_caches(store: &Store, scope: &RemovalScope, caches: Caches) -> Result<(bool, u64)> {
+    let present = |kind| {
+        let caches = scope.caches().iter();
+        caches
+            .filter(move |cache| cache.kind() == kind && cache.path().exists())
+            .cloned()
+    };
+    let mut targets = present(CacheKind::Managed).collect::<Vec<_>>();
     if targets.is_empty() && caches == Caches::AnyKnown {
-        let external = store.paths().external_hub_cache.clone().and_then(|root| {
-            discover_external_models(store.paths())
-                .into_iter()
-                .find(|model| same(&model.repo_id))
-                .map(|model| (model.repo_path, root))
-        });
-        targets.extend(external);
+        targets.extend(present(CacheKind::External));
     }
     let removed = !targets.is_empty();
     let mut freed_bytes = 0;
-    for (path, root) in targets {
-        freed_bytes += remove_cache_repo(path, root).await?;
+    for cache in targets {
+        freed_bytes += remove_cache_repo(store, cache).await?;
     }
     Ok((removed, freed_bytes))
 }
 
-pub(super) async fn remove_cache_repo(
-    path: std::path::PathBuf,
-    cache: std::path::PathBuf,
-) -> Result<u64> {
+/// Removes the repository cache `cache` and the GGUF imports that listing
+/// or loading a model by a path within it made; the bytes freed. An import
+/// that cannot go stays behind, unused once its files are gone.
+pub(super) async fn remove_cache_repo(store: &Store, cache: RepositoryCache) -> Result<u64> {
+    let store = store.clone();
     tokio::task::spawn_blocking(move || {
-        let path = validated_cache_repo(&path, &cache)?;
-        Ok(freed::remove_tree(&path)?)
+        let path = validated_cache_repo(cache.path(), cache.root())?;
+        let imports = store.gguf_imports_within(&path);
+        let freed = freed::remove_tree(&path)?;
+        Ok(freed + imports.iter().map(|import| remove_import(import)).sum::<u64>())
     })
     .await?
+}
+
+fn remove_import(import: &Path) -> u64 {
+    match freed::remove_tree(import) {
+        Ok(freed) => freed,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+        Err(error) => {
+            tracing::warn!(import = %import.display(), %error, "GGUF import not removed");
+            0
+        },
+    }
 }
 
 pub(super) fn validated_cache_repo(

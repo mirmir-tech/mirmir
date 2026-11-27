@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::*;
-use crate::config::Paths;
+use crate::config::{CacheKind, Paths, RemovalScope, RepositoryCache};
 
 static NEXT_STATE: AtomicU64 = AtomicU64::new(0);
 
@@ -42,10 +42,40 @@ fn a_removal_deactivates_every_spelling_it_names() -> Result<()> {
     for key in ["Org--Repo@Q4_K_M", "Org--Repo@Q8_0", "Org--Repo-GGUF@Q8_0", "Org--Other"] {
         store.activate_model(key)?;
     }
-    store.deactivate_models_of(&"org/repo:q4_k_m".parse()?)?;
+    store.deactivate_models_of(&RemovalScope::new("org/repo:q4_k_m".parse()?, Vec::new()))?;
     assert_eq!(store.active_models()?, ["Org--Repo@Q8_0", "Org--Repo-GGUF@Q8_0", "Org--Other"]);
-    store.deactivate_models_of(&"org/repo".parse()?)?;
+    store.deactivate_models_of(&RemovalScope::new("org/repo".parse()?, Vec::new()))?;
     assert_eq!(store.active_models()?, ["Org--Repo-GGUF@Q8_0", "Org--Other"]);
+    Ok(())
+}
+
+/// A model activated by its path in a repository's Hugging Face cache,
+/// unconfigured, leaves the active set with a removal that deleted that
+/// cache; one whose files stay, as a variant's removal leaves another
+/// tool's cache, or in a cache the removal leaves, stays active.
+#[test]
+fn a_removal_deactivates_a_model_activated_from_a_cache_it_took() -> Result<()> {
+    let (store, root) = test_store("active-cached");
+    let external = root.join("hf/models--Owner--Repo");
+    let namesake = root.join("hf/models--Owner--Repo2/snapshots/abc");
+    let mut activated = Vec::new();
+    for snapshot in [&external.join("snapshots/abc"), &namesake] {
+        fs::create_dir_all(snapshot)?;
+        let key = fs::canonicalize(snapshot)?.display().to_string();
+        store.activate_model(&key)?;
+        activated.push(key);
+    }
+    let cache = RepositoryCache::new(&external, &root.join("hf"), CacheKind::External);
+    // Its variant's removal takes mirmir's own cache, not another tool's.
+    store.deactivate_models_of(&RemovalScope::new("owner/repo:Q4_K_M".parse()?, Vec::new()))?;
+    // A removal that may take the cache but has not leaves the model.
+    let repository = RemovalScope::new("owner/repo".parse()?, vec![cache]);
+    store.deactivate_models_of(&repository)?;
+    assert_eq!(store.active_models()?, activated);
+    fs::remove_dir_all(&external)?;
+    store.deactivate_models_of(&repository)?;
+    assert_eq!(store.active_models()?, activated[1..]);
+    fs::remove_dir_all(root)?;
     Ok(())
 }
 

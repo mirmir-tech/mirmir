@@ -62,6 +62,9 @@ impl NativeRuntime {
 /// Resident models' presented details by their canonical selector.
 type Resident<'a> = HashMap<&'a str, &'a ModelInfo>;
 
+/// The models loading, by key, with the paths they were configured at.
+type Loading = HashMap<String, PathBuf>;
+
 #[allow(clippy::too_many_arguments)]
 fn append_cached(
     listed: &mut Vec<LocalModelInfo>,
@@ -70,7 +73,7 @@ fn append_cached(
     known_repos: &mut known::Repositories,
     known_paths: &mut HashSet<PathBuf>,
     models: &Resident<'_>,
-    loading: &HashSet<String>,
+    loading: &Loading,
     store: &Store,
 ) {
     // Path selectors resolve to canonical keys, so residency must match on the
@@ -115,7 +118,7 @@ fn configured(
     config: &ModelConfig,
     recent: &HashMap<String, u32>,
     models: &Resident<'_>,
-    loading: &HashSet<String>,
+    loading: &Loading,
     runtime: &NativeRuntime,
 ) -> LocalModelInfo {
     let hub = config.hub.clone().unwrap_or_else(|| HubModelConfig {
@@ -192,11 +195,11 @@ fn state(
     path: &Path,
     loadable: bool,
     models: &Resident<'_>,
-    loading: &HashSet<String>,
+    loading: &Loading,
 ) -> LocalModelState {
     if models.contains_key(selector) {
         LocalModelState::Ready
-    } else if loading.contains(selector) {
+    } else if loading.contains_key(selector) {
         LocalModelState::Loading
     } else if !path.exists() {
         // Before its load error, which files that are gone always have:

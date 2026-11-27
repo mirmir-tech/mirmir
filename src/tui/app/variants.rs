@@ -3,6 +3,7 @@
 
 use super::App;
 use crate::{
+    application::LocalModelState,
     catalog::{MemoryFit, VariantSize},
     config::HubReference,
     error::Result,
@@ -60,10 +61,13 @@ impl App {
     /// Whether mirmir itself holds the row's chosen download.
     fn catalog_own(&self, model: &proto::CatalogModel) -> bool {
         let target = self.pull_target(model).ok();
-        // On disk, as the server counts a download, loadable or not.
+        // In mirmir's own cache and on disk, as the server counts a
+        // download, loadable or not; another tool's cache is not mirmir's.
         let listed = self.local_models.iter().any(|local| {
             target.as_deref().is_some_and(|target| same_model(&local.repo_id, target))
-                && matches!(local.state.as_str(), "available" | "ready" | "loading" | "error")
+                && local.managed
+                && LocalModelState::from_protocol(&local.state)
+                    .is_some_and(LocalModelState::on_disk)
         });
         listed
             || self.chosen_variant(model).map_or_else(

@@ -1,9 +1,9 @@
 mod client;
 mod service;
 
-#[cfg(test)]
-pub use client::connect_remote_within;
 pub use client::{Client, connect, connect_remote, unavailable};
+#[cfg(test)]
+pub use client::{connect_remote_within, offline};
 pub use service::RuntimeService;
 
 pub use crate::application::PROTOCOL_VERSION;

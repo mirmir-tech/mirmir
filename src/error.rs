@@ -34,6 +34,10 @@ pub enum Error {
     /// holds back.
     #[error("{0}")]
     ModelTransferring(crate::catalog::TransferConflict),
+    /// A removal refused, as a model configured of its own lies within a
+    /// cache it would delete.
+    #[error("{0}")]
+    CacheHeld(crate::config::HeldCache),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("dotenv error: {0}")]
