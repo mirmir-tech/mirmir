@@ -36,6 +36,8 @@ pub(super) fn CatalogRow(#[prop(into)] model: Signal<CatalogModel>) -> impl Into
     ));
     let id = initial.id.clone();
     let id_for_select = initial.id;
+    #[cfg(test)]
+    super::tests::probe::watch(model);
     sync_quantizations(state, model, quantizations, initial.variants, initial.default_variant);
     let gguf = move || model.with(|model| !model.variants.is_empty());
     let format = move || {

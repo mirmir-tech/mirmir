@@ -6,7 +6,7 @@ pub struct CatalogResults {
     pub next_cursor: Option<String>,
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct CatalogModel {
     pub id: String,
     #[serde(default)]

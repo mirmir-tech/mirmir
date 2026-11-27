@@ -93,3 +93,4 @@ fn gguf_row_fits_when_any_offered_variant_fits() {
 
 #[cfg(target_arch = "wasm32")]
 mod browser;
+pub(super) mod probe;

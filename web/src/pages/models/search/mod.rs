@@ -4,12 +4,14 @@ use wasm_bindgen_futures::spawn_local;
 
 mod results;
 mod row;
+mod table;
 #[cfg(test)]
 mod tests;
 
 use self::{
     results::{Results, Settled},
     row::CatalogRow,
+    table::{Row, Table},
 };
 use super::ModelUi;
 use crate::{
@@ -29,23 +31,26 @@ pub fn SearchPopup() -> impl IntoView {
     let state = expect_context::<RuntimeState>();
     let ui = expect_context::<ModelUi>();
     let query = RwSignal::new(String::new());
-    let results = RwSignal::new(Results::default());
-    let loading = move || results.with(Results::loading);
+    let table = Table::new();
+    let loading = move || table.loading();
     let show_incompatible = RwSignal::new(false);
-    let visible_ids = move || {
+    // Each row's model is read only to filter it; the rows themselves get
+    // their own signals, so this list changes only when one shows or hides.
+    let visible = Memo::new(move |_| {
         let show_incompatible = show_incompatible.get();
-        results.with(|results| {
-            results
-                .models()
-                .iter()
-                .filter(|model| show_incompatible || (!unsupported(model) && row_fits(model)))
-                .map(|model| model.id.clone())
-                .collect::<Vec<_>>()
+        table.with_rows(|rows| {
+            rows.iter()
+                .filter(|row| {
+                    show_incompatible
+                        || row.model.with(|model| !unsupported(model) && row_fits(model))
+                })
+                .cloned()
+                .collect::<Vec<Row>>()
         })
-    };
-    let has_more = move || results.with(Results::has_more);
+    });
+    let has_more = move || table.has_more();
     let empty_message = move || {
-        if results.with(|results| results.models().is_empty()) {
+        if table.with_rows(<[Row]>::is_empty) {
             "No results."
         } else if has_more() {
             "No compatible models on this page."
@@ -56,18 +61,18 @@ pub fn SearchPopup() -> impl IntoView {
     let search = move |value: String| {
         query.set(value.clone());
         ui.search_open.set(true);
-        let Some(ticket) = results.try_update(|results| results.search(&value)).flatten() else {
+        let Some(ticket) = table.update(|results| results.search(&value)).flatten() else {
             return;
         };
         spawn_local(async move {
             TimeoutFuture::new(DEBOUNCE_MS).await;
-            if !results.try_with_untracked(|results| results.current(ticket)).unwrap_or(false) {
+            if !table.current(ticket) {
                 return;
             }
             let path =
                 format!("/catalog/search?query={}&limit=20", urlencoding::encode(value.trim()));
             let answer = api::get::<CatalogResults>(&path).await;
-            settle(state, results, |results| results.found(ticket, &value, answer));
+            settle(state, table, |results| results.found(ticket, &value, answer));
         });
     };
     view! {
@@ -82,22 +87,12 @@ pub fn SearchPopup() -> impl IntoView {
                     <div class="catalog-toolbar"><p class="catalog-status" class:loading=loading>{move || if loading() { "Searching Hugging Face…" } else if query.get().is_empty() { "Start typing to search Hugging Face." } else { "Search results" }}</p><label class="search-toggle"><input type="checkbox" prop:checked=move || show_incompatible.get() on:change=move |event| show_incompatible.set(event_target_checked(&event)) />"Show incompatible models"</label></div>
                     <div class="table-wrap catalog-table" on:scroll=move |event| {
                         let element = event_target::<web_sys::HtmlElement>(&event);
-                        if element.scroll_height() - element.scroll_top() - element.client_height() < 160 { load_more(state, results); }
+                        if element.scroll_height() - element.scroll_top() - element.client_height() < 160 { load_more(state, table); }
                     }>
                         <table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Features</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-                        <tbody><For each=visible_ids key=|id| id.clone() children=move |id| {
-                            let fallback = results
-                                .with_untracked(|results| results.models().iter().find(|model| model.id == id).cloned())
-                                .unwrap_or_default();
-                            let model = Signal::derive(move || {
-                                results
-                                    .with(|results| results.models().iter().find(|model| model.id == id).cloned())
-                                    .unwrap_or_else(|| fallback.clone())
-                            });
-                            view! { <CatalogRow model=model /> }
-                        } /></tbody></table>
-                        <Show when=move || !loading() && !query.get().is_empty() && visible_ids().is_empty()><p class="empty">{empty_message}</p></Show>
-                        <Show when=move || !query.get().is_empty() && has_more()><div class="catalog-load-more"><button class="action secondary" type="button" disabled=loading on:click=move |_| load_more(state, results)>{move || if loading() { "Loading more…" } else { "Load more" }}</button></div></Show>
+                        <tbody><For each=move || visible.get() key=|row| row.id.clone() children=|row| view! { <CatalogRow model=row.model /> } /></tbody></table>
+                        <Show when=move || !loading() && !query.get().is_empty() && visible.with(Vec::is_empty)><p class="empty">{empty_message}</p></Show>
+                        <Show when=move || !query.get().is_empty() && has_more()><div class="catalog-load-more"><button class="action secondary" type="button" disabled=loading on:click=move |_| load_more(state, table)>{move || if loading() { "Loading more…" } else { "Load more" }}</button></div></Show>
                     </div>
                 </div>
             </Show>
@@ -107,14 +102,8 @@ pub fn SearchPopup() -> impl IntoView {
 
 /// Appends the next page of the shown results, unless a search or page is
 /// in flight or none is left.
-fn load_more(state: RuntimeState, results: RwSignal<Results>) {
-    let Some(page) = results
-        .try_maybe_update(|results| {
-            let page = results.page();
-            (page.is_some(), page)
-        })
-        .flatten()
-    else {
+fn load_more(state: RuntimeState, table: Table) {
+    let Some(page) = table.update(Results::page).flatten() else {
         return;
     };
     spawn_local(async move {
@@ -124,22 +113,14 @@ fn load_more(state: RuntimeState, results: RwSignal<Results>) {
             urlencoding::encode(&page.cursor)
         );
         let answer = api::get::<CatalogResults>(&path).await;
-        settle(state, results, |results| results.paged(page.ticket, answer));
+        settle(state, table, |results| results.paged(page.ticket, answer));
     });
 }
 
 /// Applies an answer unless a later request superseded it, and reports the
 /// failure of the latest one.
-fn settle(
-    state: RuntimeState,
-    results: RwSignal<Results>,
-    answer: impl FnOnce(&mut Results) -> Settled,
-) {
-    let settled = results.try_maybe_update(|results| {
-        let settled = answer(results);
-        (settled != Settled::Stale, settled)
-    });
-    if let Some(Settled::Failed(error)) = settled {
+fn settle(state: RuntimeState, table: Table, answer: impl FnOnce(&mut Results) -> Settled) {
+    if let Some(Settled::Failed(error)) = table.update(answer) {
         state.notify(error, true);
     }
 }

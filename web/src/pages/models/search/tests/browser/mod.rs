@@ -2,6 +2,7 @@
 //! older one arrives after a newer one.
 
 mod refresh;
+mod rerender;
 
 use leptos::prelude::*;
 use serde_json::{Value, json};
