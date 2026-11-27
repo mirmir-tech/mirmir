@@ -129,6 +129,10 @@ fn parses_config_and_tokenizer_metadata() -> Result<()> {
     )?;
 
     assert_eq!(parsed.config["model_type"], "mistral");
+    // Transformers writes non-finite floats as Python does (Nemotron-H's
+    // `time_step_limit`); the Hub's config is read as libmir reads it.
+    let nemotron = metadata::parse(br#"{"time_step_limit":[0.0,Infinity]}"#, None)?;
+    assert_eq!(nemotron.config["time_step_limit"][1]["__float__"], "Infinity");
     assert_eq!(
         parsed
             .tokenizer_config

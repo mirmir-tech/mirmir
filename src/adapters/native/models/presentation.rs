@@ -111,7 +111,7 @@ fn unavailable(
 fn json(path: impl AsRef<Path>) -> Value {
     fs::read_to_string(path)
         .ok()
-        .and_then(|body| serde_json::from_str(&body).ok())
+        .and_then(|body| libmir::config_json::parse(&body).ok())
         .unwrap_or(Value::Null)
 }
 
