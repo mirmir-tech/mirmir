@@ -153,6 +153,16 @@ fn a_repository_in_another_tools_cache_acts_whole() {
     assert_eq!(dialog, Some(("owner/m-GGUF".to_owned(), "HF CACHE".to_owned())));
     let target = app.load_target().map(|target| target.selector);
     assert_eq!(target.as_deref(), Some("owner/m-GGUF"));
+    // The row says so whichever variant is chosen, and offers no download.
+    assert_eq!(
+        app.catalog_presence(&app.catalog[0]),
+        super::super::CatalogPresence::ExternalCache
+    );
+    app.cycle_variant(1);
+    assert_eq!(
+        app.catalog_presence(&app.catalog[0]),
+        super::super::CatalogPresence::ExternalCache
+    );
 }
 
 /// A variant's pull or removal leaves what the row tells of its whole

@@ -66,6 +66,7 @@ fn cached_model_residency_matches_the_canonical_active_selector() -> crate::erro
         &mut HashSet::new(),
         &HashMap::new(),
         &loading,
+        &hub.store,
     );
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].selector, active);
@@ -87,6 +88,7 @@ fn cached_model_already_configured_through_a_symlink_is_not_listed_twice() -> st
         &mut known_paths,
         &HashMap::new(),
         &HashSet::new(),
+        &hub.store,
     );
     assert!(listed.is_empty());
     Ok(())
@@ -113,6 +115,7 @@ fn resident_cached_vision_model_reports_its_image_input() -> crate::error::Resul
         &mut HashSet::new(),
         &resident,
         &HashSet::new(),
+        &hub.store,
     );
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].selector, active);
@@ -141,6 +144,7 @@ fn resident_cached_text_model_keeps_its_image_unavailable_reason() -> crate::err
         &mut HashSet::new(),
         &resident,
         &HashSet::new(),
+        &hub.store,
     );
     assert_eq!(listed[0].state, LocalModelState::Ready);
     assert!(!listed[0].image_input);

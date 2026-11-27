@@ -8,7 +8,7 @@ use ratatui::{
 
 use super::{
     super::{
-        app::{App, variant_size},
+        app::{App, CatalogPresence, variant_size},
         theme,
     },
     bytes,
@@ -22,17 +22,17 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = title(app);
     let rows = app.visible_catalog_models().map(|model| {
         let variant = app.chosen_variant(model);
-        let downloaded = app.catalog_downloaded(model);
+        let presence = app.catalog_presence(model);
         Row::new(vec![
             Cell::from(name(model)),
             Cell::from(format_label(model, variant)),
             Cell::from(size(model, variant)),
             Cell::from(features(model.tool_use, model.thinking, model.vision)),
-            Cell::from(status(app.catalog_fit(model), downloaded)),
-            Cell::from(if downloaded {
-                "✓ downloaded"
-            } else {
-                "↓ download"
+            Cell::from(status(app.catalog_fit(model), presence)),
+            Cell::from(match presence {
+                CatalogPresence::Downloaded => "✓ downloaded",
+                CatalogPresence::ExternalCache => "▶ load",
+                CatalogPresence::Remote => "↓ download",
             }),
         ])
     });
@@ -126,16 +126,14 @@ fn title(app: &App) -> String {
     }
 }
 
-fn status(fit: MemoryFit, downloaded: bool) -> Line<'static> {
-    let (value, color) = if downloaded {
-        ("DOWNLOADED", theme::SUCCESS)
-    } else {
-        match fit {
-            MemoryFit::Fits => ("FITS", theme::SUCCESS),
-            MemoryFit::Tight => ("TIGHT", theme::SIGNAL),
-            MemoryFit::DoesNotFit => ("NO FIT", theme::DANGER),
-            MemoryFit::Unknown => ("UNKNOWN", theme::MUTED),
-        }
+fn status(fit: MemoryFit, presence: CatalogPresence) -> Line<'static> {
+    let (value, color) = match (presence, fit) {
+        (CatalogPresence::Downloaded, _) => ("DOWNLOADED", theme::SUCCESS),
+        (CatalogPresence::ExternalCache, _) => ("HF CACHE", theme::SUCCESS),
+        (CatalogPresence::Remote, MemoryFit::Fits) => ("FITS", theme::SUCCESS),
+        (CatalogPresence::Remote, MemoryFit::Tight) => ("TIGHT", theme::SIGNAL),
+        (CatalogPresence::Remote, MemoryFit::DoesNotFit) => ("NO FIT", theme::DANGER),
+        (CatalogPresence::Remote, MemoryFit::Unknown) => ("UNKNOWN", theme::MUTED),
     };
     Line::from(Span::styled(format!(" {value} "), Style::new().fg(color).bg(theme::RAISED)))
 }

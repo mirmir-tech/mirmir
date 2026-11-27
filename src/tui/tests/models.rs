@@ -50,7 +50,8 @@ fn search_replaces_local_list_and_marks_cached_models() -> Result<(), std::conve
     let text = rendered(&mut app, 120, 36)?;
     assert!(text.contains("HUGGING FACE RESULTS"));
     assert!(text.contains("Qwen/Test"));
-    assert!(text.contains("downloaded"));
+    // Another tool's cache: loaded where it is, never downloaded.
+    assert!(text.contains("HF CACHE") && text.contains("▶ load"));
     assert!(!text.contains("Local--Hidden"));
     assert!(!text.contains("LOCAL MODELS"));
     Ok(())
@@ -114,7 +115,7 @@ fn local_gated_results_remain_visible_and_marked() -> Result<(), std::convert::I
 
     let text = rendered(&mut app, 120, 36)?;
     assert!(text.contains("Org/Gated"));
-    assert!(text.contains("downloaded"));
+    assert!(text.contains("HF CACHE"));
     Ok(())
 }
 

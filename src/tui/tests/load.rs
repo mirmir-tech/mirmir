@@ -59,3 +59,36 @@ fn renders_context_row_and_memory_for_the_chosen_context() -> Result<(), std::co
     assert!(text.contains("32,768 tokens"));
     Ok(())
 }
+
+/// A load dialog opened from search results, the search field still being
+/// edited, offers its own keys: the search's do not take Enter from it.
+#[test]
+fn a_load_dialog_from_search_results_offers_its_own_keys() -> Result<(), std::convert::Infallible> {
+    let mut app = App::new(true);
+    app.screen = Screen::Models;
+    app.search_query = "Qwen".to_owned();
+    app.editing_search = true;
+    app.load_dialog = Some(LoadDialog {
+        target: LoadTarget {
+            selector: "/cache/models--Qwen--Test/snapshots/abc".to_owned(),
+            config_id: "Qwen--Test".to_owned(),
+            repo_id: "Qwen/Test".to_owned(),
+            revision: "main".to_owned(),
+            commit: "abc".to_owned(),
+        },
+        task: "generation".to_owned(),
+        capabilities: None,
+        status: LoadStatus::Editing,
+        context: None,
+        fields: ["2048", "0.7", "0.9", "40", "1.1"].map(str::to_owned),
+        selected: 0,
+        has_mirmir_overrides: false,
+        memory: None,
+        force: false,
+        progress: None,
+        error: None,
+    });
+    let text = rendered(&mut app, 140, 36)?;
+    assert!(text.contains("f force") && !text.contains("type search"), "{text}");
+    Ok(())
+}

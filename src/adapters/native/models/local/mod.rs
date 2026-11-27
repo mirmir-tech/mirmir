@@ -10,7 +10,7 @@ use super::{super::NativeRuntime, presentation};
 use crate::{
     application::{LocalModelInfo, LocalModelState, ModelInfo, Result},
     catalog::{CachedModel, discover_cached_models_in, discover_external_models, pending_variants},
-    config::{GenerationConfig, HubModelConfig, ModelConfig, model_key},
+    config::{GenerationConfig, HubModelConfig, ModelConfig, Store, model_key},
 };
 
 impl NativeRuntime {
@@ -44,13 +44,13 @@ impl NativeRuntime {
         for cached in discover_cached_models_in(&self.store.paths().hub_cache_dir) {
             append_cached(
                 &mut listed, cached, true, &mut known_repos, &mut known_paths, &resident,
-                &state.loading,
+                &state.loading, &self.store,
             );
         }
         for cached in discover_external_models(self.store.paths()) {
             append_cached(
                 &mut listed, cached, false, &mut known_repos, &mut known_paths, &resident,
-                &state.loading,
+                &state.loading, &self.store,
             );
         }
         drop(state);
@@ -62,6 +62,7 @@ impl NativeRuntime {
 /// Resident models' presented details by their canonical selector.
 type Resident<'a> = HashMap<&'a str, &'a ModelInfo>;
 
+#[allow(clippy::too_many_arguments)]
 fn append_cached(
     listed: &mut Vec<LocalModelInfo>,
     cached: CachedModel,
@@ -70,6 +71,7 @@ fn append_cached(
     known_paths: &mut HashSet<PathBuf>,
     models: &Resident<'_>,
     loading: &HashSet<String>,
+    store: &Store,
 ) {
     // Path selectors resolve to canonical keys, so residency must match on the
     // same key even when the hub cache is reached through a symlink.
@@ -80,7 +82,13 @@ fn append_cached(
     let Ok(id) = model_key(&cached.repo_id) else {
         return;
     };
-    let details = presentation::inspect(&snapshot, GenerationConfig::default());
+    // A cache holding GGUF files, ours or another tool's, is read through
+    // its import, as a configured GGUF model is; other checkpoints are the
+    // snapshot itself.
+    let details = match store.checkpoint(&snapshot) {
+        Ok(checkpoint) => presentation::inspect(&checkpoint, GenerationConfig::default()),
+        Err(error) => presentation::unimported(&snapshot, &error),
+    };
     let selector = snapshot.display().to_string();
     listed.push(info(
         id,

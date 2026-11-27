@@ -50,8 +50,15 @@ impl App {
     }
 
     /// Whether the row's chosen download is on this server: as the search
-    /// found it, or in the local list since.
+    /// found it, or in the local list since; for a row without variants,
+    /// also as another tool's cache holds it.
     pub(crate) fn catalog_downloaded(&self, model: &proto::CatalogModel) -> bool {
+        self.catalog_own(model)
+            || (self.chosen_variant(model).is_none() && model.local_source == "hf_cache")
+    }
+
+    /// Whether mirmir itself holds the row's chosen download.
+    fn catalog_own(&self, model: &proto::CatalogModel) -> bool {
         let target = self.pull_target(model).ok();
         // On disk, as the server counts a download, loadable or not.
         let listed = self.local_models.iter().any(|local| {
@@ -60,9 +67,20 @@ impl App {
         });
         listed
             || self.chosen_variant(model).map_or_else(
-                || model.downloaded || matches!(model.local_source.as_str(), "mirmir" | "hf_cache"),
+                || model.downloaded || model.local_source == "mirmir",
                 |variant| variant.downloaded,
             )
+    }
+
+    /// Where the row's chosen download is, as the results show it.
+    pub(crate) fn catalog_presence(&self, model: &proto::CatalogModel) -> CatalogPresence {
+        if self.catalog_own(model) {
+            CatalogPresence::Downloaded
+        } else if model.local_source == "hf_cache" {
+            CatalogPresence::ExternalCache
+        } else {
+            CatalogPresence::Remote
+        }
     }
 
     /// What loading or removing the row acts on: its chosen download when
@@ -166,4 +184,16 @@ pub(super) fn removes(removed: &str, other: &str) -> bool {
 /// A variant's size as the server spelled its kind.
 pub fn variant_size(variant: &proto::CatalogVariant) -> VariantSize {
     VariantSize::from_protocol(&variant.size_kind, variant.weight_bytes)
+}
+
+/// Where a search result's chosen download is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatalogPresence {
+    /// mirmir holds it.
+    Downloaded,
+    /// Another tool's Hugging Face cache holds the repository, whole, which
+    /// loads without a download.
+    ExternalCache,
+    /// It is to download.
+    Remote,
 }

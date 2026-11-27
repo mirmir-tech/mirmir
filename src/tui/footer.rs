@@ -48,6 +48,9 @@ fn candidates(app: &App) -> Vec<Shortcut> {
     if app.configuration_edit.is_some() {
         return vec![("Esc", "cancel"), ("type", "edit"), ("Enter", "save")];
     }
+    if let Some(dialog) = &app.load_dialog {
+        return load(dialog);
+    }
     if app.editing_search {
         return vec![
             ("Esc", "close"),
@@ -57,9 +60,6 @@ fn candidates(app: &App) -> Vec<Shortcut> {
             ("Enter", "action"),
             ("PgUp/PgDn", "page"),
         ];
-    }
-    if let Some(dialog) = &app.load_dialog {
-        return load(dialog);
     }
     let mut items = vec![("Esc", "quit")];
     if app.screen != Screen::Chat || app.chat_input.is_empty() {

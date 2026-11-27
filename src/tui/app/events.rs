@@ -66,11 +66,13 @@ impl App {
         if self.open_help(*key) {
             return false;
         }
-        if self.editing_search {
-            self.handle_search_key(*key, client).await;
+        // A load dialog opened from search results takes its keys before the
+        // search field does, or Enter would never load.
+        if self.handle_load_dialog_key(*key, client) {
             return false;
         }
-        if self.handle_load_dialog_key(*key, client) {
+        if self.editing_search {
+            self.handle_search_key(*key, client).await;
             return false;
         }
         if let Some(exit) = self.handle_navigation_key(*key) {
