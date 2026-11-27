@@ -4,8 +4,10 @@ mod scope;
 mod spelling;
 mod variant;
 
+use std::path::Path;
+
 use hf_hub::HFClient;
-use libmir::CancellationToken;
+use libmir::{CancellationToken, WeightContainer};
 pub use remove::{remove, remove_emptied};
 pub use scope::removal_scope;
 pub(super) use spelling::spelled;
@@ -62,6 +64,7 @@ pub async fn pull(
     if reference.variant().is_some() {
         return variant::pull(store, &reference, (pinned, files), &updates, cancellation).await;
     }
+    let files = whole_repository_files(files);
     let snapshot =
         resumable::snapshot(store, (repo_id, pinned), files, &updates, cancellation).await?;
     send(
@@ -115,6 +118,16 @@ pub(super) async fn send(
             })
             .await,
     );
+}
+
+/// Files downloaded for a whole-repository (`SafeTensors`) snapshot: excludes
+/// `.gguf` files so a mixed repository keeps only its chosen `SafeTensors`
+/// format on disk.
+fn whole_repository_files(files: Vec<ListedFile>) -> Vec<ListedFile> {
+    files
+        .into_iter()
+        .filter(|file| WeightContainer::of(Path::new(&file.path)) != Some(WeightContainer::Gguf))
+        .collect()
 }
 
 fn directory_size(path: &std::path::Path) -> u64 {

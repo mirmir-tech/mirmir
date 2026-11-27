@@ -177,4 +177,32 @@ async fn removing_a_cache_keeps_imports_of_files_outside_it() -> Result<()> {
     Ok(())
 }
 
+/// Pulling a whole-repository (`SafeTensors`) snapshot never downloads `.gguf`
+/// files from a mixed repository so the chosen format stays intact on disk.
+#[test]
+fn whole_repository_snapshot_excludes_gguf_files() {
+    let listed = [
+        "config.json",
+        "model.safetensors.index.json",
+        "weights/model-00001-of-00002.safetensors",
+        "model-Q4_K_M.gguf",
+        "GGUF/model-Q8_0.GGUF",
+    ]
+    .into_iter()
+    .map(|path| ListedFile {
+        path: path.to_owned(),
+        etag: "e".to_owned(),
+        size: 1,
+    })
+    .collect();
+    let kept = whole_repository_files(listed)
+        .into_iter()
+        .map(|file| file.path)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kept,
+        ["config.json", "model.safetensors.index.json", "weights/model-00001-of-00002.safetensors"]
+    );
+}
+
 mod scope;

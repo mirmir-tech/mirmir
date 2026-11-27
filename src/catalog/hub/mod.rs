@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 pub use facts::{Features, HubFacts, encoding_named};
 pub use gguf::{GgufRepository, GgufVariant, RepoFile};
-pub use weights::is_base_safetensors;
+pub use weights::{has_base_safetensors, is_base_safetensors};
 
 impl HubModel {
     /// The GGUF variants its files offer; empty for other repositories.

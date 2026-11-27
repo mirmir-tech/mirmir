@@ -16,7 +16,7 @@ use libmir::{
 };
 pub use quantization::{Q4_K_M, Q8_0, Quantization};
 
-use super::is_base_safetensors;
+use super::has_base_safetensors;
 
 /// The prefix of the multi-token prediction modules a repository may ship.
 const PREDICTION_MODULE_PREFIX: &str = "mtp";
@@ -79,7 +79,7 @@ impl GgufRepository {
     #[must_use]
     pub fn from_files(files: &[RepoFile]) -> Self {
         let container = |file: &&RepoFile| WeightContainer::of(Path::new(&file.path));
-        let safetensors_base = files.iter().any(|file| is_base_safetensors(&file.path));
+        let safetensors_base = has_base_safetensors(files.iter().map(|file| file.path.as_str()));
         let gguf = files.iter().filter(|file| container(file) == Some(WeightContainer::Gguf));
         let (towers, text): (Vec<_>, Vec<_>) = gguf
             .filter(|file| !is_prediction_module(basename(&file.path)))

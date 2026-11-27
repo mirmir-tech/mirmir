@@ -127,6 +127,43 @@ fn an_adapter_keeps_a_gguf_repositorys_variants() {
     assert_eq!(variants(&pulled, None, memory).1, searched.default_variant);
 }
 
+/// A repository with `model.safetensors.index.json` at its root and shards in
+/// a subdirectory (such as `weights/`) is pulled as `SafeTensors`, not GGUF,
+/// while an index without non-auxiliary shards keeps GGUF variants.
+#[test]
+fn indexed_safetensors_in_a_subdirectory_takes_precedence_over_gguf() {
+    let memory = MachineMemory { budget: Some(64 * GIB), ..NO_MEMORY };
+    let mut indexed = gguf("gemma4");
+    indexed.siblings.push(Sibling {
+        rfilename: "model.safetensors.index.json".to_owned(),
+    });
+    indexed.siblings.push(Sibling {
+        rfilename: "weights/model-00001-of-00002.safetensors".to_owned(),
+    });
+    let result = evaluate(indexed, memory);
+    assert_eq!(result.container, Some(WeightContainer::SafeTensors));
+    assert!(result.variants.is_empty());
+    assert_eq!(result.default_variant, None);
+    assert_eq!(result.compatibility, AdmissionStatus::Unknown);
+
+    let listed = [
+        ("m-Q4_K_M.gguf", 4_900_000_000),
+        ("model.safetensors.index.json", 1_024),
+        ("weights/model-00001-of-00002.safetensors", 8_000_000_000),
+    ]
+    .map(|(path, size)| RepoFile { path: path.into(), size: Some(size) });
+    assert!(!GgufRepository::from_files(&listed).gguf_only());
+
+    // An index beside only an adapter keeps the GGUF variants.
+    let adapter_only = [
+        ("m-Q4_K_M.gguf", 4_900_000_000),
+        ("model.safetensors.index.json", 1_024),
+        ("adapters/adapter_model.safetensors", 1_000_000),
+    ]
+    .map(|(path, size)| RepoFile { path: path.into(), size: Some(size) });
+    assert!(GgufRepository::from_files(&adapter_only).gguf_only());
+}
+
 /// A row is downloaded when its own pull target is: a GGUF-only
 /// repository's default variant, not any variant, else the repository.
 #[test]
