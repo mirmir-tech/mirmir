@@ -34,6 +34,9 @@ fn model() -> CatalogModel {
     CatalogModel {
         id: "demo/model".to_owned(),
         memory_fit: "fits".to_owned(),
+        reason: "estimated weights and runtime reserve fit the current budget".to_owned(),
+        metal_compatibility: "supported".to_owned(),
+        cuda_compatibility: "supported".to_owned(),
         variants: vec![variant("Q4_K_M", 4), variant("Q8_0", 7)],
         default_variant: Some("Q8_0".to_owned()),
         ..Default::default()

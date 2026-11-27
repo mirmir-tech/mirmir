@@ -36,7 +36,7 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
         model.encoding.clone().unwrap_or_else(|| model.ecosystem.clone())
     };
     let format_detail = format!("{} · {}", model.ecosystem, model.container);
-    let (id, reason) = (model.id.clone(), model.reason.clone());
+    let id = model.id.clone();
     let id_for_select = model.id.clone();
     let (tool_use, thinking, vision) = (model.tool_use, model.thinking, model.vision);
     let stored = StoredValue::new(model);
@@ -88,9 +88,18 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
             )
         }
     };
+    let reason = move || stored.with_value(|model| variant_reason(model, variant().as_ref()));
     let detail = move || {
-        operation()
-            .map_or_else(|| stored.with_value(|model| model.reason.clone()), |item| item.detail)
+        operation().map_or_else(
+            || {
+                if downloaded() {
+                    "Downloaded".to_owned()
+                } else {
+                    reason()
+                }
+            },
+            |item| item.detail,
+        )
     };
     let progress = move || {
         operation().and_then(|item| {
@@ -116,6 +125,33 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
             <button class="icon-action" data-tooltip="Cancel download" aria-label="Cancel download" on:click=move |_| if let Some(item) = operation() { cancel(state, item.operation_id); }><Icon name="cancel" /></button>
         </Show>
     </td></tr> }
+}
+
+/// Memory explanation matching the resolved variant and its size precision,
+/// or the repository's own reason when it has no variants or is unsupported.
+pub(super) fn variant_reason(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+    let Some(variant) = variant else {
+        return model.reason.clone();
+    };
+    if model.metal_compatibility == "unsupported" && model.cuda_compatibility == "unsupported" {
+        return model.reason.clone();
+    }
+    let exact = variant.size_kind == "exact";
+    match (variant.memory_fit.as_str(), exact) {
+        ("fits", true) => "weights and runtime reserve fit the current budget".to_owned(),
+        ("fits", false) => {
+            "estimated weights and runtime reserve fit the current budget".to_owned()
+        },
+        ("tight", true) => "weights and runtime reserve leave less than 15% headroom".to_owned(),
+        ("tight", false) => "estimated usage leaves less than 15% headroom".to_owned(),
+        ("does_not_fit", true) => {
+            "weights and runtime reserve exceed the current memory budget".to_owned()
+        },
+        ("does_not_fit", false) => "estimated usage exceeds the current memory budget".to_owned(),
+        ("unknown", _) => "insufficient Hub or device metadata for a reliable estimate".to_owned(),
+        (other, _) if other == model.memory_fit => model.reason.clone(),
+        _ => String::new(),
+    }
 }
 
 /// The variant's size; `~` marks one estimated before its files are listed.

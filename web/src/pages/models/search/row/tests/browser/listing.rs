@@ -84,3 +84,28 @@ async fn a_failed_listing_is_retried_on_the_next_focus() {
         Some("5.0 GiB")
     );
 }
+
+/// Selecting a variant whose fit disagrees with the search's original
+/// default updates both the badge and its tooltip/subtitle together.
+#[wasm_bindgen_test]
+async fn badge_and_tooltip_follow_the_selected_variant() {
+    serve(&routes(vec![Answer::ok(exact())]));
+    let row = row();
+    let select = find::<HtmlSelectElement>(&row.root, "select");
+    dispatch(&select, "focus");
+    until("the exact sizes are listed", || listed(&row.root)).await;
+    settle(20).await;
+
+    select.set_value("Q8_0");
+    dispatch(&select, "change");
+    settle(20).await;
+
+    let pill = find::<HtmlElement>(&row.root, ".state-pill");
+    assert_eq!(pill.text_content().as_deref(), Some("does not fit"));
+    let tooltip = pill.get_attribute("data-tooltip").unwrap_or_default();
+    assert!(tooltip.contains("exceed"), "tooltip contradicted badge: {tooltip}");
+    let subtitle = find::<HtmlElement>(&row.root, ".model-name small")
+        .text_content()
+        .unwrap_or_default();
+    assert!(subtitle.contains("exceed"), "subtitle contradicted badge: {subtitle}");
+}

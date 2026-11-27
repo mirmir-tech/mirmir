@@ -143,3 +143,36 @@ async fn a_page_of_an_older_search_is_not_appended() {
     until("new's next page is requested", || sent("cursor=new-2")).await;
     assert!(!sent("cursor=old-3"));
 }
+
+/// A GGUF repository whose default variant exceeds memory stays visible when
+/// it offers a smaller variant that fits.
+#[wasm_bindgen_test]
+async fn a_gguf_repository_with_a_fitting_variant_stays_visible() {
+    let answer = json!({
+        "models": [{
+            "id": "demo/large-GGUF",
+            "memory_fit": "does_not_fit",
+            "reason": "estimated usage exceeds the current memory budget",
+            "ecosystem": "GGUF",
+            "container": "gguf",
+            "metal_compatibility": "supported",
+            "cuda_compatibility": "supported",
+            "tool_use": false,
+            "thinking": false,
+            "vision": false,
+            "default_variant": "Q4_K_M",
+            "variants": [
+                {"name": "Q2_K", "size_kind": "estimated", "weight_bytes": 4_u64 << 30, "memory_fit": "fits"},
+                {"name": "Q4_K_M", "size_kind": "estimated", "weight_bytes": 12_u64 << 30, "memory_fit": "does_not_fit"}
+            ]
+        }],
+        "next_cursor": null
+    });
+    serve(&[route("/api/mirmir/v1/catalog/search?query=large", Answer::ok(answer))]);
+    let (root, _view) = popup();
+    type_query(&root, "large");
+    until("the GGUF row shows under the default filter", || {
+        rows(&root) == ["demo/large-GGUF"]
+    })
+    .await;
+}

@@ -15,7 +15,10 @@ use super::ModelUi;
 use crate::{
     api,
     state::RuntimeState,
-    types::{Model, catalog::CatalogResults},
+    types::{
+        Model,
+        catalog::{CatalogModel, CatalogResults},
+    },
 };
 
 /// The pause after the last keystroke before the catalog is searched.
@@ -35,7 +38,7 @@ pub fn SearchPopup() -> impl IntoView {
             results
                 .models()
                 .iter()
-                .filter(|model| show_incompatible || !does_not_fit(&model.memory_fit))
+                .filter(|model| show_incompatible || row_fits(model))
                 .cloned()
                 .collect::<Vec<_>>()
         })
@@ -127,6 +130,16 @@ pub(super) fn installed(local: &[Model], target: &str) -> bool {
     local
         .iter()
         .any(|item| item.state.installed() && item.repo_id.eq_ignore_ascii_case(target))
+}
+
+/// Whether a catalog row stays visible under the compatible filter: a GGUF
+/// repository stays listed when any offered variant fits, matching the TUI.
+pub(super) fn row_fits(model: &CatalogModel) -> bool {
+    if model.variants.is_empty() {
+        !does_not_fit(&model.memory_fit)
+    } else {
+        model.variants.iter().any(|variant| !does_not_fit(&variant.memory_fit))
+    }
 }
 
 pub(super) fn does_not_fit(state: &str) -> bool {
