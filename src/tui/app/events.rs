@@ -70,11 +70,8 @@ impl App {
         // A load dialog is modal wherever it opened, from search results
         // too: what it does not take, Esc, q and the function keys, is
         // navigation's, never the search field's or the screen's behind it.
-        if self.load_dialog.is_some() {
-            if !self.handle_load_dialog_key(*key, client) {
-                return self.handle_navigation_key(*key).unwrap_or(false);
-            }
-            return false;
+        if let Some(exit) = self.handle_load_dialog_key(*key, client) {
+            return exit;
         }
         if self.editing_search {
             self.handle_search_key(*key, client).await;
@@ -119,15 +116,19 @@ impl App {
             || self.navigation.exit_dialog
     }
 
-    fn handle_load_dialog_key(&mut self, key: crossterm::event::KeyEvent, client: &Client) -> bool {
-        if self.load_dialog.is_none()
-            || key.kind != KeyEventKind::Press
-            || matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q') | KeyCode::F(_))
-        {
-            return false;
+    fn handle_load_dialog_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        client: &Client,
+    ) -> Option<bool> {
+        self.load_dialog.as_ref()?;
+        if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q') | KeyCode::F(_)) {
+            return Some(self.handle_navigation_key(key).unwrap_or(false));
         }
-        self.handle_load_key(key, client);
-        true
+        if key.kind == KeyEventKind::Press {
+            self.handle_load_key(key, client);
+        }
+        Some(false)
     }
 }
 

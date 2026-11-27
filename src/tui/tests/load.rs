@@ -1,5 +1,5 @@
 use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
 use super::{App, Screen, rendered};
@@ -139,6 +139,17 @@ async fn a_load_dialog_from_search_results_leaves_its_keys_to_navigation() {
     let paste = Event::Paste("pasted".to_owned());
     assert!(!app.handle(Some(&paste), &mut client).await);
     assert!(app.chat_input.is_empty() && app.load_dialog.is_some());
+
+    // Held Tab / BackTab repeats stay inside the modal load dialog rather than
+    // switching screens behind it.
+    let mut app = searching_with_load_dialog();
+    for code in [KeyCode::Tab, KeyCode::BackTab] {
+        let repeat =
+            Event::Key(KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Repeat));
+        assert!(!app.handle(Some(&repeat), &mut client).await);
+        assert_eq!(app.screen, Screen::Models);
+        assert!(app.load_dialog.is_some());
+    }
 
     // Its own keys stay its own, and closed, it leaves the search editing.
     let mut app = searching_with_load_dialog();
