@@ -2,10 +2,15 @@ use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+mod results;
 mod row;
+#[cfg(test)]
+mod tests;
 
-use row::CatalogRow;
-
+use self::{
+    results::{Results, Settled},
+    row::CatalogRow,
+};
 use super::ModelUi;
 use crate::{
     api,
@@ -13,46 +18,43 @@ use crate::{
     types::{Model, catalog::CatalogResults},
 };
 
+/// The pause after the last keystroke before the catalog is searched.
+const DEBOUNCE_MS: u32 = 320;
+
 #[component]
 pub fn SearchPopup() -> impl IntoView {
     let state = expect_context::<RuntimeState>();
     let ui = expect_context::<ModelUi>();
     let query = RwSignal::new(String::new());
-    let results = RwSignal::new(CatalogResults::default());
-    let loading = RwSignal::new(false);
+    let results = RwSignal::new(Results::default());
+    let loading = move || results.with(Results::loading);
     let show_incompatible = RwSignal::new(false);
-    let generation = RwSignal::new(0_u64);
     let visible_results = move || {
-        results
-            .get()
-            .models
-            .into_iter()
-            .filter(|model| show_incompatible.get() || !does_not_fit(&model.memory_fit))
-            .collect::<Vec<_>>()
+        let show_incompatible = show_incompatible.get();
+        results.with(|results| {
+            results
+                .models()
+                .iter()
+                .filter(|model| show_incompatible || !does_not_fit(&model.memory_fit))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
     };
     let search = move |value: String| {
         query.set(value.clone());
         ui.search_open.set(true);
-        let ticket = generation.get_untracked() + 1;
-        generation.set(ticket);
-        loading.set(!value.trim().is_empty());
+        let Some(ticket) = results.try_update(|results| results.search(&value)).flatten() else {
+            return;
+        };
         spawn_local(async move {
-            TimeoutFuture::new(320).await;
-            if generation.get_untracked() != ticket {
-                return;
-            }
-            if value.trim().is_empty() {
-                results.set(CatalogResults::default());
-                loading.set(false);
+            TimeoutFuture::new(DEBOUNCE_MS).await;
+            if !results.try_with_untracked(|results| results.current(ticket)).unwrap_or(false) {
                 return;
             }
             let path =
                 format!("/catalog/search?query={}&limit=20", urlencoding::encode(value.trim()));
-            match api::get(&path).await {
-                Ok(found) => results.set(found),
-                Err(error) => state.notify(error, true),
-            }
-            loading.set(false);
+            let answer = api::get::<CatalogResults>(&path).await;
+            settle(state, results, |results| results.found(ticket, &value, answer));
         });
     };
     view! {
@@ -64,14 +66,14 @@ pub fn SearchPopup() -> impl IntoView {
             <Show when=move || ui.search_open.get()>
                 <button class="catalog-dismiss-layer" type="button" aria-label="Close model search overlay" on:click=move |_| ui.search_open.set(false)></button>
                 <div class="catalog-popup">
-                    <div class="catalog-toolbar"><p class="catalog-status" class:loading=move || loading.get()>{move || if loading.get() { "Searching Hugging Face…" } else if query.get().is_empty() { "Start typing to search Hugging Face." } else { "Search results" }}</p><label class="search-toggle"><input type="checkbox" on:change=move |event| show_incompatible.set(event_target_checked(&event)) />"Show incompatible models"</label></div>
+                    <div class="catalog-toolbar"><p class="catalog-status" class:loading=loading>{move || if loading() { "Searching Hugging Face…" } else if query.get().is_empty() { "Start typing to search Hugging Face." } else { "Search results" }}</p><label class="search-toggle"><input type="checkbox" on:change=move |event| show_incompatible.set(event_target_checked(&event)) />"Show incompatible models"</label></div>
                     <div class="table-wrap catalog-table" on:scroll=move |event| {
                         let element = event_target::<web_sys::HtmlElement>(&event);
-                        if element.scroll_height() - element.scroll_top() - element.client_height() < 160 { load_more(state, query, results, loading); }
+                        if element.scroll_height() - element.scroll_top() - element.client_height() < 160 { load_more(state, results); }
                     }>
                         <table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Features</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
                         <tbody><For each=visible_results key=|model| model.id.clone() children=move |model| view! { <CatalogRow model=model /> } /></tbody></table>
-                        <Show when=move || !loading.get() && !query.get().is_empty() && results.get().models.is_empty()><p class="empty">"No results."</p></Show>
+                        <Show when=move || !loading() && !query.get().is_empty() && results.with(|results| results.models().is_empty())><p class="empty">"No results."</p></Show>
                     </div>
                 </div>
             </Show>
@@ -79,36 +81,43 @@ pub fn SearchPopup() -> impl IntoView {
     }
 }
 
-fn load_more(
-    state: RuntimeState,
-    query: RwSignal<String>,
-    results: RwSignal<CatalogResults>,
-    loading: RwSignal<bool>,
-) {
-    let Some(cursor) = results.get_untracked().next_cursor else {
+/// Appends the next page of the shown results, unless a search or page is
+/// in flight or none is left.
+fn load_more(state: RuntimeState, results: RwSignal<Results>) {
+    let Some(page) = results
+        .try_maybe_update(|results| {
+            let page = results.page();
+            (page.is_some(), page)
+        })
+        .flatten()
+    else {
         return;
     };
-    if loading.get_untracked() {
-        return;
-    }
-    loading.set(true);
     spawn_local(async move {
         let path = format!(
             "/catalog/search?query={}&limit=20&cursor={}",
-            urlencoding::encode(&query.get_untracked()),
-            urlencoding::encode(&cursor)
+            urlencoding::encode(&page.query),
+            urlencoding::encode(&page.cursor)
         );
-        match api::get::<CatalogResults>(&path).await {
-            Ok(page) => {
-                results.update(|current| {
-                    current.models.extend(page.models);
-                    current.next_cursor = page.next_cursor;
-                });
-            },
-            Err(error) => state.notify(error, true),
-        }
-        loading.set(false);
+        let answer = api::get::<CatalogResults>(&path).await;
+        settle(state, results, |results| results.paged(page.ticket, answer));
     });
+}
+
+/// Applies an answer unless a later request superseded it, and reports the
+/// failure of the latest one.
+fn settle(
+    state: RuntimeState,
+    results: RwSignal<Results>,
+    answer: impl FnOnce(&mut Results) -> Settled,
+) {
+    let settled = results.try_maybe_update(|results| {
+        let settled = answer(results);
+        (settled != Settled::Stale, settled)
+    });
+    if let Some(Settled::Failed(error)) = settled {
+        state.notify(error, true);
+    }
 }
 
 /// Whether the server lists `target`, a repository or a GGUF variant as
@@ -122,52 +131,4 @@ pub(super) fn installed(local: &[Model], target: &str) -> bool {
 
 pub(super) fn does_not_fit(state: &str) -> bool {
     matches!(state, "does_not_fit" | "does-not-fit")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::ModelState;
-
-    fn local(repo_id: &str, state: ModelState) -> Model {
-        Model {
-            repo_id: repo_id.to_owned(),
-            state,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn a_listed_model_is_downloaded_in_any_case() {
-        let local = [local("Qwen/Test", ModelState::Available)];
-        assert!(installed(&local, "Qwen/Test") && installed(&local, "qwen/test"));
-        assert!(!installed(&local, "Qwen/Other"));
-    }
-
-    /// A variant is downloaded by its own `id:name`, not its repository's
-    /// or another variant's.
-    #[test]
-    fn a_downloaded_variant_is_its_own() {
-        let local = [local("org/m-GGUF:Q8_0", ModelState::Ready)];
-        assert!(installed(&local, "org/m-GGUF:q8_0"));
-        assert!(!installed(&local, "org/m-GGUF:Q4_K_M") && !installed(&local, "org/m-GGUF"));
-    }
-
-    /// Only whole files count: a paused, missing or unknown state, or a
-    /// download this dashboard started, is not downloaded; a model on disk
-    /// that does not load is.
-    #[test]
-    fn an_incomplete_model_is_not_downloaded() {
-        for state in
-            [ModelState::Paused, ModelState::Missing, ModelState::Downloading, ModelState::Unknown]
-        {
-            assert!(!installed(&[local("Qwen/Test", state)], "Qwen/Test"), "{state:?}");
-        }
-        for state in ["ready", "loading", "available", "error"] {
-            let parsed = serde_json::from_value::<ModelState>(serde_json::json!(state));
-            assert!(parsed.is_ok_and(ModelState::installed), "{state}");
-        }
-        let future = serde_json::from_value::<ModelState>(serde_json::json!("someday"));
-        assert!(future.is_ok_and(|state| state == ModelState::Unknown));
-    }
 }

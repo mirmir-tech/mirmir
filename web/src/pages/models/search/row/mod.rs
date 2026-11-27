@@ -2,9 +2,15 @@
 //! select, sized and fitted one by one, and downloads the chosen one as
 //! `id:name`; other repositories download whole.
 
+mod quantizations;
+mod select;
+#[cfg(test)]
+mod tests;
+
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+use self::{quantizations::Quantizations, select::VariantSelect};
 use super::{super::row::cancel, installed};
 use crate::{
     api,
@@ -12,15 +18,17 @@ use crate::{
     state::{RuntimeState, bytes},
     types::{
         Activity, Model, ModelState,
-        catalog::{CatalogModel, CatalogVariant, ModelVariants},
+        catalog::{CatalogModel, CatalogVariant},
     },
 };
 
 #[component]
 pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
     let state = expect_context::<RuntimeState>();
-    let variants = RwSignal::new(model.variants.clone());
-    let chosen = RwSignal::new(model.default_variant.clone());
+    let quantizations = RwSignal::new(Quantizations::estimated(
+        model.variants.clone(),
+        model.default_variant.clone(),
+    ));
     let gguf = !model.variants.is_empty();
     let format = if gguf {
         "GGUF".to_owned()
@@ -32,19 +40,42 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
     let id_for_select = model.id.clone();
     let (tool_use, thinking, vision) = (model.tool_use, model.thinking, model.vision);
     let stored = StoredValue::new(model);
-    let variant = move || {
-        let name = chosen.get()?;
-        variants.get().into_iter().find(|variant| variant.name == name)
-    };
-    let target = move || {
-        let id = stored.with_value(|model| model.id.clone());
-        variant().map_or_else(|| id.clone(), |variant| format!("{id}:{}", variant.name))
+    // The select shows, and a download takes, this one resolved choice.
+    let variant = move || quantizations.with(|item| item.chosen().cloned());
+    let target =
+        move || stored.with_value(|model| quantizations.with(|item| item.target(&model.id)));
+    // A download pins its variant, so a listing that answers later keeps
+    // showing the variant being downloaded.
+    let pull = move || {
+        let target = stored.with_value(|model| {
+            quantizations.try_update(|item| {
+                item.pin_chosen();
+                item.target(&model.id)
+            })
+        });
+        if let Some(target) = target {
+            start_download(state, &stored.get_value(), target);
+        }
     };
     // From the server's live list, which a pull or removal of any variant
     // changes, not from the search result.
     let downloaded = move || state.models.with(|models| installed(models, &target()));
     let operation = move || pull_activity(state, &target());
     let busy = move || state.busy.get().contains_key(&target());
+    // A variant the listing withdrew stays while its download runs and
+    // once it completes, even before the models list shows it downloaded;
+    // after a failed or cancelled pull, or none, the row takes the default.
+    Effect::new(move || {
+        let kept = quantizations.with(|item| item.kept().is_some());
+        if kept
+            && !busy()
+            && operation().is_none()
+            && !downloaded()
+            && pull_ended_without_install(last_pull(state, &target()).as_deref())
+        {
+            quantizations.update(Quantizations::release_kept);
+        }
+    });
     let display_state = move || {
         if operation().is_some() || busy() {
             "downloading".to_owned()
@@ -78,54 +109,17 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
             |variant| size_label(&variant),
         )
     };
-    view! { <tr><td><span class="model-name"><strong>{id}</strong><small>{reason}</small></span></td><td>{move || if gguf { view! { <VariantSelect repo=id_for_select.clone() variants=variants chosen=chosen /> }.into_any() } else { view! { <TypePill value=format.clone() /><small>{format_detail.clone()}</small> }.into_any() }}</td><td class="model-size">{size}</td><td><FeaturePills tool_use=tool_use thinking=thinking vision=vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
+    view! { <tr><td><span class="model-name"><strong>{id}</strong><small>{reason}</small></span></td><td>{move || if gguf { view! { <VariantSelect repo=id_for_select.clone() quantizations=quantizations /> }.into_any() } else { view! { <TypePill value=format.clone() /><small>{format_detail.clone()}</small> }.into_any() }}</td><td class="model-size">{size}</td><td><FeaturePills tool_use=tool_use thinking=thinking vision=vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
         <Show when=move || operation().is_some_and(|item| item.cancellable) fallback=move || view! {
-            <button class="icon-action" class:downloaded=downloaded disabled=move || downloaded() || busy() data-tooltip=move || if downloaded() { "Downloaded".to_owned() } else { format!("Download {}", target()) } aria-label=move || if downloaded() { "Downloaded" } else { "Download model" } on:click=move |_| start_download(state, &stored.get_value(), target())>{move || view! { <Icon name=if downloaded() { "downloaded" } else { "download" } /> }}</button>
+            <button class="icon-action" class:downloaded=downloaded disabled=move || downloaded() || busy() || quantizations.with(|item| item.kept().is_some()) data-tooltip=move || if downloaded() { "Downloaded".to_owned() } else { format!("Download {}", target()) } aria-label=move || if downloaded() { "Downloaded" } else { "Download model" } on:click=move |_| pull()>{move || view! { <Icon name=if downloaded() { "downloaded" } else { "download" } /> }}</button>
         }>
             <button class="icon-action" data-tooltip="Cancel download" aria-label="Cancel download" on:click=move |_| if let Some(item) = operation() { cancel(state, item.operation_id); }><Icon name="cancel" /></button>
         </Show>
     </td></tr> }
 }
 
-/// A GGUF repository's quantizations. The search estimates their sizes from
-/// the parameter count; the first look at the select lists the files once,
-/// with their exact sizes.
-#[component]
-fn VariantSelect(
-    repo: String,
-    variants: RwSignal<Vec<CatalogVariant>>,
-    chosen: RwSignal<Option<String>>,
-) -> impl IntoView {
-    let state = expect_context::<RuntimeState>();
-    let listed = RwSignal::new(false);
-    let path = format!("/catalog/variants?repo_id={}", urlencoding::encode(&repo));
-    let list = move |_| {
-        if listed.get_untracked() {
-            return;
-        }
-        listed.set(true);
-        let path = path.clone();
-        spawn_local(async move {
-            match api::get::<ModelVariants>(&path).await {
-                Ok(found) => {
-                    variants.set(found.variants);
-                    if chosen.get_untracked().is_none() {
-                        chosen.set(found.default_variant);
-                    }
-                },
-                Err(error) => state.notify(error, true),
-            }
-        });
-    };
-    view! {
-        <select class="variant-select" aria-label="Quantization" data-tooltip="Quantization to download" prop:value=move || chosen.get().unwrap_or_default() on:focus=list on:change=move |event| chosen.set(Some(event_target_value(&event)))>
-            <For each=move || variants.get() key=|variant| (variant.name.clone(), variant.size_kind.clone()) children=move |variant| { let target = format!("{repo}:{}", variant.name); let label = format!("{} · {}", variant.name, size_label(&variant)); let mark = move || if state.models.with(|models| installed(models, &target)) { " ✓" } else { "" }; view! { <option value=variant.name>{label}{mark}</option> } } />
-        </select>
-    }
-}
-
 /// The variant's size; `~` marks one estimated before its files are listed.
-fn size_label(variant: &CatalogVariant) -> String {
+pub(super) fn size_label(variant: &CatalogVariant) -> String {
     let estimated = if variant.size_kind == "estimated" {
         "~"
     } else {
@@ -137,11 +131,39 @@ fn size_label(variant: &CatalogVariant) -> String {
 }
 
 fn pull_activity(state: RuntimeState, id: &str) -> Option<Activity> {
-    state.activities.get().into_iter().find(|item| {
-        item.target == id
-            && item.kind == "pull"
-            && matches!(item.state.as_str(), "queued" | "running" | "cancelling")
+    state.activities.get().into_iter().find(|item| live_pull(item, id))
+}
+
+/// The state of the latest pull of `target` the server reported.
+fn last_pull(state: RuntimeState, target: &str) -> Option<String> {
+    state.activities.with(|items| {
+        items
+            .iter()
+            .find(|item| item.target == target && item.kind == "pull")
+            .map(|item| item.state.clone())
     })
+}
+
+/// Whether a pull that is no longer running left nothing to install: it
+/// failed, was cancelled, or was never reported. A completed pull did
+/// install, though the models list may not show it yet.
+fn pull_ended_without_install(last: Option<&str>) -> bool {
+    matches!(last, None | Some("failed" | "cancelled"))
+}
+
+/// Whether `target` is being downloaded, as the row shows it: busy since
+/// the click, or a live pull.
+fn pulling(state: RuntimeState, target: &str) -> bool {
+    state.busy.with_untracked(|busy| busy.contains_key(target))
+        || state
+            .activities
+            .with_untracked(|items| items.iter().any(|item| live_pull(item, target)))
+}
+
+fn live_pull(item: &Activity, id: &str) -> bool {
+    item.target == id
+        && item.kind == "pull"
+        && matches!(item.state.as_str(), "queued" | "running" | "cancelling")
 }
 
 fn start_download(state: RuntimeState, model: &CatalogModel, repo_id: String) {
@@ -151,8 +173,7 @@ fn start_download(state: RuntimeState, model: &CatalogModel, repo_id: String) {
     }
     state.set_busy(&repo_id, Some("/models/pull"));
     spawn_local(async move {
-        let body = serde_json::json!({"repo_id": repo_id, "revision": null});
-        match api::post::<serde_json::Value, _>(state, "/models/pull", &body).await {
+        match api::post::<serde_json::Value, _>(state, "/models/pull", &pull_body(&repo_id)).await {
             Ok(_) => state.notify(format!("Download accepted for {repo_id}"), false),
             Err(error) => {
                 state.set_busy(&repo_id, None);
@@ -163,6 +184,11 @@ fn start_download(state: RuntimeState, model: &CatalogModel, repo_id: String) {
             },
         }
     });
+}
+
+/// The `/models/pull` request for `repo_id`, a repository or `id:name`.
+fn pull_body(repo_id: &str) -> serde_json::Value {
+    serde_json::json!({"repo_id": repo_id, "revision": null})
 }
 
 fn download_placeholder(model: &CatalogModel, repo_id: &str) -> Model {

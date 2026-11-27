@@ -45,6 +45,12 @@ web-sys = { version = "0.3", features = [
   "Window",
 ] }
 
+# Browser tests: `cargo test --target wasm32-unknown-unknown` with
+# `wasm-bindgen-test-runner` (see README.md).
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+web-sys = { version = "0.3", features = ["EventInit", "HtmlButtonElement", "HtmlOptionElement", "NodeList"] }
+
 [lints.rust]
 future_incompatible = { level = "deny", priority = -1 }
 rust_2018_idioms = { level = "deny", priority = -1 }

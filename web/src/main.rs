@@ -13,6 +13,8 @@ mod demo;
 mod pages;
 mod result;
 mod state;
+#[cfg(all(test, target_arch = "wasm32"))]
+mod testing;
 mod types;
 
 use app::App;

@@ -93,9 +93,14 @@ fn next_request(ui: ModelUi) -> u64 {
     ui.request.get_value()
 }
 
+/// Whether `request` is still the dialog's latest for `selector`; not once
+/// the models page that asked has closed.
 fn current(ui: ModelUi, request: u64, selector: &str) -> bool {
-    ui.request.get_value() == request
-        && ui.load_target.with_untracked(|target| {
-            target.as_ref().is_some_and(|model| model.selector == selector)
-        })
+    ui.request.try_get_value() == Some(request)
+        && ui
+            .load_target
+            .try_with_untracked(|target| {
+                target.as_ref().is_some_and(|model| model.selector == selector)
+            })
+            .unwrap_or(false)
 }
