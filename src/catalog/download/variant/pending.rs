@@ -1,0 +1,208 @@
+//! Variants whose download has started and not finished. Every variant of a
+//! repository downloads into the repository's one Hub cache, so a marker
+//! beside the variant views records which variant a partial cache belongs
+//! to and which of its files: the models list shows it as that variant with
+//! its own bytes, whose resume pulls that variant alone, and removing it
+//! removes those files.
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    catalog::resumable::{ListedFile, Pinned},
+    config::{HubReference, Paths, Store, model_key},
+    error::{Error, Result},
+};
+
+const EXTENSION: &str = "pending";
+
+/// What a marker records: the variant, the commit it downloads and its files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(in crate::catalog::download) struct Pending {
+    pub reference: String,
+    pub commit: String,
+    pub files: Vec<PendingFile>,
+}
+
+/// One file of a downloading variant, by its blob in the repository cache.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(in crate::catalog::download) struct PendingFile {
+    pub path: String,
+    pub etag: String,
+    pub size: u64,
+}
+
+impl Pending {
+    /// The variant's blobs, final or `.incomplete`, under `blobs`.
+    pub fn blobs(&self, paths: &Paths) -> Result<Vec<(PathBuf, PathBuf)>> {
+        let root = repository_root(paths, &self.reference)?;
+        Ok(self
+            .files
+            .iter()
+            .map(|file| {
+                let blob = root.join("blobs").join(&file.etag);
+                let partial = root.join("blobs").join(format!("{}.incomplete", file.etag));
+                (blob, partial)
+            })
+            .collect())
+    }
+
+    /// The bytes downloaded so far.
+    fn bytes(&self, paths: &Paths) -> Result<u64> {
+        Ok(self
+            .blobs(paths)?
+            .iter()
+            .zip(&self.files)
+            .map(|((blob, partial), file)| {
+                fs::metadata(blob)
+                    .or_else(|_| fs::metadata(partial))
+                    .map_or(0, |metadata| metadata.len().min(file.size))
+            })
+            .sum())
+    }
+}
+
+/// The snapshot of the commit `pending` downloads, where its finished
+/// blobs are linked under their paths.
+pub(in crate::catalog::download) fn snapshot(paths: &Paths, pending: &Pending) -> Option<PathBuf> {
+    let root = repository_root(paths, &pending.reference).ok()?;
+    Some(root.join("snapshots").join(&pending.commit))
+}
+
+fn repository_root(paths: &Paths, reference: &str) -> Result<PathBuf> {
+    let repository = reference.parse::<HubReference>()?;
+    Ok(paths
+        .hub_cache_dir
+        .join(format!("models--{}", model_key(repository.repository())?)))
+}
+
+/// `reference`'s marker. One written before a variant's key joined it to its
+/// repository with `@`, as `owner--name--VARIANT`, moves there first, so a
+/// download interrupted then still resumes, counts and removes as its own.
+fn marker(paths: &Paths, reference: &HubReference) -> PathBuf {
+    let key = reference.key();
+    let path = paths.gguf_variants_dir.join(format!("{key}.{EXTENSION}"));
+    let legacy = paths.gguf_variants_dir.join(format!("{}.{EXTENSION}", key.replace('@', "--")));
+    if !path.exists() {
+        // Most variants have no legacy marker; whichever move wins, the
+        // marker ends up at `path`.
+        drop(fs::rename(legacy, &path));
+    }
+    path
+}
+
+/// Records that `reference` is downloading `files` at `pinned`'s commit.
+pub(super) fn begin(
+    store: &Store,
+    reference: &HubReference,
+    pinned: &Pinned,
+    files: &[ListedFile],
+) -> Result<()> {
+    let pending = Pending {
+        reference: reference.to_string(),
+        commit: pinned.commit.clone(),
+        files: files
+            .iter()
+            .map(|file| PendingFile {
+                path: file.path.clone(),
+                etag: file.etag.clone(),
+                size: file.size,
+            })
+            .collect(),
+    };
+    fs::create_dir_all(&store.paths().gguf_variants_dir)?;
+    // Whole or not there: a removal reading it half-written would take it
+    // for one that cannot be read.
+    let path = marker(store.paths(), reference);
+    let partial = path.with_extension(format!("{EXTENSION}.partial"));
+    fs::write(&partial, serde_json::to_vec_pretty(&pending)?)?;
+    fs::rename(partial, path)?;
+    Ok(())
+}
+
+/// What the marker of `reference` records; `None` without a marker, or for
+/// one an earlier version wrote, which named only the variant.
+pub(in crate::catalog::download) fn recorded(
+    paths: &Paths,
+    reference: &HubReference,
+) -> Option<Pending> {
+    serde_json::from_slice(&fs::read(marker(paths, reference)).ok()?).ok()
+}
+
+/// Forgets `reference`'s download: it finished, or it was removed.
+pub(in crate::catalog::download) fn end(store: &Store, reference: &HubReference) -> Result<()> {
+    match fs::remove_file(marker(store.paths(), reference)) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+        _ => Ok(()),
+    }
+}
+
+/// The variants whose download has not finished.
+#[must_use]
+pub fn pending_variants(paths: &Paths) -> Vec<HubReference> {
+    let Ok(entries) = fs::read_dir(&paths.gguf_variants_dir) else {
+        return Vec::new();
+    };
+    let mut pending = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == EXTENSION))
+        .filter_map(|path| read_marker(&path))
+        .collect::<Vec<_>>();
+    pending.sort_by_key(ToString::to_string);
+    pending
+}
+
+/// The variant the marker at `path` downloads: as recorded, or as an
+/// earlier version named it alone.
+fn read_marker(path: &Path) -> Option<HubReference> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<Pending>(&text)
+        .map_or_else(|_| text.trim().to_owned(), |pending| pending.reference)
+        .parse::<HubReference>()
+        .ok()
+        .filter(|reference| reference.variant().is_some())
+}
+
+/// The markers that cannot be read a removal of `reference` takes as its
+/// own, by their key in any spelling. Refuses when another may be a
+/// download of its repository: what it downloads is not known, so nothing
+/// it may share is removed on a guess.
+pub(in crate::catalog::download) fn damaged_markers_of(
+    paths: &Paths,
+    reference: &HubReference,
+) -> Result<Vec<PathBuf>> {
+    let Ok(entries) = fs::read_dir(&paths.gguf_variants_dir) else {
+        return Ok(Vec::new());
+    };
+    let mut own = Vec::new();
+    for path in entries.flatten().map(|entry| entry.path()) {
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let marker = path.extension().is_some_and(|extension| extension == EXTENSION);
+        if !marker || !reference.may_key(stem) || read_marker(&path).is_some() {
+            continue;
+        }
+        if !reference.owns_key(stem) {
+            return Err(Error::Config(format!(
+                "`{}` may be a download of `{}` but cannot be read; repair or remove it first",
+                path.display(),
+                reference.repository()
+            )));
+        }
+        own.push(path);
+    }
+    Ok(own)
+}
+
+/// The bytes `reference` has downloaded, by its own files; `None` for a
+/// marker that does not list them.
+#[must_use]
+pub fn pending_bytes(paths: &Paths, reference: &HubReference) -> Option<u64> {
+    recorded(paths, reference)?.bytes(paths).ok()
+}

@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::*;
-use crate::config::Paths;
+use crate::config::{CacheKind, Paths, RemovalScope, RepositoryCache};
 
 static NEXT_STATE: AtomicU64 = AtomicU64::new(0);
 
@@ -34,12 +34,57 @@ fn persists_the_active_model_set() -> Result<()> {
     Ok(())
 }
 
+/// A removed model leaves the active set in whichever spelling it was
+/// activated, and a removed repository takes each of its variants along.
+#[test]
+fn a_removal_deactivates_every_spelling_it_names() -> Result<()> {
+    let (store, _) = test_store("active-removed");
+    for key in ["Org--Repo@Q4_K_M", "Org--Repo@Q8_0", "Org--Repo-GGUF@Q8_0", "Org--Other"] {
+        store.activate_model(key)?;
+    }
+    store.deactivate_models_of(&RemovalScope::new("org/repo:q4_k_m".parse()?, Vec::new()))?;
+    assert_eq!(store.active_models()?, ["Org--Repo@Q8_0", "Org--Repo-GGUF@Q8_0", "Org--Other"]);
+    store.deactivate_models_of(&RemovalScope::new("org/repo".parse()?, Vec::new()))?;
+    assert_eq!(store.active_models()?, ["Org--Repo-GGUF@Q8_0", "Org--Other"]);
+    Ok(())
+}
+
+/// A model activated by its path in a repository's Hugging Face cache,
+/// unconfigured, leaves the active set with a removal that deleted that
+/// cache; one whose files stay, as a variant's removal leaves another
+/// tool's cache, or in a cache the removal leaves, stays active.
+#[test]
+fn a_removal_deactivates_a_model_activated_from_a_cache_it_took() -> Result<()> {
+    let (store, root) = test_store("active-cached");
+    let external = root.join("hf/models--Owner--Repo");
+    let namesake = root.join("hf/models--Owner--Repo2/snapshots/abc");
+    let mut activated = Vec::new();
+    for snapshot in [&external.join("snapshots/abc"), &namesake] {
+        fs::create_dir_all(snapshot)?;
+        let key = fs::canonicalize(snapshot)?.display().to_string();
+        store.activate_model(&key)?;
+        activated.push(key);
+    }
+    let cache = RepositoryCache::new(&external, &root.join("hf"), CacheKind::External);
+    // Its variant's removal takes mirmir's own cache, not another tool's.
+    store.deactivate_models_of(&RemovalScope::new("owner/repo:Q4_K_M".parse()?, Vec::new()))?;
+    // A removal that may take the cache but has not leaves the model.
+    let repository = RemovalScope::new("owner/repo".parse()?, vec![cache]);
+    store.deactivate_models_of(&repository)?;
+    assert_eq!(store.active_models()?, activated);
+    fs::remove_dir_all(&external)?;
+    store.deactivate_models_of(&repository)?;
+    assert_eq!(store.active_models()?, activated[1..]);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 #[test]
 fn canonicalizes_active_model_paths_and_removes_aliases() -> Result<()> {
     let (store, root) = test_store("active-alias");
     let snapshot = root.join("hub/snapshots/commit");
     fs::create_dir_all(&snapshot)?;
-    store.save_hub_model("Owner/Model", "main", snapshot.clone())?;
+    store.save_hub_model("Owner/Model", "main", "commit", snapshot.clone())?;
     store.activate_model(snapshot.to_str().expect("UTF-8 test path"))?;
     store.activate_model("Owner--Model")?;
     assert_eq!(store.active_models()?, ["Owner--Model"]);
@@ -70,5 +115,83 @@ fn quarantines_corrupt_managed_state_and_resets_it() -> Result<()> {
     assert!(recovery.reason.contains("TOML parse error"));
     assert!(store.take_state_recovery()?.is_none());
     assert_eq!(store.active_models()?, Vec::<String>::new());
+    Ok(())
+}
+
+/// Resolving the active selections, under the UX state lock, never takes
+/// that lock again, even for a selection whose configuration still needs
+/// moving, as a selection's other spelling on a case-insensitive file
+/// system once did: the restoration finishes and the next operation too.
+#[test]
+fn resolving_active_models_never_waits_on_its_own_lock() -> Result<()> {
+    let (store, root) = test_store("active-lock");
+    let view = store.paths.gguf_variants_dir.join("m--Q8");
+    fs::create_dir_all(&view)?;
+    fs::create_dir_all(&store.paths.models_dir)?;
+    fs::write(
+        store.paths.models_dir.join("m--Q8.toml"),
+        format!(
+            "schema_version = 1\nid = \"m--Q8\"\npath = \"{}\"\n\n[hub]\nrepo_id = \"m:Q8\"\n\
+             revision = \"main\"\ncommit = \"abc\"\n",
+            view.canonicalize()?.display()
+        ),
+    )?;
+    fs::write(
+        &store.paths.ux_state_file,
+        "schema_version = 1\nrecent_models = []\nactive_models = [\"m--Q8\"]\n",
+    )?;
+    let store = std::sync::Arc::new(store);
+    let guard = store.ux_state_guard()?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let resolving = std::sync::Arc::clone(&store);
+    let worker = std::thread::spawn(move || {
+        let mut state = resolving.load_ux_state().expect("state should load");
+        resolving.normalize_active_models(&mut state);
+        drop(sender.send(state.active_models));
+    });
+    let resolved = receiver.recv_timeout(std::time::Duration::from_secs(5));
+    drop(guard);
+    worker.join().expect("resolution should not panic");
+    assert_eq!(resolved.expect("resolution should not wait on the held lock"), ["m--Q8"]);
+    assert_eq!(store.active_models()?, ["m@Q8"]);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+/// The reviewer's case on a case-insensitive file system (macOS APFS): an
+/// installed `owner/model-GGUF:Q4_0` and an active selection spelled
+/// `owner/model-GGUF:q4_0`, whose key names the same configuration file
+/// there. Listing the active models finishes, the next state operation too,
+/// and the configuration stays. Elsewhere the spellings are two names, and
+/// the same calls hold.
+#[test]
+fn an_active_selection_spelled_another_way_resolves_without_waiting() -> Result<()> {
+    let (store, root) = test_store("active-spelling");
+    let view = store.paths.gguf_variants_dir.join("owner--model-GGUF@Q4_0");
+    fs::create_dir_all(&view)?;
+    store.save_hub_model("owner/model-GGUF:Q4_0", "main", "abc", view.canonicalize()?)?;
+    let saved = store.paths.models_dir.join("owner--model-GGUF@Q4_0.toml");
+    fs::write(
+        &store.paths.ux_state_file,
+        "schema_version = 1\nrecent_models = []\nactive_models = [\"owner/model-GGUF:q4_0\"]\n",
+    )?;
+    let store = std::sync::Arc::new(store);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let listing = std::sync::Arc::clone(&store);
+    let worker = std::thread::spawn(move || {
+        let active = listing.active_models();
+        let next = listing.recent_models();
+        sender.send((active.is_ok(), next.is_ok())).ok();
+    });
+    let finished = receiver.recv_timeout(std::time::Duration::from_secs(5));
+    assert_eq!(finished.ok(), Some((true, true)), "listing or the next operation waited");
+    worker.join().expect("listing should not panic");
+    assert!(saved.exists(), "the installed variant's configuration went");
+    assert!(store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
+    // Restored as the installed variant, which loads from its view.
+    let active = store.active_models()?;
+    assert_eq!(active, ["owner--model-GGUF@Q4_0"]);
+    assert_eq!(store.resolve_model(&active[0])?.path, view.canonicalize()?);
+    fs::remove_dir_all(root)?;
     Ok(())
 }

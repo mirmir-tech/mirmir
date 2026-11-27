@@ -45,8 +45,8 @@ pub enum Access {
 pub fn required(method: &str) -> Option<Access> {
     let access = match method {
         "Health" | "ListModels" | "ListActiveModels" | "ListLocalModels" | "InspectModel"
-        | "SearchModels" | "Generate" | "Embed" | "Rerank" | "Telemetry" | "TelemetryHistory"
-        | "GetConfiguration" | "WatchActivity" => Access::Remote(Scope::Use),
+        | "SearchModels" | "ListModelVariants" | "Generate" | "Embed" | "Rerank" | "Telemetry"
+        | "TelemetryHistory" | "GetConfiguration" | "WatchActivity" => Access::Remote(Scope::Use),
         "UpdateModelGeneration"
         | "LoadModel"
         | "UnloadModel"

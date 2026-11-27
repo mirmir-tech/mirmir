@@ -7,35 +7,40 @@ use ratatui::{
 };
 
 use super::{
-    super::{app::App, theme},
+    super::{
+        app::{App, CatalogPresence, variant_size},
+        theme,
+    },
     bytes,
+};
+use crate::{
+    catalog::{MemoryFit, VariantSize},
+    rpc::proto::{CatalogModel, CatalogVariant},
 };
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = title(app);
     let rows = app.visible_catalog_models().map(|model| {
+        let variant = app.chosen_variant(model);
+        let presence = app.catalog_presence(model);
         Row::new(vec![
-            Cell::from(if model.gated {
-                format!("🔒 {}", model.id)
-            } else {
-                model.id.clone()
-            }),
-            Cell::from(format_label(model)),
-            Cell::from(model.estimated_required_bytes.map_or_else(|| "—".to_owned(), bytes)),
+            Cell::from(name(model)),
+            Cell::from(format_label(model, variant)),
+            Cell::from(size(model, variant)),
             Cell::from(features(model.tool_use, model.thinking, model.vision)),
-            Cell::from(status(model)),
-            Cell::from(if is_local(model) {
-                "✓ downloaded"
-            } else {
-                "↓ download"
+            Cell::from(status(app.catalog_fit(model), presence)),
+            Cell::from(match presence {
+                CatalogPresence::Downloaded => "✓ downloaded",
+                CatalogPresence::ExternalCache => "▶ load",
+                CatalogPresence::Remote => "↓ download",
             }),
         ])
     });
-    let header = Row::new(["NAME", "FORMAT", "SIZE", "FEATURES", "FIT", "ACTION"])
+    let header = Row::new(["NAME", "FORMAT · ←/→", "SIZE", "FEATURES", "FIT", "ACTION"])
         .style(Style::new().fg(theme::MUTED).add_modifier(Modifier::BOLD));
     let widths = [
         Constraint::Percentage(34),
-        Constraint::Length(18),
+        Constraint::Length(20),
         Constraint::Length(11),
         Constraint::Percentage(23),
         Constraint::Length(13),
@@ -58,13 +63,55 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-fn format_label(model: &crate::rpc::proto::CatalogModel) -> String {
-    let value = if model.encoding.is_empty() || model.encoding == "Unknown" {
-        &model.ecosystem
+fn name(model: &CatalogModel) -> String {
+    let lock = if model.gated {
+        "🔒 "
     } else {
-        &model.encoding
+        ""
     };
-    value.to_ascii_uppercase()
+    format!("{lock}{}", model.id)
+}
+
+/// What the download needs; `~` marks a size estimated before its files
+/// are listed.
+fn size(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+    let (required, estimated) =
+        variant.map_or((model.estimated_required_bytes, false), |variant| {
+            let estimated = matches!(variant_size(variant), VariantSize::Estimated(_));
+            (variant.required_bytes, estimated)
+        });
+    required.map_or_else(
+        || "—".to_owned(),
+        |required| {
+            format!(
+                "{}{}",
+                if estimated {
+                    "~"
+                } else {
+                    ""
+                },
+                bytes(required)
+            )
+        },
+    )
+}
+
+/// A GGUF repository's chosen quantization between the ←/→ marks that
+/// change it, and its place among them; the encoding of another.
+fn format_label(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+    let Some(variant) = variant else {
+        return model.encoding.as_deref().unwrap_or(&model.ecosystem).to_ascii_uppercase();
+    };
+    let count = model.variants.len();
+    if count < 2 {
+        return format!("GGUF {}", variant.name);
+    }
+    let place = model
+        .variants
+        .iter()
+        .position(|option| option.name == variant.name)
+        .unwrap_or(0);
+    format!("‹{}› {}/{count}", variant.name, place + 1)
 }
 
 fn title(app: &App) -> String {
@@ -79,22 +126,16 @@ fn title(app: &App) -> String {
     }
 }
 
-fn status(model: &crate::rpc::proto::CatalogModel) -> Line<'static> {
-    let (value, color) = if is_local(model) {
-        ("DOWNLOADED", theme::SUCCESS)
-    } else {
-        match model.memory_fit.as_str() {
-            "fits" => ("FITS", theme::SUCCESS),
-            "tight" => ("TIGHT", theme::SIGNAL),
-            "does_not_fit" => ("NO FIT", theme::DANGER),
-            _ => ("UNKNOWN", theme::MUTED),
-        }
+fn status(fit: MemoryFit, presence: CatalogPresence) -> Line<'static> {
+    let (value, color) = match (presence, fit) {
+        (CatalogPresence::Downloaded, _) => ("DOWNLOADED", theme::SUCCESS),
+        (CatalogPresence::ExternalCache, _) => ("HF CACHE", theme::SUCCESS),
+        (CatalogPresence::Remote, MemoryFit::Fits) => ("FITS", theme::SUCCESS),
+        (CatalogPresence::Remote, MemoryFit::Tight) => ("TIGHT", theme::SIGNAL),
+        (CatalogPresence::Remote, MemoryFit::DoesNotFit) => ("NO FIT", theme::DANGER),
+        (CatalogPresence::Remote, MemoryFit::Unknown) => ("UNKNOWN", theme::MUTED),
     };
     Line::from(Span::styled(format!(" {value} "), Style::new().fg(color).bg(theme::RAISED)))
-}
-
-fn is_local(model: &crate::rpc::proto::CatalogModel) -> bool {
-    model.downloaded || matches!(model.local_source.as_str(), "mirmir" | "hf_cache")
 }
 
 fn features(tools: bool, thinking: bool, vision: bool) -> Line<'static> {

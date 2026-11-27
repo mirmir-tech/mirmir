@@ -80,6 +80,7 @@ fn router(
             .route("/api/mirmir/v1/configuration", post(crate::web::update_configuration))
             .route("/api/mirmir/v1/activity", get(crate::web::activity))
             .route("/api/mirmir/v1/catalog/search", get(crate::web::search))
+            .route("/api/mirmir/v1/catalog/variants", get(crate::web::variants))
             .route("/api/mirmir/v1/models/inspect", get(crate::web::inspect))
             .route("/api/mirmir/v1/models/load", post(crate::web::load))
             .route("/api/mirmir/v1/models/unload", post(crate::web::unload))

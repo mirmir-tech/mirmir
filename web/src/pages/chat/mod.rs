@@ -131,7 +131,7 @@ fn Composer(selected_model: RwSignal<String>) -> impl IntoView {
             .models
             .get()
             .into_iter()
-            .filter(|model| matches!(model.state.as_str(), "ready" | "active"))
+            .filter(|model| model.state.loaded())
             .collect::<Vec<_>>()
     };
     view! { <div class="composer-dock"><form class="chat-composer" on:submit=move |event| { event.prevent_default(); submit(); } on:dragover=move |event: DragEvent| event.prevent_default() on:drop=move |event: DragEvent| { event.prevent_default(); if let Some(file) = event.data_transfer().and_then(|data| data.files()).and_then(|files| files.get(0)) { attach(runtime, chat, file); } }>

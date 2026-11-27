@@ -1,5 +1,5 @@
 use super::{ActivityKind, ActivityOutcome, Application, Result};
-use crate::catalog::{Removal, SearchResults};
+use crate::catalog::{ModelVariants, Removal, SearchResults};
 
 impl Application {
     pub async fn search_catalog(
@@ -9,6 +9,10 @@ impl Application {
         cursor: Option<&str>,
     ) -> Result<SearchResults> {
         self.catalog.search(query, limit, cursor).await
+    }
+
+    pub async fn catalog_variants(&self, repo_id: &str) -> Result<ModelVariants> {
+        self.catalog.variants(repo_id).await
     }
 
     pub async fn remove_download(&self, repo_id: &str) -> Result<Removal> {

@@ -3,7 +3,12 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
 use super::RuntimeService;
-use crate::{application::TransferProgress, catalog::SearchResults, rpc::proto};
+use crate::{
+    application::TransferProgress,
+    catalog::{CatalogVariant, SearchResults},
+    model::format::{container_name, legacy_library},
+    rpc::proto,
+};
 
 pub fn response(results: SearchResults) -> proto::SearchModelsResponse {
     proto::SearchModelsResponse {
@@ -22,27 +27,58 @@ fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
         likes: model.likes,
         gated: model.gated,
         model_class: model.model_class,
-        compatibility: model.compatibility.to_owned(),
-        memory_fit: model.memory_fit.to_owned(),
+        compatibility: model.compatibility.as_str().to_owned(),
+        memory_fit: model.memory_fit.as_str().to_owned(),
         estimated_weight_bytes: model.weight_bytes,
         estimated_required_bytes: model.required_bytes,
         budget_bytes: model.budget_bytes,
-        confidence: model.confidence.to_owned(),
+        confidence: model.confidence.as_str().to_owned(),
         reason: model.reason,
         downloaded: model.downloaded,
         local_source: model.local_source.to_owned(),
-        library: model.library,
-        ecosystem: model.ecosystem,
-        container: model.container,
-        encoding: model.encoding,
-        metal_compatibility: model.metal_compatibility,
-        cuda_compatibility: model.cuda_compatibility,
+        library: legacy_library(model.container, &model.ecosystem).to_owned(),
+        ecosystem: model.ecosystem.name().to_owned(),
+        container: container_name(model.container).to_owned(),
+        encoding: model.encoding.known_label(),
+        metal_compatibility: model.metal_compatibility.as_str().to_owned(),
+        cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
         preflight_bytes: model.preflight_bytes,
         preflight_error: model.preflight_error,
         tool_use: model.features.tool_use,
         thinking: model.features.thinking,
         vision: model.features.vision,
+        variants: model.variants.into_iter().map(variant).collect(),
+        default_variant: model.default_variant,
     }
+}
+
+fn variant(variant: CatalogVariant) -> proto::CatalogVariant {
+    proto::CatalogVariant {
+        name: variant.name,
+        size_kind: variant.size.kind().to_owned(),
+        weight_bytes: variant.size.bytes(),
+        required_bytes: variant.required_bytes,
+        memory_fit: variant.memory_fit.as_str().to_owned(),
+        downloaded: variant.downloaded,
+    }
+}
+
+pub async fn variants(
+    service: &RuntimeService,
+    request: proto::ListModelVariantsRequest,
+) -> Result<proto::ListModelVariantsResponse, Status> {
+    if request.repo_id.trim().is_empty() {
+        return Err(Status::invalid_argument("repository id cannot be empty"));
+    }
+    let listed = service
+        .application
+        .catalog_variants(request.repo_id.trim())
+        .await
+        .map_err(super::status::application)?;
+    Ok(proto::ListModelVariantsResponse {
+        variants: listed.variants.into_iter().map(variant).collect(),
+        default_variant: listed.default_variant,
+    })
 }
 
 pub async fn search(

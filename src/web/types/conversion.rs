@@ -1,5 +1,11 @@
-use super::{Activity, CatalogModel, CatalogResults, Features, Model, Overview};
-use crate::{application, catalog};
+use super::{
+    Activity, CatalogModel, CatalogResults, CatalogVariant, Features, Model, ModelVariants,
+    Overview,
+};
+use crate::{
+    application, catalog,
+    model::format::{container_name, legacy_library},
+};
 
 impl From<application::TelemetrySnapshot> for Overview {
     fn from(snapshot: application::TelemetrySnapshot) -> Self {
@@ -62,12 +68,12 @@ impl From<application::LocalModelInfo> for Model {
             loadable: model.loadable,
             load_unavailable_reason: model.load_unavailable_reason,
             class: model.model_class,
-            library: model.library,
-            ecosystem: model.ecosystem,
-            container: model.container,
-            encoding: model.encoding,
-            metal_compatibility: model.metal_compatibility,
-            cuda_compatibility: model.cuda_compatibility,
+            library: legacy_library(model.container, &model.ecosystem).to_owned(),
+            ecosystem: model.ecosystem.name().to_owned(),
+            container: container_name(model.container).to_owned(),
+            encoding: model.encoding.known_label(),
+            metal_compatibility: model.metal_compatibility.as_str().to_owned(),
+            cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
             size_bytes: model.size_bytes,
             features: features(model.tool_use, model.thinking, model.vision),
         }
@@ -94,21 +100,21 @@ impl From<catalog::CatalogModel> for CatalogModel {
             likes: model.likes,
             gated: model.gated,
             model_class: model.model_class,
-            compatibility: model.compatibility.to_owned(),
-            memory_fit: model.memory_fit.to_owned(),
+            compatibility: model.compatibility.as_str().to_owned(),
+            memory_fit: model.memory_fit.as_str().to_owned(),
             estimated_required_bytes: model.required_bytes,
             budget_bytes: model.budget_bytes,
-            confidence: model.confidence.to_owned(),
+            confidence: model.confidence.as_str().to_owned(),
             reason: model.reason,
             downloaded: model.downloaded,
             local_source: model.local_source.to_owned(),
             estimated_weight_bytes: model.weight_bytes,
-            library: model.library,
-            ecosystem: model.ecosystem,
-            container: model.container,
-            encoding: model.encoding,
-            metal_compatibility: model.metal_compatibility,
-            cuda_compatibility: model.cuda_compatibility,
+            library: legacy_library(model.container, &model.ecosystem).to_owned(),
+            ecosystem: model.ecosystem.name().to_owned(),
+            container: container_name(model.container).to_owned(),
+            encoding: model.encoding.known_label(),
+            metal_compatibility: model.metal_compatibility.as_str().to_owned(),
+            cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
             preflight_bytes: model.preflight_bytes,
             preflight_error: model.preflight_error,
             features: features(
@@ -116,6 +122,30 @@ impl From<catalog::CatalogModel> for CatalogModel {
                 model.features.thinking,
                 model.features.vision,
             ),
+            variants: model.variants.into_iter().map(CatalogVariant::from).collect(),
+            default_variant: model.default_variant,
+        }
+    }
+}
+
+impl From<catalog::CatalogVariant> for CatalogVariant {
+    fn from(variant: catalog::CatalogVariant) -> Self {
+        Self {
+            name: variant.name,
+            size_kind: variant.size.kind().to_owned(),
+            weight_bytes: variant.size.bytes(),
+            required_bytes: variant.required_bytes,
+            memory_fit: variant.memory_fit.as_str().to_owned(),
+            downloaded: variant.downloaded,
+        }
+    }
+}
+
+impl From<catalog::ModelVariants> for ModelVariants {
+    fn from(listed: catalog::ModelVariants) -> Self {
+        Self {
+            variants: listed.variants.into_iter().map(CatalogVariant::from).collect(),
+            default_variant: listed.default_variant,
         }
     }
 }

@@ -12,6 +12,7 @@ service Runtime {
   rpc LoadModel(LoadModelRequest) returns (stream ModelLifecycleEvent);
   rpc UnloadModel(UnloadModelRequest) returns (UnloadModelResponse);
   rpc SearchModels(SearchModelsRequest) returns (SearchModelsResponse);
+  rpc ListModelVariants(ListModelVariantsRequest) returns (ListModelVariantsResponse);
   rpc PullModel(PullModelRequest) returns (stream ModelTransferEvent);
   rpc RemoveModel(RemoveModelRequest) returns (RemoveModelResponse);
   rpc Generate(GenerateRequest) returns (stream GenerateEvent);
@@ -85,7 +86,8 @@ message LocalModelInfo {
   bool vision = 19;
   string ecosystem = 20;
   string container = 21;
-  string encoding = 22;
+  // Absent when nothing names the weights' encoding.
+  optional string encoding = 22;
   string metal_compatibility = 23;
   string cuda_compatibility = 24;
 }
@@ -249,11 +251,39 @@ message CatalogModel {
   bool vision = 18;
   string ecosystem = 19;
   string container = 20;
-  string encoding = 21;
+  // Absent when nothing names the weights' encoding.
+  optional string encoding = 21;
   string metal_compatibility = 22;
   string cuda_compatibility = 23;
   optional uint64 preflight_bytes = 24;
   optional string preflight_error = 25;
+  // A GGUF repository's quantizations, fewest bits per weight first; empty
+  // for other repositories. Pull one as `id:name`.
+  repeated CatalogVariant variants = 26;
+  // The variant a pull of `id` alone takes; the row's size and memory fit
+  // are its own.
+  optional string default_variant = 27;
+}
+
+message CatalogVariant {
+  string name = 1;
+  // "exact" from the listed files, "estimated" from the parameter count, or
+  // "unknown"; the size includes the vision tower when it is offered.
+  string size_kind = 2;
+  optional uint64 weight_bytes = 3;
+  optional uint64 required_bytes = 4;
+  string memory_fit = 5;
+  bool downloaded = 6;
+}
+
+message ListModelVariantsRequest {
+  string repo_id = 1;
+}
+
+message ListModelVariantsResponse {
+  // With the exact sizes of the listed files.
+  repeated CatalogVariant variants = 1;
+  optional string default_variant = 2;
 }
 
 message PullModelRequest {

@@ -2,7 +2,10 @@ use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
 use super::App;
-use crate::rpc::{Client, proto};
+use crate::{
+    catalog::MemoryFit,
+    rpc::{Client, proto},
+};
 
 impl App {
     pub(super) fn start_pull(&mut self, client: &Client) {
@@ -13,7 +16,7 @@ impl App {
         let Some(model) = self.selected_catalog_model() else {
             return;
         };
-        if model.downloaded {
+        if self.catalog_downloaded(model) {
             self.action_message = Some("model is already downloaded".to_owned());
             return;
         }
@@ -27,13 +30,15 @@ impl App {
                 Some("this remote weight format cannot be inspected by libmir".to_owned());
             return;
         }
-        if model.memory_fit == "does_not_fit" {
+        if self.catalog_fit(model) == MemoryFit::DoesNotFit {
             self.action_message =
                 Some("estimated model memory exceeds the current device budget".to_owned());
             return;
         }
-        let repo_id = model.id.clone();
-        self.start_pull_repo(client, repo_id);
+        match self.pull_target(model) {
+            Ok(repo_id) => self.start_pull_repo(client, repo_id),
+            Err(error) => self.action_message = Some(error.to_string()),
+        }
     }
 
     pub(super) fn resume_selected_pull(&mut self, client: &Client) {
@@ -101,11 +106,8 @@ impl App {
         }
         self.transfer_total_bytes = event.total_bytes.or(self.transfer_total_bytes);
         self.action_message = Some(event.message);
-        if event.phase == "available"
-            && let Some(model) = self.catalog.iter_mut().find(|model| model.id == event.repo_id)
-        {
-            model.downloaded = true;
-            "mirmir".clone_into(&mut model.local_source);
+        if event.phase == "available" {
+            self.mark_downloaded(&event.repo_id, true);
         }
     }
 }

@@ -6,7 +6,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{security_headers, session::WebError, types::CatalogResults};
+use super::{
+    security_headers,
+    session::WebError,
+    types::{CatalogResults, ModelVariants},
+};
 use crate::http::ApiState;
 
 #[derive(Deserialize)]
@@ -44,6 +48,26 @@ pub async fn search(
         .await
         .map_err(WebError::application)?;
     Ok((security_headers(), Json(CatalogResults::from(response))).into_response())
+}
+
+#[derive(Deserialize)]
+pub struct VariantsQuery {
+    repo_id: String,
+}
+
+/// A GGUF repository's variants with their listed sizes.
+pub async fn variants(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(query): Query<VariantsQuery>,
+) -> Result<Response, WebError> {
+    state.sessions().authenticate(&headers)?;
+    let listed = state
+        .application()
+        .catalog_variants(query.repo_id.trim())
+        .await
+        .map_err(WebError::application)?;
+    Ok((security_headers(), Json(ModelVariants::from(listed))).into_response())
 }
 
 pub async fn pull(

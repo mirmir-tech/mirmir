@@ -1,6 +1,6 @@
 //! A stable configuration id for a model folder no repository names.
 
-use std::path::Path;
+use std::{ffi::OsStr, path::Path};
 
 use sha2::{Digest, Sha256};
 
@@ -10,8 +10,15 @@ use sha2::{Digest, Sha256};
 /// gets the same id.
 #[must_use]
 pub fn folder_key(path: &Path) -> String {
-    let name = path
-        .file_name()
+    named_key(path.file_name(), path)
+}
+
+/// The id of `path` under the readable `name`, such as a file's stem: the
+/// digest is still of the whole canonical path, so `Foo.gguf` and a sibling
+/// folder `Foo` get different ids.
+#[must_use]
+pub fn named_key(name: Option<&OsStr>, path: &Path) -> String {
+    let name = name
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()
         .chars()

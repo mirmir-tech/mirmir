@@ -113,12 +113,7 @@ impl proto::runtime_server::Runtime for RuntimeService {
         &self,
         request: Request<proto::UnloadModelRequest>,
     ) -> Result<Response<proto::UnloadModelResponse>, Status> {
-        let selector = request.into_inner().selector;
-        // Unloading waits for the memory gate, which a load may hold.
-        let service = self.clone();
-        let unloaded = status::internal(
-            tokio::task::spawn_blocking(move || service.unload(&selector)).await,
-        )??;
+        let unloaded = self.unload_blocking(request.into_inner().selector).await?;
         Ok(Response::new(proto::UnloadModelResponse { unloaded }))
     }
 
@@ -127,6 +122,13 @@ impl proto::runtime_server::Runtime for RuntimeService {
         request: Request<proto::SearchModelsRequest>,
     ) -> Result<Response<proto::SearchModelsResponse>, Status> {
         Ok(Response::new(catalog::search(self, request.into_inner()).await?))
+    }
+
+    async fn list_model_variants(
+        &self,
+        request: Request<proto::ListModelVariantsRequest>,
+    ) -> Result<Response<proto::ListModelVariantsResponse>, Status> {
+        Ok(Response::new(catalog::variants(self, request.into_inner()).await?))
     }
 
     async fn pull_model(

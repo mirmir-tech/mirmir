@@ -1,20 +1,28 @@
 use std::{collections::HashSet, future::Future, time::Duration};
 
 use futures_util::{StreamExt, stream};
+use libmir::{AdmissionStatus, WeightContainer};
 
 use super::{Catalog, CatalogModel, preflight};
 
 const CONCURRENCY: usize = 4;
 const SEARCH_BUDGET: Duration = Duration::from_secs(4);
 
+/// Inspects the remote `SafeTensors` rows' headers within the search budget;
+/// a GGUF row lists its variants already, and its header is admitted when
+/// one is chosen.
 pub(super) async fn enrich(catalog: &Catalog, models: &mut [CatalogModel]) {
+    inspect_headers(catalog, models).await;
+}
+
+async fn inspect_headers(catalog: &Catalog, models: &mut [CatalogModel]) {
     let candidates = models
         .iter()
         .enumerate()
         .filter(|(_, model)| {
             model.local_source == "remote"
-                && model.compatibility == "unknown"
-                && model.container == "SafeTensors"
+                && model.compatibility == AdmissionStatus::Unknown
+                && model.container == Some(WeightContainer::SafeTensors)
         })
         .map(|(index, model)| (index, model.id.clone()))
         .collect::<Vec<_>>();
@@ -46,6 +54,9 @@ async fn run_bounded<F, T>(requests: Vec<F>, concurrency: usize, budget: Duratio
 where
     F: Future<Output = T>,
 {
+    if requests.is_empty() {
+        return Vec::new();
+    }
     let pending = stream::iter(requests).buffer_unordered(concurrency);
     futures_util::pin_mut!(pending);
     let deadline = tokio::time::sleep(budget);
@@ -53,9 +64,11 @@ where
     let mut completed = Vec::new();
     loop {
         tokio::select! {
-            Some(result) = pending.next() => completed.push(result),
+            next = pending.next() => match next {
+                Some(result) => completed.push(result),
+                None => break,
+            },
             () = &mut deadline => break,
-            else => break,
         }
     }
     completed

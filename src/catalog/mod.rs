@@ -4,6 +4,7 @@ mod download;
 mod fit;
 mod hub;
 mod preflight;
+mod pull;
 mod queue;
 mod resumable;
 mod search_preflight;
@@ -14,17 +15,23 @@ use std::{
 };
 
 pub use cache::{
-    CachedModel, PartialDownload, discover_cached_models_in, discover_external_models,
-    discover_partial_downloads_in,
+    CachedModel, PartialDownload, cached_repository_bytes, discover_cached_models_in,
+    discover_external_models, discover_partial_downloads_in,
 };
-pub use download::{DownloadedModel, Removal, TransferPhase, TransferUpdate};
-pub use fit::{CatalogModel, MachineMemory};
-use libmir::{BackendTarget, CancellationToken};
+pub use download::{
+    DownloadedModel, Removal, TransferPhase, TransferUpdate, pending_bytes, pending_variants,
+};
+pub use fit::{
+    CatalogModel, CatalogVariant, Confidence, MachineMemory, MemoryFit, VariantSize,
+    admission_status, rank,
+};
+pub use hub::{HubFacts, encoding_named};
 pub use preflight::RemoteHeaderPreflight;
+pub use pull::TransferConflict;
 use queue::TransferQueue;
 
 use crate::{
-    config::Store,
+    config::{HubReference, Store},
     error::{Error, Result},
 };
 
@@ -32,9 +39,18 @@ use crate::{
 pub struct Catalog {
     client: reqwest::Client,
     store: Store,
-    active_transfers: Arc<Mutex<HashSet<String>>>,
+    active_transfers: Arc<Mutex<pull::Transfers>>,
     transfer_queue: TransferQueue,
     preflight_cache: preflight::Cache,
+    /// Removals run one at a time: whether a removal leaves its repository
+    /// with nothing is decided by the others having finished.
+    removals: Arc<tokio::sync::Mutex<()>>,
+}
+
+/// A GGUF repository's variants with their listed sizes.
+pub struct ModelVariants {
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
 }
 
 pub struct SearchResults {
@@ -49,9 +65,10 @@ impl Catalog {
         Self {
             client: reqwest::Client::new(),
             store,
-            active_transfers: Arc::new(Mutex::new(HashSet::new())),
+            active_transfers: Arc::new(Mutex::new(pull::Transfers::new())),
             transfer_queue: TransferQueue::serial(),
             preflight_cache: preflight::Cache::default(),
+            removals: Arc::default(),
         }
     }
 
@@ -66,29 +83,38 @@ impl Catalog {
         let page = hub::search(&self.client, token.as_deref(), query, limit, cursor).await?;
         let external = discover_external_models(self.store.paths())
             .into_iter()
-            .map(|model| model.repo_id)
+            .map(|model| model.repo_id.to_ascii_lowercase())
             .collect::<HashSet<_>>();
         let managed = discover_cached_models_in(&self.store.paths().hub_cache_dir)
             .into_iter()
-            .map(|model| model.repo_id)
+            .map(|model| model.repo_id.to_ascii_lowercase())
             .collect::<HashSet<_>>();
         let partial = discover_partial_downloads_in(&self.store.paths().hub_cache_dir)
             .into_iter()
-            .map(|model| model.repo_id)
+            .map(|model| model.repo_id.to_ascii_lowercase())
             .collect::<HashSet<_>>();
         let mut models = page
             .models
             .into_iter()
             .map(|candidate| fit::evaluate(candidate, memory))
             .collect::<Vec<_>>();
+        // The configurations are read once for every model and variant.
+        let downloaded = self.store.downloaded_models()?;
+        // Caches by repository in any spelling, as the Hub resolves it.
         for model in &mut models {
-            model.downloaded =
-                self.store.hub_model_downloaded(&model.id)? || managed.contains(&model.id);
+            let reference = model.id.parse::<HubReference>()?;
+            let id = model.id.to_ascii_lowercase();
+            for variant in &mut model.variants {
+                variant.downloaded = downloaded.contains(&reference.with_variant(&variant.name)?);
+            }
+            model.downloaded = model.target_downloaded(|| {
+                Ok(downloaded.contains(&reference) || managed.contains(&id))
+            })?;
             model.local_source = if model.downloaded {
                 "mirmir"
-            } else if partial.contains(&model.id) {
+            } else if partial.contains(&id) {
                 "partial"
-            } else if external.contains(&model.id) {
+            } else if external.contains(&id) {
                 "hf_cache"
             } else {
                 "remote"
@@ -132,114 +158,5 @@ impl Catalog {
         .await?;
         self.preflight_cache.insert(repo_id, &revision, result.clone())?;
         Ok(result)
-    }
-
-    pub async fn pull(
-        &self,
-        repo_id: &str,
-        revision: Option<&str>,
-        updates: tokio::sync::mpsc::Sender<TransferUpdate>,
-        cancellation: &CancellationToken,
-    ) -> Result<DownloadedModel> {
-        let managed = discover_cached_models_in(&self.store.paths().hub_cache_dir)
-            .into_iter()
-            .any(|model| model.repo_id == repo_id);
-        if self.store.hub_model_downloaded(repo_id)? || managed {
-            return Err(Error::Config(format!("model `{repo_id}` is already downloaded")));
-        }
-        self.start_transfer(repo_id)?;
-        let result = self.pull_reserved(repo_id, revision, updates, cancellation).await;
-        self.finish_transfer(repo_id);
-        result
-    }
-
-    async fn pull_reserved(
-        &self,
-        repo_id: &str,
-        revision: Option<&str>,
-        updates: tokio::sync::mpsc::Sender<TransferUpdate>,
-        cancellation: &CancellationToken,
-    ) -> Result<DownloadedModel> {
-        download::send(
-            &updates,
-            TransferPhase::Queued,
-            0,
-            None,
-            "waiting for download slot".to_owned(),
-        )
-        .await;
-        let _permit = self.transfer_queue.acquire(cancellation).await?;
-        download::send(
-            &updates,
-            TransferPhase::Checking,
-            0,
-            None,
-            "validating remote SafeTensors headers".to_owned(),
-        )
-        .await;
-        let preflight = self.preflight_headers(repo_id, revision).await?;
-        let model_type = preflight
-            .metadata
-            .config
-            .get("model_type")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown");
-        let metal = preflight
-            .contract
-            .as_ref()
-            .map_or("unknown", |contract| contract.admission(BackendTarget::Metal).status.as_str());
-        let cuda = preflight
-            .contract
-            .as_ref()
-            .map_or("unknown", |contract| contract.admission(BackendTarget::Cuda).status.as_str());
-        tracing::info!(
-            model = repo_id,
-            revision = preflight.revision,
-            model_type,
-            tokenizer_metadata = preflight.metadata.tokenizer_config.is_some(),
-            tokenizer_kind = ?preflight.metadata.tokenizer_assets.kind,
-            tokenizer_bytes = preflight.metadata.tokenizer_assets.total_bytes,
-            vision_pipeline = ?preflight.contract.as_ref().and_then(libmir::RemoteModelContract::vision).map(|vision| vision.config().pipeline()),
-            vision_ready = preflight.contract.as_ref().and_then(libmir::RemoteModelContract::vision).is_some_and(|vision| vision.readiness().is_ready() && vision.processor().is_some()),
-            metal_compatibility = metal,
-            cuda_compatibility = cuda,
-            contract_error = preflight.contract_error.as_deref(),
-            files = preflight.files.len(),
-            tensors = preflight.catalog.len(),
-            fetched_bytes = preflight.fetched_bytes,
-            "remote SafeTensors headers validated"
-        );
-        download::pull(&self.store, repo_id, revision, updates, cancellation).await
-    }
-
-    pub async fn remove(&self, repo_id: &str) -> Result<Removal> {
-        if self.is_transferring(repo_id)? {
-            return Err(Error::Config(format!("model `{repo_id}` is currently downloading")));
-        }
-        download::remove(&self.store, repo_id).await
-    }
-
-    fn start_transfer(&self, repo_id: &str) -> Result<()> {
-        let Ok(mut active) = self.active_transfers.lock() else {
-            return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
-        };
-        if !active.insert(repo_id.to_owned()) {
-            return Err(Error::Config(format!("model `{repo_id}` is already downloading")));
-        }
-        drop(active);
-        Ok(())
-    }
-
-    fn finish_transfer(&self, repo_id: &str) {
-        if let Ok(mut active) = self.active_transfers.lock() {
-            active.remove(repo_id);
-        }
-    }
-
-    fn is_transferring(&self, repo_id: &str) -> Result<bool> {
-        let Ok(active) = self.active_transfers.lock() else {
-            return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
-        };
-        Ok(active.contains(repo_id))
     }
 }

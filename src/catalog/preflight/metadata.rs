@@ -111,7 +111,7 @@ impl File {
 #[cfg(test)]
 pub(super) fn parse(config: &[u8], tokenizer: Option<&[u8]>) -> Result<RemoteModelMetadata> {
     Ok(RemoteModelMetadata {
-        config: serde_json::from_slice(config)?,
+        config: libmir::config_json::parse_bytes(config)?,
         tokenizer_config: tokenizer.map(serde_json::from_slice).transpose()?,
         modules: None,
         pooling: None,
@@ -209,7 +209,7 @@ pub(super) async fn fetch(
         .ok_or_else(|| Error::Config("metadata byte count overflow".into()))?;
     Ok((
         RemoteModelMetadata {
-            config: serde_json::from_slice(&config)?,
+            config: libmir::config_json::parse_bytes(&config)?,
             tokenizer_config: tokenizer.as_deref().map(serde_json::from_slice).transpose()?,
             modules: modules_value,
             pooling: pooling.as_deref().map(serde_json::from_slice).transpose()?,

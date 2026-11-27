@@ -113,7 +113,7 @@ fn model(
         vision: features,
         ecosystem: "Transformers".to_owned(),
         container: "SafeTensors".to_owned(),
-        encoding: encoding.to_owned(),
+        encoding: Some(encoding.to_owned()),
         metal_compatibility: "supported".to_owned(),
         cuda_compatibility: "supported".to_owned(),
         ..Default::default()

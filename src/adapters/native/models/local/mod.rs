@@ -3,18 +3,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod known;
+mod partial;
+
 use super::{super::NativeRuntime, presentation};
 use crate::{
     application::{LocalModelInfo, LocalModelState, ModelInfo, Result},
-    catalog::{
-        CachedModel, PartialDownload, discover_cached_models_in, discover_external_models,
-        discover_partial_downloads_in,
-    },
-    config::{GenerationConfig, HubModelConfig, ModelConfig, model_key},
+    catalog::{CachedModel, discover_cached_models_in, discover_external_models, pending_variants},
+    config::{GenerationConfig, HubModelConfig, ModelConfig, Store, model_key},
 };
 
 impl NativeRuntime {
     pub fn local_models(&self) -> Result<Vec<LocalModelInfo>> {
+        // A variant's download saves its configuration before it drops its
+        // pending marker: read in the other order, every variant shows in
+        // one of them, and its repository's cache never lists on its own.
+        let pending = pending_variants(self.store.paths());
         let configs = self.store.list_model_configs()?;
         let recent = self
             .store
@@ -29,29 +33,24 @@ impl NativeRuntime {
             .iter()
             .map(|(selector, entry)| (selector.as_str(), &entry.info))
             .collect::<Resident<'_>>();
-        let mut known_repos = configs
-            .iter()
-            .filter_map(|config| config.hub.as_ref().map(|hub| hub.repo_id.clone()))
-            .collect::<HashSet<_>>();
+        let mut known_repos = known::repositories(&configs);
         let mut known_paths =
             configs.iter().map(|config| canonical(&config.path)).collect::<HashSet<_>>();
         let mut listed = configs
             .iter()
             .map(|config| configured(config, &recent, &resident, &state.loading, self))
             .collect::<Vec<_>>();
+        partial::append(&mut listed, self.store.paths(), pending, &mut known_repos);
         for cached in discover_cached_models_in(&self.store.paths().hub_cache_dir) {
             append_cached(
                 &mut listed, cached, true, &mut known_repos, &mut known_paths, &resident,
-                &state.loading,
+                &state.loading, &self.store,
             );
-        }
-        for partial in discover_partial_downloads_in(&self.store.paths().hub_cache_dir) {
-            append_partial(&mut listed, partial, &mut known_repos);
         }
         for cached in discover_external_models(self.store.paths()) {
             append_cached(
                 &mut listed, cached, false, &mut known_repos, &mut known_paths, &resident,
-                &state.loading,
+                &state.loading, &self.store,
             );
         }
         drop(state);
@@ -63,54 +62,19 @@ impl NativeRuntime {
 /// Resident models' presented details by their canonical selector.
 type Resident<'a> = HashMap<&'a str, &'a ModelInfo>;
 
-fn append_partial(
-    listed: &mut Vec<LocalModelInfo>,
-    partial: PartialDownload,
-    known: &mut HashSet<String>,
-) {
-    if known.contains(&partial.repo_id) {
-        return;
-    }
-    let Ok(id) = model_key(&partial.repo_id) else {
-        return;
-    };
-    listed.push(LocalModelInfo {
-        id,
-        repo_id: partial.repo_id.clone(),
-        revision: "main".to_owned(),
-        commit: String::new(),
-        path: String::new(),
-        state: LocalModelState::Paused,
-        recent_rank: None,
-        selector: partial.repo_id.clone(),
-        managed: true,
-        image_input: false,
-        image_unavailable_reason: String::new(),
-        model_class: String::new(),
-        loadable: false,
-        load_unavailable_reason: "Download incomplete; resume or remove it".to_owned(),
-        library: "Unknown".to_owned(),
-        ecosystem: "Unknown".to_owned(),
-        container: "Unknown".to_owned(),
-        encoding: "Unknown".to_owned(),
-        metal_compatibility: "unknown".to_owned(),
-        cuda_compatibility: "unknown".to_owned(),
-        size_bytes: partial.downloaded_bytes,
-        tool_use: false,
-        thinking: false,
-        vision: false,
-    });
-    known.insert(partial.repo_id);
-}
+/// The models loading, by key, with the paths they were configured at.
+type Loading = HashMap<String, PathBuf>;
 
+#[allow(clippy::too_many_arguments)]
 fn append_cached(
     listed: &mut Vec<LocalModelInfo>,
     cached: CachedModel,
     managed: bool,
-    known_repos: &mut HashSet<String>,
+    known_repos: &mut known::Repositories,
     known_paths: &mut HashSet<PathBuf>,
     models: &Resident<'_>,
-    loading: &HashSet<String>,
+    loading: &Loading,
+    store: &Store,
 ) {
     // Path selectors resolve to canonical keys, so residency must match on the
     // same key even when the hub cache is reached through a symlink.
@@ -121,7 +85,13 @@ fn append_cached(
     let Ok(id) = model_key(&cached.repo_id) else {
         return;
     };
-    let details = presentation::inspect(&snapshot, GenerationConfig::default());
+    // A cache holding GGUF files, ours or another tool's, is read through
+    // its import, as a configured GGUF model is; other checkpoints are the
+    // snapshot itself.
+    let details = match store.checkpoint(&snapshot) {
+        Ok(checkpoint) => presentation::inspect(&checkpoint, GenerationConfig::default()),
+        Err(error) => presentation::unimported(&snapshot, &error),
+    };
     let selector = snapshot.display().to_string();
     listed.push(info(
         id,
@@ -136,7 +106,7 @@ fn append_cached(
         &details,
         models.get(selector.as_str()).copied(),
     ));
-    known_repos.insert(cached.repo_id);
+    known_repos.insert(&cached.repo_id);
     known_paths.insert(snapshot);
 }
 
@@ -148,7 +118,7 @@ fn configured(
     config: &ModelConfig,
     recent: &HashMap<String, u32>,
     models: &Resident<'_>,
-    loading: &HashSet<String>,
+    loading: &Loading,
     runtime: &NativeRuntime,
 ) -> LocalModelInfo {
     let hub = config.hub.clone().unwrap_or_else(|| HubModelConfig {
@@ -156,7 +126,12 @@ fn configured(
         revision: String::new(),
         commit: String::new(),
     });
-    let details = presentation::inspect(&config.path, config.generation);
+    // A GGUF model that does not import says why, not that its files lack
+    // a configuration.
+    let details = match runtime.store.checkpoint(&config.path) {
+        Ok(checkpoint) => presentation::inspect(&checkpoint, config.generation),
+        Err(error) => presentation::unimported(&config.path, &error),
+    };
     info(
         config.id.clone(),
         hub.repo_id,
@@ -165,8 +140,7 @@ fn configured(
         config.path.display().to_string(),
         state(&config.id, &config.path, details.loadable, models, loading),
         config.id.clone(),
-        config.hub.is_some()
-            && canonical(&config.path).starts_with(canonical(&runtime.store.paths().hub_cache_dir)),
+        config.hub.is_some() && known::managed(&config.path, runtime.store.paths()),
         recent.get(&config.id).copied(),
         &details,
         models.get(config.id.as_str()).copied(),
@@ -204,12 +178,11 @@ fn info(
         model_class: details.class.clone(),
         loadable: details.loadable,
         load_unavailable_reason: details.error.clone(),
-        library: details.library.clone(),
         ecosystem: details.ecosystem.clone(),
-        container: details.container.clone(),
+        container: details.container,
         encoding: details.encoding.clone(),
-        metal_compatibility: details.metal_compatibility.clone(),
-        cuda_compatibility: details.cuda_compatibility.clone(),
+        metal_compatibility: details.metal_compatibility,
+        cuda_compatibility: details.cuda_compatibility,
         size_bytes: details.size_bytes,
         tool_use: details.features.tool_use,
         thinking: details.features.thinking,
@@ -222,18 +195,20 @@ fn state(
     path: &Path,
     loadable: bool,
     models: &Resident<'_>,
-    loading: &HashSet<String>,
+    loading: &Loading,
 ) -> LocalModelState {
     if models.contains_key(selector) {
         LocalModelState::Ready
-    } else if loading.contains(selector) {
+    } else if loading.contains_key(selector) {
         LocalModelState::Loading
-    } else if !loadable {
-        LocalModelState::Error
-    } else if path.exists() {
+    } else if !path.exists() {
+        // Before its load error, which files that are gone always have:
+        // `Error` is a model on disk that does not load.
+        LocalModelState::Missing
+    } else if loadable {
         LocalModelState::Available
     } else {
-        LocalModelState::Missing
+        LocalModelState::Error
     }
 }
 

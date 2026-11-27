@@ -105,6 +105,14 @@ pub async fn connect(socket: &Path) -> Result<Client> {
     Ok(client)
 }
 
+/// A client of no server, which connects only once called, for tests of
+/// what makes no call.
+#[cfg(test)]
+pub fn offline() -> Client {
+    let channel = Endpoint::from_static("http://[::1]:9").connect_lazy();
+    RuntimeClient::with_interceptor(channel, Credentials::default())
+}
+
 pub fn unavailable(error: &Error) -> bool {
     match error {
         Error::NotSocket(_) => true,

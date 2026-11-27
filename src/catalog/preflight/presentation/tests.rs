@@ -62,18 +62,20 @@ fn applies_remote_contract_statuses_and_diagnostics() -> crate::error::Result<()
         files: vec!["model.safetensors".into()],
         revision: "abc123".into(),
     };
-    let mut model = CatalogModel {
-        compatibility: "unknown",
-        ..CatalogModel::default()
-    };
+    let mut model = CatalogModel::default();
 
     apply(&mut model, &preflight);
 
-    assert_eq!(model.compatibility, "supported");
-    assert_eq!(model.metal_compatibility, "supported");
-    assert_eq!(model.cuda_compatibility, "supported");
-    assert_eq!(model.encoding, "Dense BF16");
+    assert_eq!(model.compatibility, AdmissionStatus::Supported);
+    assert_eq!(model.metal_compatibility, AdmissionStatus::Supported);
+    assert_eq!(model.cuda_compatibility, AdmissionStatus::Supported);
+    assert_eq!(
+        model.encoding,
+        ModelEncoding::Checkpoint(libmir::CheckpointEncoding {
+            weights: vec![libmir::WeightEncoding::Dense { dtype: "BF16".into() }],
+        })
+    );
     assert_eq!(model.preflight_bytes, Some(512));
-    assert_eq!(model.confidence, "high");
+    assert_eq!(model.confidence, Confidence::High);
     Ok(())
 }

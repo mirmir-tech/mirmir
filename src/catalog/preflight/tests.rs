@@ -111,6 +111,17 @@ fn index_selects_only_referenced_shards() -> Result<()> {
     Ok(())
 }
 
+/// Without an index the preflight reads the root weights a snapshot loads.
+#[test]
+fn unindexed_weights_are_the_base_models() -> Result<()> {
+    let listed =
+        ["adapters/adapter_model.safetensors", "mmproj-f16.safetensors", "model.safetensors"];
+    let listed = listed.map(str::to_owned);
+    assert_eq!(index::unindexed("Org/Model", &listed)?, ["model.safetensors"]);
+    assert!(index::unindexed("Org/Model", &listed[..2]).is_err());
+    Ok(())
+}
+
 #[test]
 fn index_rejects_a_missing_shard() {
     let bytes = br#"{"weight_map":{"a":"missing.safetensors"}}"#;
@@ -129,6 +140,10 @@ fn parses_config_and_tokenizer_metadata() -> Result<()> {
     )?;
 
     assert_eq!(parsed.config["model_type"], "mistral");
+    // Transformers writes non-finite floats as Python does (Nemotron-H's
+    // `time_step_limit`); the Hub's config is read as libmir reads it.
+    let nemotron = metadata::parse(br#"{"time_step_limit":[0.0,Infinity]}"#, None)?;
+    assert_eq!(nemotron.config["time_step_limit"][1]["__float__"], "Infinity");
     assert_eq!(
         parsed
             .tokenizer_config
@@ -218,4 +233,17 @@ fn parse_range(value: &reqwest::header::HeaderValue) -> Option<(usize, usize)> {
     let value = value.to_str().ok()?.strip_prefix("bytes=")?;
     let (start, end) = value.split_once('-')?;
     Some((start.parse().ok()?, end.parse().ok()?))
+}
+
+/// A GGUF header fetch grows within the preflight limit, never doubling
+/// past it, and stops once the parser asks for no more than it has.
+#[test]
+fn gguf_header_fetches_grow_within_the_limit() {
+    use gguf::{MAX_HEADER_BYTES, grown};
+    let size = 4 * MAX_HEADER_BYTES;
+    assert_eq!(grown(MAX_HEADER_BYTES - 1, MAX_HEADER_BYTES, size), Some(MAX_HEADER_BYTES));
+    assert_eq!(grown(16, 20, size), Some(32));
+    assert_eq!(grown(16, 20, 24), Some(24));
+    assert_eq!(grown(16, 16, size), None);
+    assert_eq!(grown(16, MAX_HEADER_BYTES + 1, size), None);
 }

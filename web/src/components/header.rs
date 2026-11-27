@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::state::RuntimeState;
+use crate::{state::RuntimeState, types::ModelState};
 
 #[component]
 pub fn Header() -> impl IntoView {
@@ -10,7 +10,7 @@ pub fn Header() -> impl IntoView {
             .models
             .get()
             .into_iter()
-            .find(|model| model.state == "active")
+            .find(|model| model.state == ModelState::Active)
             .map(|model| model.id)
     };
     view! {

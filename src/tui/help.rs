@@ -47,6 +47,7 @@ fn screen_help(screen: Screen) -> Vec<Line<'static>> {
             shortcut("Enter / click", "download, load, or unload selected model"),
             shortcut("/", "search Hugging Face"),
             shortcut("i", "show or hide incompatible models"),
+            shortcut("←/→", "choose a GGUF repository's quantization"),
             shortcut("d", "download"),
             shortcut("l", "load"),
             shortcut("u", "unload"),

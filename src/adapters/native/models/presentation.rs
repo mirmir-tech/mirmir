@@ -1,18 +1,25 @@
 use std::{fs, path::Path};
 
-use libmir::{GenerationOverrides, ModelDescriptor, TemplateKind};
+use libmir::{
+    AdmissionStatus, GenerationOverrides, ModelDescriptor, TemplateKind, WeightContainer,
+};
 use serde_json::Value;
 
-use crate::{config::GenerationConfig, model::format::ModelFormat};
+use crate::{
+    config::GenerationConfig,
+    model::{
+        class,
+        format::{Ecosystem, ModelEncoding, ModelFormat},
+    },
+};
 
 pub(super) struct ModelPresentation {
     pub class: String,
-    pub library: String,
-    pub ecosystem: String,
-    pub container: String,
-    pub encoding: String,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    pub ecosystem: Ecosystem,
+    pub container: Option<WeightContainer>,
+    pub encoding: ModelEncoding,
+    pub metal_compatibility: AdmissionStatus,
+    pub cuda_compatibility: AdmissionStatus,
     pub size_bytes: u64,
     pub features: Features,
     pub loadable: bool,
@@ -43,6 +50,12 @@ pub(super) fn inspect(path: &Path, generation: GenerationConfig) -> ModelPresent
     }
 }
 
+/// A GGUF model whose import failed, unloadable for that `error`.
+pub(super) fn unimported(path: &Path, error: &crate::error::Error) -> ModelPresentation {
+    let config = json(path.join("config.json"));
+    unavailable(&config, template(path).as_deref(), path, format!("GGUF import failed: {error}"))
+}
+
 fn present(
     config: &Value,
     template: Option<&str>,
@@ -53,12 +66,11 @@ fn present(
     let kind = descriptor.template().kind();
     ModelPresentation {
         class: model_class(config),
-        library: format.legacy_library(),
         ecosystem: format.ecosystem,
         container: format.container,
         encoding: format.encoding,
-        metal_compatibility: format.metal_compatibility,
-        cuda_compatibility: format.cuda_compatibility,
+        metal_compatibility: format.metal,
+        cuda_compatibility: format.cuda,
         size_bytes: descriptor.layout().weights.iter().map(|weight| weight.bytes).sum(),
         features: Features {
             tool_use: has_tools(template),
@@ -80,12 +92,11 @@ fn unavailable(
     let format = ModelFormat::local(path, config, None);
     ModelPresentation {
         class: model_class(config),
-        library: format.legacy_library(),
         ecosystem: format.ecosystem,
         container: format.container,
         encoding: format.encoding,
-        metal_compatibility: format.metal_compatibility,
-        cuda_compatibility: format.cuda_compatibility,
+        metal_compatibility: format.metal,
+        cuda_compatibility: format.cuda,
         size_bytes: weight_size(path),
         features: Features {
             tool_use: has_tools(template),
@@ -100,7 +111,7 @@ fn unavailable(
 fn json(path: impl AsRef<Path>) -> Value {
     fs::read_to_string(path)
         .ok()
-        .and_then(|body| serde_json::from_str(&body).ok())
+        .and_then(|body| libmir::config_json::parse(&body).ok())
         .unwrap_or(Value::Null)
 }
 
@@ -117,25 +128,22 @@ fn template(path: &Path) -> Option<String> {
     })
 }
 
+/// The configuration's `architectures`, else its `model_type`: a GGUF
+/// import's configuration, derived from the file's metadata, names only the
+/// latter.
 fn model_class(config: &Value) -> String {
-    config
-        .get("architectures")
-        .and_then(Value::as_array)
-        .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "unknown".to_owned())
+    let architectures = config.get("architectures").and_then(Value::as_array);
+    class::name(
+        architectures.into_iter().flatten().filter_map(Value::as_str),
+        [config.get("model_type").and_then(Value::as_str)],
+    )
 }
 
 fn weight_size(path: &Path) -> u64 {
     fs::read_dir(path).map_or(0, |entries| {
         entries
             .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .is_some_and(|ext| ext == "safetensors" || ext == "gguf")
-            })
+            .filter(|entry| WeightContainer::of(&entry.path()).is_some())
             .filter_map(|entry| entry.metadata().ok().map(|metadata| metadata.len()))
             .sum()
     })
@@ -151,4 +159,23 @@ fn has_thinking(template: Option<&str>) -> bool {
             || value.contains("<think>")
             || value.contains("<|think|>")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::model_class;
+
+    #[test]
+    fn names_a_gguf_import_by_its_model_type() {
+        assert_eq!(
+            model_class(
+                &json!({"architectures": ["Gemma4ForConditionalGeneration"], "model_type": "gemma4"})
+            ),
+            "Gemma4ForConditionalGeneration"
+        );
+        assert_eq!(model_class(&json!({"model_type": "gemma4"})), "gemma4");
+        assert_eq!(model_class(&json!({"architectures": [], "model_type": ""})), "unknown");
+    }
 }

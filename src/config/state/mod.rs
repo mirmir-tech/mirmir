@@ -1,11 +1,15 @@
 use std::{
     fs,
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 
-use super::{Store, file::write_toml, schema::SCHEMA_VERSION, store::StateRecovery};
+use super::{
+    HubReference, RemovalScope, Store, file::write_toml, schema::SCHEMA_VERSION,
+    store::StateRecovery,
+};
 use crate::error::{Error, Result};
 
 const RECENT_LIMIT: usize = 10;
@@ -66,12 +70,32 @@ impl Store {
     }
 
     pub fn deactivate_model(&self, id: &str) -> Result<()> {
+        self.deactivate(|active| active == id)
+    }
+
+    /// Deactivates every model the removal `scope` took: one it names in
+    /// any spelling, a model or a repository with each of its variants, and
+    /// one activated by its path within a cache it deleted, the files gone.
+    pub fn deactivate_models_of(&self, scope: &RemovalScope) -> Result<()> {
+        let asked = scope.asked();
+        self.deactivate(|active| {
+            let path = Path::new(active);
+            asked.owns_key(active)
+                || (scope.holds_path(path) && !path.exists())
+                || active.parse::<HubReference>().is_ok_and(|reference| match asked.variant() {
+                    Some(_) => asked.is_same_model(&reference),
+                    None => asked.same_repository(&reference),
+                })
+        })
+    }
+
+    fn deactivate(&self, gone: impl Fn(&str) -> bool) -> Result<()> {
         self.paths.ensure_config_dirs()?;
         let _guard = self.lock_state()?;
         let mut state = self.load_ux_state()?;
         let previous = state.active_models.clone();
         self.normalize_active_models(&mut state);
-        state.active_models.retain(|active| active != id);
+        state.active_models.retain(|active| !gone(active));
         if state.active_models != previous {
             write_toml(&self.paths.ux_state_file, &state, false)?;
         }
@@ -81,8 +105,9 @@ impl Store {
     fn normalize_active_models(&self, state: &mut UxState) -> bool {
         let mut normalized = Vec::with_capacity(state.active_models.len());
         for selector in &state.active_models {
+            // `lock_state` moved every legacy variant before this lock.
             let key = self
-                .resolve_model(selector)
+                .select(selector, super::models::Keys::Migrated)
                 .map_or_else(|_| selector.clone(), |model| model.key);
             if !normalized.contains(&key) {
                 normalized.push(key);
@@ -140,11 +165,42 @@ impl Store {
             .join(format!("state.corrupt-{timestamp}-{}.toml", std::process::id()))
     }
 
+    /// Holds the UX state for one read or write. Legacy variant keys move
+    /// first, renaming the selections that name them, so nothing resolves
+    /// a selection while its key may still change, and no migration runs
+    /// under this lock.
     fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
+        self.migrate_variant_keys()?;
+        self.ux_state_guard()
+    }
+
+    fn ux_state_guard(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
         let Ok(state) = self.ux_state_lock.lock() else {
             return Err(Error::Config("UX state lock is poisoned".to_owned()));
         };
         Ok(state)
+    }
+
+    /// Renames the recent and active selections of the configuration `from`
+    /// to `to`, while `from` still names the model that moved: a namesake
+    /// saved there later is not the selected one.
+    pub(super) fn rename_selections(&self, from: &str, to: &str) -> Result<()> {
+        if !self.paths.ux_state_file.exists() {
+            return Ok(());
+        }
+        let _guard = self.ux_state_guard()?;
+        let mut state = self.load_ux_state()?;
+        let mut renamed = false;
+        for id in state.recent_models.iter_mut().chain(&mut state.active_models) {
+            if id == from {
+                to.clone_into(id);
+                renamed = true;
+            }
+        }
+        if renamed {
+            write_toml(&self.paths.ux_state_file, &state, false)?;
+        }
+        Ok(())
     }
 
     fn recovery_lock(&self) -> Result<std::sync::MutexGuard<'_, Option<StateRecovery>>> {

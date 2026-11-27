@@ -2,7 +2,7 @@ use leptos::prelude::Set;
 
 use crate::{
     state::{Page, RuntimeState},
-    types::{Activity, Configuration, Model, Overview, Setting, TelemetryPoint},
+    types::{Activity, Configuration, Model, ModelState, Overview, Setting, TelemetryPoint},
 };
 
 pub fn populate(state: RuntimeState) {
@@ -112,11 +112,19 @@ fn activities() -> Vec<Activity> {
 
 fn models() -> Vec<Model> {
     vec![
-        model("Qwen3-4B", "Qwen/Qwen3-4B", "active", "BF16", 8_032_000_000, true, true),
+        model(
+            "Qwen3-4B",
+            "Qwen/Qwen3-4B",
+            ModelState::Active,
+            "BF16",
+            8_032_000_000,
+            true,
+            true,
+        ),
         model(
             "Gemma-4-4B-IT-4bit",
             "mlx-community/Gemma-4-4B-IT-4bit",
-            "ready",
+            ModelState::Ready,
             "MLX affine 4-bit",
             3_240_000_000,
             true,
@@ -125,7 +133,7 @@ fn models() -> Vec<Model> {
         model(
             "bge-reranker-v2-m3",
             "BAAI/bge-reranker-v2-m3",
-            "available",
+            ModelState::Available,
             "F16",
             1_120_000_000,
             false,
@@ -137,7 +145,7 @@ fn models() -> Vec<Model> {
 fn model(
     id: &str,
     repo_id: &str,
-    state: &str,
+    state: ModelState,
     encoding: &str,
     size_bytes: u64,
     thinking: bool,
@@ -148,12 +156,12 @@ fn model(
         repo_id: repo_id.to_owned(),
         revision: "main".to_owned(),
         commit: "capture".to_owned(),
-        state: state.to_owned(),
+        state,
         selector: repo_id.to_owned(),
         image_input: vision,
         ecosystem: "Transformers".to_owned(),
         container: "SafeTensors".to_owned(),
-        encoding: encoding.to_owned(),
+        encoding: Some(encoding.to_owned()),
         metal_compatibility: "supported".to_owned(),
         cuda_compatibility: "supported".to_owned(),
         size_bytes,

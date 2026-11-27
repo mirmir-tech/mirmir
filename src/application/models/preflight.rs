@@ -1,7 +1,11 @@
 use libmir::ModelMemoryEstimate;
 
+use crate::catalog;
+
 const GIB: u64 = 1024 * 1024 * 1024;
 
+/// A load's memory check: it fits or not, without the catalog's tight
+/// estimate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemoryFit {
     Fits,
@@ -10,12 +14,17 @@ pub enum MemoryFit {
 }
 
 impl MemoryFit {
+    /// The protocol spelling, the catalog's for the same fit.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
+        self.catalog().as_str()
+    }
+
+    const fn catalog(self) -> catalog::MemoryFit {
         match self {
-            Self::Fits => "fits",
-            Self::DoesNotFit => "does_not_fit",
-            Self::Unknown => "unknown",
+            Self::Fits => catalog::MemoryFit::Fits,
+            Self::DoesNotFit => catalog::MemoryFit::DoesNotFit,
+            Self::Unknown => catalog::MemoryFit::Unknown,
         }
     }
 }

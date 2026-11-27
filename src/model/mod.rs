@@ -8,6 +8,7 @@ use crate::{
     rpc::{self, proto},
 };
 
+pub mod class;
 pub mod format;
 
 /// Parses `--context`: `automatic`, or the number of tokens to give a model.

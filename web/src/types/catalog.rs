@@ -6,21 +6,45 @@ pub struct CatalogResults {
     pub next_cursor: Option<String>,
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct CatalogModel {
     pub id: String,
+    #[serde(default)]
+    pub compatibility: String,
     pub memory_fit: String,
     pub reason: String,
-    pub downloaded: bool,
     pub estimated_weight_bytes: Option<u64>,
     pub ecosystem: String,
     pub container: String,
-    pub encoding: String,
+    pub encoding: Option<String>,
     pub metal_compatibility: String,
     pub cuda_compatibility: String,
     pub tool_use: bool,
     pub thinking: bool,
     pub vision: bool,
+    /// A GGUF repository's quantizations, fewest bits first.
+    #[serde(default)]
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
+}
+
+/// One quantization of a GGUF repository; it downloads as `id:name`.
+/// Whether it, or a repository, is downloaded the server's live model list
+/// tells, as a pull or removal changes it, not the search.
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct CatalogVariant {
+    pub name: String,
+    /// `exact`, `estimated` or `unknown`.
+    pub size_kind: String,
+    pub weight_bytes: Option<u64>,
+    pub memory_fit: String,
+}
+
+/// A repository's variants with the sizes of their listed files.
+#[derive(Clone, Default, Deserialize)]
+pub struct ModelVariants {
+    pub variants: Vec<CatalogVariant>,
+    pub default_variant: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]

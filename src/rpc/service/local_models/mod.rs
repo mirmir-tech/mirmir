@@ -1,7 +1,11 @@
 use tonic::Status;
 
 use super::RuntimeService;
-use crate::{application::LocalModelInfo, rpc::proto};
+use crate::{
+    application::LocalModelInfo,
+    model::format::{container_name, legacy_library},
+    rpc::proto,
+};
 
 impl RuntimeService {
     pub(super) fn local_models(&self) -> Result<Vec<proto::LocalModelInfo>, Status> {
@@ -29,12 +33,12 @@ impl From<LocalModelInfo> for proto::LocalModelInfo {
             model_class: value.model_class,
             loadable: value.loadable,
             load_unavailable_reason: value.load_unavailable_reason,
-            library: value.library,
-            ecosystem: value.ecosystem,
-            container: value.container,
-            encoding: value.encoding,
-            metal_compatibility: value.metal_compatibility,
-            cuda_compatibility: value.cuda_compatibility,
+            library: legacy_library(value.container, &value.ecosystem).to_owned(),
+            ecosystem: value.ecosystem.name().to_owned(),
+            container: container_name(value.container).to_owned(),
+            encoding: value.encoding.known_label(),
+            metal_compatibility: value.metal_compatibility.as_str().to_owned(),
+            cuda_compatibility: value.cuda_compatibility.as_str().to_owned(),
             size_bytes: value.size_bytes,
             tool_use: value.tool_use,
             thinking: value.thinking,

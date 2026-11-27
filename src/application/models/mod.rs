@@ -4,34 +4,63 @@ mod preflight;
 mod residency;
 pub mod state;
 
-use libmir::{Model, ModelDescriptor};
+use std::path::PathBuf;
+
+use libmir::{AdmissionStatus, Model, ModelDescriptor, WeightContainer};
 pub use preflight::{
     Check, MemoryFit, MemoryReport, eviction_can_help, fitting_tokens, rejection, safe_context,
 };
 use residency::ModelResidency;
 pub use residency::eviction_candidate;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LocalModelState {
-    Ready,
-    Loading,
-    Error,
-    Available,
-    Missing,
-    Paused,
+use crate::model::format::{Ecosystem, ModelEncoding};
+
+/// Declares the local model states with their protocol spellings: one
+/// table for the type and both directions, so no state lacks a spelling,
+/// none is read back as another, and no spelling repeats.
+macro_rules! local_model_states {
+    ($($state:ident => $spelling:literal),+ $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum LocalModelState {
+            $($state),+
+        }
+
+        impl LocalModelState {
+            /// The state a protocol spelling names.
+            #[must_use]
+            pub fn from_protocol(value: &str) -> Option<Self> {
+                match value {
+                    $($spelling => Some(Self::$state),)+
+                    _ => None,
+                }
+            }
+
+            /// The protocol spelling.
+            #[must_use]
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$state => $spelling),+
+                }
+            }
+        }
+    };
+}
+
+local_model_states! {
+    Ready => "ready",
+    Loading => "loading",
+    Error => "error",
+    Available => "available",
+    Missing => "missing",
+    Paused => "paused",
 }
 
 impl LocalModelState {
+    /// Whether the model's files are whole on disk, loadable or not, as a
+    /// download is counted.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Ready => "ready",
-            Self::Loading => "loading",
-            Self::Error => "error",
-            Self::Available => "available",
-            Self::Missing => "missing",
-            Self::Paused => "paused",
-        }
+    pub const fn on_disk(self) -> bool {
+        matches!(self, Self::Ready | Self::Loading | Self::Error | Self::Available)
     }
 }
 
@@ -52,12 +81,11 @@ pub struct LocalModelInfo {
     pub model_class: String,
     pub loadable: bool,
     pub load_unavailable_reason: String,
-    pub library: String,
-    pub ecosystem: String,
-    pub container: String,
-    pub encoding: String,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    pub ecosystem: Ecosystem,
+    pub container: Option<WeightContainer>,
+    pub encoding: ModelEncoding,
+    pub metal_compatibility: AdmissionStatus,
+    pub cuda_compatibility: AdmissionStatus,
     pub size_bytes: u64,
     pub tool_use: bool,
     pub thinking: bool,
@@ -75,6 +103,9 @@ pub struct ModelInfo {
 pub struct ModelEntry {
     pub model: Model,
     pub info: ModelInfo,
+    /// The canonical path the model was configured or named at, before
+    /// any GGUF import: what a removal of its files would take.
+    pub source: PathBuf,
     pub last_used: u64,
 }
 
@@ -96,6 +127,7 @@ impl Clone for ModelEntry {
         Self {
             model: self.model.clone(),
             info: self.info.clone(),
+            source: self.source.clone(),
             last_used: self.last_used,
         }
     }

@@ -1,6 +1,9 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Instant,
 };
 
 use super::*;
@@ -41,4 +44,27 @@ async fn scheduler_stops_at_the_shared_budget() {
     let completed = run_bounded(requests, 2, Duration::from_millis(10)).await;
 
     assert_eq!(completed, Vec::<usize>::new());
+}
+
+#[tokio::test]
+async fn scheduler_returns_immediately_for_empty_and_completed_queues() {
+    let start = Instant::now();
+    let empty = run_bounded::<std::future::Ready<usize>, usize>(Vec::new(), 4, SEARCH_BUDGET).await;
+    assert!(empty.is_empty());
+    assert!(
+        start.elapsed() < Duration::from_secs(1),
+        "empty queue waited for budget: {:?}",
+        start.elapsed()
+    );
+
+    let start = Instant::now();
+    let requests = (0..3).map(std::future::ready).collect();
+    let mut completed = run_bounded(requests, 4, SEARCH_BUDGET).await;
+    completed.sort_unstable();
+    assert_eq!(completed, vec![0, 1, 2]);
+    assert!(
+        start.elapsed() < Duration::from_secs(1),
+        "completed queue waited for budget: {:?}",
+        start.elapsed()
+    );
 }
