@@ -77,6 +77,18 @@ fn gguf_row_fits_when_any_offered_variant_fits() {
         ..Default::default()
     };
     assert!(!row_fits(&plain_too_large));
+
+    let bert_gguf = CatalogModel {
+        id: "owner/bert-GGUF".to_owned(),
+        compatibility: "unsupported".to_owned(),
+        metal_compatibility: "unknown".to_owned(),
+        cuda_compatibility: "unknown".to_owned(),
+        memory_fit: "fits".to_owned(),
+        variants: vec![variant("Q8_0", "fits")],
+        ..Default::default()
+    };
+    assert!(unsupported(&bert_gguf));
+    assert!(row_fits(&bert_gguf));
 }
 
 #[cfg(target_arch = "wasm32")]

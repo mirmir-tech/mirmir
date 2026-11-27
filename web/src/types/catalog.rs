@@ -9,6 +9,8 @@ pub struct CatalogResults {
 #[derive(Clone, Default, Deserialize)]
 pub struct CatalogModel {
     pub id: String,
+    #[serde(default)]
+    pub compatibility: String,
     pub memory_fit: String,
     pub reason: String,
     pub estimated_weight_bytes: Option<u64>,

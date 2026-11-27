@@ -3,6 +3,7 @@
 //! `id:name`; other repositories download whole.
 
 mod quantizations;
+mod reason;
 mod select;
 #[cfg(test)]
 mod tests;
@@ -10,7 +11,11 @@ mod tests;
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
-use self::{quantizations::Quantizations, select::VariantSelect};
+use self::{
+    quantizations::Quantizations,
+    reason::{badge_state, separate_fit_label, subtitle, tooltip},
+    select::VariantSelect,
+};
 use super::{super::row::cancel, installed};
 use crate::{
     api,
@@ -82,25 +87,24 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
         } else if downloaded() {
             "downloaded".to_owned()
         } else {
-            variant().map_or_else(
-                || stored.with_value(|model| model.memory_fit.clone()),
-                |variant| variant.memory_fit,
-            )
+            stored.with_value(|model| badge_state(model, variant().as_ref()))
         }
     };
-    let reason = move || stored.with_value(|model| variant_reason(model, variant().as_ref()));
+    let row_subtitle = move || stored.with_value(|model| subtitle(model, variant().as_ref()));
     let detail = move || {
         operation().map_or_else(
             || {
                 if downloaded() {
                     "Downloaded".to_owned()
                 } else {
-                    reason()
+                    stored.with_value(|model| tooltip(model, variant().as_ref()))
                 }
             },
             |item| item.detail,
         )
     };
+    let variant_fit =
+        move || stored.with_value(|model| separate_fit_label(model, variant().as_ref()));
     let progress = move || {
         operation().and_then(|item| {
             item.current
@@ -118,40 +122,13 @@ pub(super) fn CatalogRow(model: CatalogModel) -> impl IntoView {
             |variant| size_label(&variant),
         )
     };
-    view! { <tr><td><span class="model-name"><strong>{id}</strong><small>{reason}</small></span></td><td>{move || if gguf { view! { <VariantSelect repo=id_for_select.clone() quantizations=quantizations /> }.into_any() } else { view! { <TypePill value=format.clone() /><small>{format_detail.clone()}</small> }.into_any() }}</td><td class="model-size">{size}</td><td><FeaturePills tool_use=tool_use thinking=thinking vision=vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
+    view! { <tr><td><span class="model-name"><strong>{id}</strong><small>{row_subtitle}</small></span></td><td>{move || if gguf { view! { <VariantSelect repo=id_for_select.clone() quantizations=quantizations /> }.into_any() } else { view! { <TypePill value=format.clone() /><small>{format_detail.clone()}</small> }.into_any() }}</td><td class="model-size">{size}{move || variant_fit().map(|fit| view! { <small class="variant-fit">{fit}</small> })}</td><td><FeaturePills tool_use=tool_use thinking=thinking vision=vision /></td><td><StatePill state=display_state detail=detail progress=progress /></td><td class="model-actions">
         <Show when=move || operation().is_some_and(|item| item.cancellable) fallback=move || view! {
             <button class="icon-action" class:downloaded=downloaded disabled=move || downloaded() || busy() || quantizations.with(|item| item.kept().is_some()) data-tooltip=move || if downloaded() { "Downloaded".to_owned() } else { format!("Download {}", target()) } aria-label=move || if downloaded() { "Downloaded" } else { "Download model" } on:click=move |_| pull()>{move || view! { <Icon name=if downloaded() { "downloaded" } else { "download" } /> }}</button>
         }>
             <button class="icon-action" data-tooltip="Cancel download" aria-label="Cancel download" on:click=move |_| if let Some(item) = operation() { cancel(state, item.operation_id); }><Icon name="cancel" /></button>
         </Show>
     </td></tr> }
-}
-
-/// Memory explanation matching the resolved variant and its size precision,
-/// or the repository's own reason when it has no variants or is unsupported.
-pub(super) fn variant_reason(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
-    let Some(variant) = variant else {
-        return model.reason.clone();
-    };
-    if model.metal_compatibility == "unsupported" && model.cuda_compatibility == "unsupported" {
-        return model.reason.clone();
-    }
-    let exact = variant.size_kind == "exact";
-    match (variant.memory_fit.as_str(), exact) {
-        ("fits", true) => "weights and runtime reserve fit the current budget".to_owned(),
-        ("fits", false) => {
-            "estimated weights and runtime reserve fit the current budget".to_owned()
-        },
-        ("tight", true) => "weights and runtime reserve leave less than 15% headroom".to_owned(),
-        ("tight", false) => "estimated usage leaves less than 15% headroom".to_owned(),
-        ("does_not_fit", true) => {
-            "weights and runtime reserve exceed the current memory budget".to_owned()
-        },
-        ("does_not_fit", false) => "estimated usage exceeds the current memory budget".to_owned(),
-        ("unknown", _) => "insufficient Hub or device metadata for a reliable estimate".to_owned(),
-        (other, _) if other == model.memory_fit => model.reason.clone(),
-        _ => String::new(),
-    }
 }
 
 /// The variant's size; `~` marks one estimated before its files are listed.

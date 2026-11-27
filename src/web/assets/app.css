@@ -281,6 +281,7 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .type-pill.safetensors { border-color: rgb(97 214 163 / 46%); background: rgb(97 214 163 / 7%); color: var(--mir-color-success); }
 .type-pill.sentence-transformers { border-color: rgb(174 133 255 / 48%); background: rgb(174 133 255 / 7%); color: #ae85ff; }
 .model-size { color: var(--mir-color-muted); font: var(--mir-text-label) var(--mir-font-mono); white-space: nowrap; }
+.model-size .variant-fit { display: block; color: var(--mir-color-muted); font-size: var(--mir-text-meta); }
 .feature-list { display: flex; min-width: 0; flex-wrap: wrap; }
 .feature-pill { position: relative; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--mir-color-border); border-radius: 999px; }
 .feature-pill svg, .icon-action svg { width: 14px; height: 14px; fill: none; stroke: currentcolor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
@@ -293,7 +294,7 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .state-pill.removing { border-color: rgb(152 167 181 / 42%); color: var(--mir-color-muted); }
 .state-pill.removing::before { width: 11px; height: 11px; border: 2px solid rgb(152 167 181 / 30%); border-top-color: currentcolor; border-radius: 50%; content: ""; animation: button-activity .7s linear infinite; }
 .state-pill.loading, .state-pill.unloading, .state-pill.downloading { border-color: rgb(121 215 255 / 48%); color: var(--mir-color-glacier); }
-.state-pill.error, .state-pill.does-not-fit { border-color: rgb(240 113 120 / 48%); color: var(--mir-color-danger); }
+.state-pill.error, .state-pill.does-not-fit, .state-pill.unsupported { border-color: rgb(240 113 120 / 48%); color: var(--mir-color-danger); }
 .progress-ring { position: relative; width: 14px; height: 14px; flex: 0 0 auto; border-radius: 50%; background: conic-gradient(currentcolor var(--progress, 25%), rgb(94 109 123 / 28%) 0); }
 .progress-ring::after { position: absolute; inset: 3px; border-radius: 50%; background: var(--mir-color-surface); content: ""; }
 .state-pill.indeterminate .progress-ring { background: conic-gradient(currentcolor 0 24%, rgb(94 109 123 / 28%) 24%); animation: button-activity .8s linear infinite; }

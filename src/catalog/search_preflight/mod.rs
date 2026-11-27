@@ -54,6 +54,9 @@ async fn run_bounded<F, T>(requests: Vec<F>, concurrency: usize, budget: Duratio
 where
     F: Future<Output = T>,
 {
+    if requests.is_empty() {
+        return Vec::new();
+    }
     let pending = stream::iter(requests).buffer_unordered(concurrency);
     futures_util::pin_mut!(pending);
     let deadline = tokio::time::sleep(budget);
@@ -61,9 +64,11 @@ where
     let mut completed = Vec::new();
     loop {
         tokio::select! {
-            Some(result) = pending.next() => completed.push(result),
+            next = pending.next() => match next {
+                Some(result) => completed.push(result),
+                None => break,
+            },
             () = &mut deadline => break,
-            else => break,
         }
     }
     completed

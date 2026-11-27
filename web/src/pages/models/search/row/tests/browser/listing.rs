@@ -109,3 +109,43 @@ async fn badge_and_tooltip_follow_the_selected_variant() {
         .unwrap_or_default();
     assert!(subtitle.contains("exceed"), "subtitle contradicted badge: {subtitle}");
 }
+
+/// An unsupported GGUF model (such as BERT GGUF, where overall compatibility is
+/// `unsupported` while Metal/CUDA fields stay `unknown`) keeps the server's
+/// rejection reason and displays the chosen variant's memory fit separately.
+#[wasm_bindgen_test]
+async fn unsupported_gguf_keeps_rejection_reason_and_shows_variant_fit_separately() {
+    let bert = crate::types::catalog::CatalogModel {
+        id: "owner/bert-GGUF".to_owned(),
+        compatibility: "unsupported".to_owned(),
+        metal_compatibility: "unknown".to_owned(),
+        cuda_compatibility: "unknown".to_owned(),
+        memory_fit: "fits".to_owned(),
+        reason: "model contract or weight format is not supported by libmir".to_owned(),
+        variants: vec![variant("Q4_K_M", 1), variant("Q8_0", 2)],
+        default_variant: Some("Q8_0".to_owned()),
+        ..Default::default()
+    };
+    let state = crate::state::RuntimeState::new();
+    let (root, _view) = crate::testing::mount(move || {
+        leptos::prelude::provide_context(state);
+        leptos::prelude::view! { <table><tbody><CatalogRow model=bert /></tbody></table> }
+    });
+
+    let pill = find::<HtmlElement>(&root, ".state-pill");
+    assert_eq!(pill.text_content().as_deref(), Some("unsupported"));
+    let tooltip = pill.get_attribute("data-tooltip").unwrap_or_default();
+    assert!(tooltip.contains("not supported by libmir"), "tooltip hid rejection: {tooltip}");
+    assert!(
+        tooltip.contains("fit the current budget"),
+        "tooltip lacked variant fit: {tooltip}"
+    );
+    let subtitle = find::<HtmlElement>(&root, ".model-name small")
+        .text_content()
+        .unwrap_or_default();
+    assert_eq!(subtitle, "model contract or weight format is not supported by libmir");
+    assert_eq!(
+        find::<HtmlElement>(&root, ".variant-fit").text_content().as_deref(),
+        Some("fits")
+    );
+}

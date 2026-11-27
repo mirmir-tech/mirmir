@@ -38,7 +38,7 @@ pub fn SearchPopup() -> impl IntoView {
             results
                 .models()
                 .iter()
-                .filter(|model| show_incompatible || row_fits(model))
+                .filter(|model| show_incompatible || (!unsupported(model) && row_fits(model)))
                 .cloned()
                 .collect::<Vec<_>>()
         })
@@ -130,6 +130,12 @@ pub(super) fn installed(local: &[Model], target: &str) -> bool {
     local
         .iter()
         .any(|item| item.state.installed() && item.repo_id.eq_ignore_ascii_case(target))
+}
+
+/// Whether the server marked the model unsupported overall or on every backend.
+pub(super) fn unsupported(model: &CatalogModel) -> bool {
+    model.compatibility == "unsupported"
+        || (model.metal_compatibility == "unsupported" && model.cuda_compatibility == "unsupported")
 }
 
 /// Whether a catalog row stays visible under the compatible filter: a GGUF
