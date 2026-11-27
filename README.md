@@ -1,8 +1,9 @@
 # MiRMiR
 
 MiRMiR is a native LLM runtime, interactive dashboard, and
-OpenAI-compatible server for Apple Metal and NVIDIA CUDA. It runs local models
-without Python, PyTorch, or Transformers in the request path.
+OpenAI-compatible server for Apple Metal and NVIDIA CUDA. It runs local models,
+Hugging Face checkpoints and llama.cpp's GGUF files alike, without Python,
+PyTorch, or Transformers in the request path.
 
 MiRMiR is built on [libmir](https://github.com/mirmir-tech/libmir), the native
 Rust inference library that provides model loading, generation, scheduling,
@@ -39,7 +40,7 @@ and telemetry in a browser.
 </picture>
 
 [MiRMiR for Mac](https://github.com/mirmir-tech/mirmir-app) is a native SwiftUI
-app in the menu bar for macOS 27 or later on Apple silicon. It includes the
+app in the menu bar for macOS 26.2 or later on Apple silicon. It includes the
 runtime and runs it sandboxed as its own server, separate from the CLI's (its
 API is on port 18080), and switches
 between this Mac and remote servers over TLS. See the
@@ -56,6 +57,19 @@ The current native backends require Apple Silicon with Metal and MLX, or Linux
 with a supported NVIDIA GPU and CUDA toolkit. See the
 [installation guide](https://docs.mirmir.tech/getting-started/install.html) for
 platform preparation.
+
+Load a GGUF file by its path, or download one quantization of a GGUF
+repository from the Hub:
+
+```sh
+mirmir model load ~/models/Qwen3-30B-A3B-Q4_K_M.gguf
+mirmir model pull unsloth/Qwen3-8B-GGUF:Q4_K_M
+```
+
+Its blocks run in place in their GGML types, from the legacy Q4/Q5/Q8 and
+K-quants to IQ1–IQ4, MXFP4 and NVFP4; a pull without a variant takes `Q8_0`
+when it fits, else `Q4_K_M`. See
+[model compatibility](https://docs.mirmir.tech/reference/model-compatibility.html).
 
 Run the server without the dashboard:
 
@@ -80,7 +94,9 @@ See [remote access](docs/remote-access.md) for scopes, certificates and limits.
 
 ## What it provides
 
-- local Hugging Face model discovery, download, inspection, and lifecycle;
+- local Hugging Face model discovery, download, inspection, and lifecycle,
+  for SafeTensors and MLX checkpoints and GGUF files, one quantization of a
+  GGUF repository at a time;
 - terminal and browser dashboards backed by the same runtime;
 - streamed text and vision generation;
 - OpenAI-compatible HTTP and SSE endpoints;
