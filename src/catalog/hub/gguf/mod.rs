@@ -16,6 +16,8 @@ use libmir::{
 };
 pub use quantization::{Q4_K_M, Q8_0, Quantization};
 
+use super::is_base_safetensors;
+
 /// The prefix of the multi-token prediction modules a repository may ship.
 const PREDICTION_MODULE_PREFIX: &str = "mtp";
 /// The weights of a typical vision tower with its projector, between 400 and
@@ -67,9 +69,9 @@ pub struct GgufRepository {
     pub variants: Vec<GgufVariant>,
     /// The vision tower: F16 when offered, then BF16, then F32.
     pub vision: Option<RepoFile>,
-    /// Whether the listing also holds `SafeTensors` weights, which a pull
-    /// without a variant downloads as one model.
-    safetensors: bool,
+    /// Whether the listing also holds a base model's `SafeTensors` weights,
+    /// which a pull without a variant downloads as one model.
+    safetensors_base: bool,
 }
 
 impl GgufRepository {
@@ -77,8 +79,7 @@ impl GgufRepository {
     #[must_use]
     pub fn from_files(files: &[RepoFile]) -> Self {
         let container = |file: &&RepoFile| WeightContainer::of(Path::new(&file.path));
-        let safetensors =
-            files.iter().any(|file| container(&file) == Some(WeightContainer::SafeTensors));
+        let safetensors_base = files.iter().any(|file| is_base_safetensors(&file.path));
         let gguf = files.iter().filter(|file| container(file) == Some(WeightContainer::Gguf));
         let (towers, text): (Vec<_>, Vec<_>) = gguf
             .filter(|file| !is_prediction_module(basename(&file.path)))
@@ -116,23 +117,24 @@ impl GgufRepository {
         Self {
             variants,
             vision: vision(towers),
-            safetensors,
+            safetensors_base,
         }
     }
 
-    /// Whether the listing also holds `SafeTensors` weights.
+    /// Whether the listing also holds a base model's `SafeTensors` weights;
+    /// an adapter's or a subdirectory's are not one.
     #[must_use]
-    pub const fn has_safetensors(&self) -> bool {
-        self.safetensors
+    pub const fn has_safetensors_base(&self) -> bool {
+        self.safetensors_base
     }
 
-    /// Whether the listing is GGUF variants only, with no `SafeTensors`
+    /// Whether the listing is GGUF variants only, with no base `SafeTensors`
     /// weights to download as one model: the repositories a pull without a
     /// variant takes the default variant of, and the catalog lists the
     /// variants of.
     #[must_use]
     pub const fn gguf_only(&self) -> bool {
-        !self.variants.is_empty() && !self.safetensors
+        !self.variants.is_empty() && !self.safetensors_base
     }
 
     /// The vision tower's size estimated before its file is listed, at the

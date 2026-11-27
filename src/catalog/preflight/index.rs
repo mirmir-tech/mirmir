@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 
-use crate::error::{Error, Result};
+use crate::{
+    catalog::hub::is_base_safetensors,
+    error::{Error, Result},
+};
 
 pub(super) const FILENAME: &str = "model.safetensors.index.json";
 const MAX_BYTES: usize = 16 * 1024 * 1024;
@@ -36,4 +39,20 @@ pub(super) fn shard_files(bytes: &[u8], available: &[String]) -> Result<Vec<Stri
         return Err(Error::Config(format!("`{FILENAME}` references missing shard `{missing}`")));
     }
     Ok(files.into_iter().collect())
+}
+
+/// The weights a snapshot without an index loads: its base model's, not an
+/// adapter's or a subdirectory's, as search and pull tell them.
+pub(super) fn unindexed(repo_id: &str, weights: &[String]) -> Result<Vec<String>> {
+    let base = weights
+        .iter()
+        .filter(|path| is_base_safetensors(path))
+        .cloned()
+        .collect::<Vec<_>>();
+    if base.is_empty() {
+        return Err(Error::Config(format!(
+            "model `{repo_id}` holds no base-model SafeTensors weights at its root"
+        )));
+    }
+    Ok(base)
 }

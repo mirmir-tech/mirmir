@@ -98,8 +98,8 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     let facts = model.facts();
     let format = ModelFormat::remote(model.library_name.as_deref(), facts);
     let gguf = model.gguf_variants();
-    // Variants only where a pull takes one: a repository with `SafeTensors`
-    // weights beside its GGUF files downloads those.
+    // Variants only where a pull takes one: a repository with a base
+    // model's `SafeTensors` weights beside its GGUF files downloads those.
     let (variants, default_variant) =
         if facts.container == Some(WeightContainer::Gguf) && gguf.gguf_only() {
             let parameters = model.gguf.as_ref().and_then(|gguf| gguf.total);
@@ -111,7 +111,7 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     let compatibility = match facts.container {
         Some(WeightContainer::Gguf) => variants::compatibility(architecture, &gguf),
         Some(WeightContainer::SafeTensors) | None => {
-            compatibility(&model, facts.container, gguf.has_safetensors())
+            compatibility(&model, facts.container, gguf.has_safetensors_base())
         },
     };
     let chosen = variants.iter().find(|variant| Some(&variant.name) == default_variant.as_ref());
@@ -173,11 +173,11 @@ pub fn compare(left: &CatalogModel, right: &CatalogModel) -> Ordering {
 const fn compatibility(
     model: &HubModel,
     container: Option<WeightContainer>,
-    has_safetensors: bool,
+    safetensors_base: bool,
 ) -> AdmissionStatus {
     match container {
         Some(WeightContainer::Gguf) => AdmissionStatus::Unknown,
-        Some(WeightContainer::SafeTensors) if model.safetensors.is_some() || has_safetensors => {
+        Some(WeightContainer::SafeTensors) if model.safetensors.is_some() || safetensors_base => {
             AdmissionStatus::Unknown
         },
         Some(WeightContainer::SafeTensors) | None => AdmissionStatus::Unsupported,

@@ -15,6 +15,7 @@ pub use pending::{pending_bytes, pending_variants};
 pub(super) use remove::{remove_files, remove_pending, remove_view, views_of};
 use tokio::sync::mpsc;
 
+mod admission;
 mod blobs;
 mod holds;
 mod pending;
@@ -95,18 +96,23 @@ pub(in crate::catalog) async fn check_variant(
     .await?;
     // A header libmir refuses would not import after the download either.
     let contract = contract?;
+    let reports = [
+        contract.admission(libmir::BackendTarget::Metal),
+        contract.admission(libmir::BackendTarget::Cuda),
+    ];
     tracing::info!(
         model = %reference,
         revision,
         shards = variant.shards.len(),
         bytes = ?variant.bytes(),
         vision_tower = gguf.vision.is_some(),
-        metal_compatibility = contract.admission(libmir::BackendTarget::Metal).status.as_str(),
-        cuda_compatibility = contract.admission(libmir::BackendTarget::Cuda).status.as_str(),
+        metal_compatibility = reports[0].status.as_str(),
+        cuda_compatibility = reports[1].status.as_str(),
         fetched_bytes = fetched,
         "remote GGUF header validated"
     );
-    Ok(())
+    // Nor would a header every backend refuses load after it.
+    admission::admitted(reference, &reports, &gguf.names())
 }
 
 /// The variant `reference` names, or an error naming the ones offered.

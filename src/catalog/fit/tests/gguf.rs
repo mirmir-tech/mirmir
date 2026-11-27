@@ -95,6 +95,38 @@ fn lists_no_variants_beside_safetensors_weights() {
     assert_eq!(result.compatibility, AdmissionStatus::Unknown);
 }
 
+/// An adapter beside a GGUF repository's variants is no base model to pull
+/// whole: search lists the variants and pull takes the same default from
+/// the listing, even when the Hub's `SafeTensors` summary counts the adapter.
+#[test]
+fn an_adapter_keeps_a_gguf_repositorys_variants() {
+    let memory = MachineMemory { budget: Some(64 * GIB), ..NO_MEMORY };
+    let mut adapted = gguf("gemma4");
+    adapted.siblings.push(Sibling {
+        rfilename: "adapters/adapter_model.safetensors".to_owned(),
+    });
+    let searched = evaluate(adapted, memory);
+    assert_eq!((searched.container, searched.variants.len()), (Some(WeightContainer::Gguf), 3));
+    assert_eq!(searched.default_variant.as_deref(), Some("Q8_0"));
+    let mut summarized = gguf("gemma4");
+    summarized.siblings.push(Sibling {
+        rfilename: "adapter_model.safetensors".to_owned(),
+    });
+    summarized.safetensors = model("F32", 1_000_000).safetensors;
+    let result = evaluate(summarized, memory);
+    assert_eq!((result.container, result.variants.len()), (Some(WeightContainer::Gguf), 3));
+    // The pull's listing, with sizes, makes the same choice.
+    let listed = [
+        ("m-Q4_K_M.gguf", 4_900_000_000),
+        ("m-Q8_0.gguf", 8_510_000_000),
+        ("adapters/adapter_model.safetensors", 1_000_000),
+    ]
+    .map(|(path, size)| RepoFile { path: path.into(), size: Some(size) });
+    let pulled = GgufRepository::from_files(&listed);
+    assert!(pulled.gguf_only());
+    assert_eq!(variants(&pulled, None, memory).1, searched.default_variant);
+}
+
 /// A row is downloaded when its own pull target is: a GGUF-only
 /// repository's default variant, not any variant, else the repository.
 #[test]

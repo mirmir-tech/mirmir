@@ -4,7 +4,7 @@ use std::{collections::HashSet, path::Path};
 
 use libmir::{EncodingKind, WeightContainer};
 
-use super::HubModel;
+use super::{HubModel, is_base_safetensors};
 
 /// Chat features a model's tags declare.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -54,14 +54,20 @@ impl HubModel {
     pub fn facts(&self) -> HubFacts {
         let tags = self.tags.iter().map(|tag| tag.to_ascii_lowercase()).collect::<HashSet<_>>();
         let has = |tag: &str| tags.contains(tag);
-        let has_file = |kind| {
-            self.siblings
-                .iter()
-                .any(|sibling| WeightContainer::of(Path::new(&sibling.rfilename)) == Some(kind))
-        };
-        let container = if has_file(WeightContainer::SafeTensors) || self.safetensors.is_some() {
+        let listed =
+            |is: fn(&str) -> bool| self.siblings.iter().any(|sibling| is(&sibling.rfilename));
+        // Listed base weights are what a pull downloads; else listed GGUF
+        // files, since the Hub's `SafeTensors` summary may count an adapter
+        // beside them; else the summary, then the tags, for a listing
+        // without files.
+        let container = if listed(is_base_safetensors) {
             Some(WeightContainer::SafeTensors)
-        } else if has(GGUF_TAG) || has_file(WeightContainer::Gguf) {
+        } else if listed(|path| WeightContainer::of(Path::new(path)) == Some(WeightContainer::Gguf))
+        {
+            Some(WeightContainer::Gguf)
+        } else if self.safetensors.is_some() {
+            Some(WeightContainer::SafeTensors)
+        } else if has(GGUF_TAG) {
             Some(WeightContainer::Gguf)
         } else if has(SAFETENSORS_TAG) {
             Some(WeightContainer::SafeTensors)

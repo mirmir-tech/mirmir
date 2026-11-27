@@ -111,6 +111,17 @@ fn index_selects_only_referenced_shards() -> Result<()> {
     Ok(())
 }
 
+/// Without an index the preflight reads the root weights a snapshot loads.
+#[test]
+fn unindexed_weights_are_the_base_models() -> Result<()> {
+    let listed =
+        ["adapters/adapter_model.safetensors", "mmproj-f16.safetensors", "model.safetensors"];
+    let listed = listed.map(str::to_owned);
+    assert_eq!(index::unindexed("Org/Model", &listed)?, ["model.safetensors"]);
+    assert!(index::unindexed("Org/Model", &listed[..2]).is_err());
+    Ok(())
+}
+
 #[test]
 fn index_rejects_a_missing_shard() {
     let bytes = br#"{"weight_map":{"a":"missing.safetensors"}}"#;

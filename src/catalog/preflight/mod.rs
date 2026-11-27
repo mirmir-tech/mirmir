@@ -134,7 +134,7 @@ async fn resolve_weight_files(
     listed: &RepositoryFiles,
 ) -> Result<(Vec<String>, usize)> {
     let Some((filename, size)) = &listed.index else {
-        return Ok((listed.weights.clone(), 0));
+        return Ok((index::unindexed(repo_id, &listed.weights)?, 0));
     };
     index::validate_size(*size)?;
     let url = file_url(base, repo_id, revision, filename)?;

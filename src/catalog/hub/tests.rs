@@ -53,3 +53,37 @@ fn searches_across_model_tasks_without_a_pipeline_filter() {
     assert!(parameters.iter().any(|(key, value)| *key == "search" && *value == "reranker"));
     assert!(!parameters.iter().any(|(key, _)| *key == "filter"));
 }
+
+/// The one test of base-model `SafeTensors` weights search, its GGUF
+/// variants, pull and the header preflight share: root files a snapshot
+/// loads, whole, sharded or consolidated, in any case; never an adapter, a
+/// vision projector, a subdirectory's file or the index alone.
+#[test]
+fn tells_base_safetensors_weights_from_auxiliary_files() {
+    let base = [
+        "model.safetensors",
+        "model-00001-of-00002.safetensors",
+        "model-00002-of-00002.safetensors",
+        "consolidated.safetensors",
+        "Model.SafeTensors",
+    ];
+    for path in base {
+        assert!(is_base_safetensors(path), "{path}");
+    }
+    let auxiliary = [
+        "adapters/adapter_model.safetensors",
+        "adapter_model.safetensors",
+        "adapters.safetensors",
+        "Adapter_Model.safetensors",
+        "mmproj-model-f16.safetensors",
+        "mmproj-patch-embedding.safetensors",
+        "vision/model.safetensors",
+        "original/model-00001-of-00002.safetensors",
+        "model.safetensors.index.json",
+        "model-Q4_K_M.gguf",
+        "README.md",
+    ];
+    for path in auxiliary {
+        assert!(!is_base_safetensors(path), "{path}");
+    }
+}
