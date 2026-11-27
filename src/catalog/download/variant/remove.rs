@@ -7,7 +7,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::super::freed;
+use super::{
+    super::freed,
+    blobs::{Blob, Blobs, Identity, Naming, identity},
+    snapshot::{self, Key},
+};
 use crate::{
     config::{HubReference, Store},
     error::Result,
@@ -32,10 +36,19 @@ pub(in crate::catalog::download) fn siblings(
         .collect())
 }
 
-/// The files under the `siblings`, canonical: a view's links resolve to
-/// the snapshot files they name, a snapshot's own files to themselves.
-fn kept_files(siblings: &[PathBuf]) -> HashSet<PathBuf> {
-    let mut kept = HashSet::new();
+/// What the `siblings` hold: their files canonical, as a view's links
+/// resolve to the snapshot entries they name and the blobs those name; the
+/// snapshot entries they are or link; and their files' identities, which a
+/// blob hard-linked or linked at another commit shares.
+#[derive(Default)]
+struct Kept {
+    files: HashSet<PathBuf>,
+    entries: HashSet<Key>,
+    blobs: HashSet<Identity>,
+}
+
+fn kept(siblings: &[PathBuf]) -> Kept {
+    let mut kept = Kept::default();
     let mut directories = siblings.to_vec();
     while let Some(directory) = directories.pop() {
         for entry in fs::read_dir(&directory).into_iter().flatten().flatten() {
@@ -43,40 +56,14 @@ fn kept_files(siblings: &[PathBuf]) -> HashSet<PathBuf> {
             // A snapshot nests a repository's folders; a view is flat.
             if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                 directories.push(path);
-            } else if let Ok(file) = path.canonicalize() {
-                kept.insert(file);
+            } else {
+                kept.files.extend(path.canonicalize().ok());
+                kept.entries.extend(snapshot::entry(&path).as_deref().and_then(snapshot::key));
+                kept.blobs.extend(identity(&path));
             }
         }
     }
     kept
-}
-
-/// The file `path` names, as its device and inode: every hard link of a
-/// blob, in any commit's snapshot, has the blob's.
-#[cfg(unix)]
-fn identity(path: &Path) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
-}
-
-#[cfg(not(unix))]
-fn identity(_path: &Path) -> Option<(u64, u64)> {
-    None
-}
-
-/// The cache blob `snapshot_file` hard-links: the file of the same inode in
-/// the repository's `blobs`.
-fn blob_of(snapshot_file: &Path) -> Option<PathBuf> {
-    let wanted = identity(snapshot_file)?;
-    let root = snapshot_file
-        .ancestors()
-        .find(|path| path.file_name() == Some("snapshots".as_ref()))?;
-    let blobs = root.parent()?.join("blobs");
-    fs::read_dir(blobs)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|blob| identity(blob) == Some(wanted))
 }
 
 /// What the other variants of a repository still downloading claim: their
@@ -86,7 +73,7 @@ fn blob_of(snapshot_file: &Path) -> Option<PathBuf> {
 #[derive(Default)]
 struct Downloading {
     blobs: HashSet<String>,
-    entries: HashSet<PathBuf>,
+    entries: HashSet<Key>,
 }
 
 fn downloading(store: &Store, reference: &HubReference) -> Downloading {
@@ -98,12 +85,10 @@ fn downloading(store: &Store, reference: &HubReference) -> Downloading {
         let Some(pending) = super::pending::recorded(store.paths(), &other) else {
             continue;
         };
-        let snapshot = super::pending::snapshot(store.paths(), &pending)
-            .and_then(|snapshot| snapshot.canonicalize().ok());
+        let snapshot = super::pending::snapshot(store.paths(), &pending);
         for file in pending.files {
-            if let Some(snapshot) = &snapshot {
-                claimed.entries.insert(snapshot.join(&file.path));
-            }
+            let entry = snapshot.as_ref().map(|snapshot| snapshot.join(&file.path));
+            claimed.entries.extend(entry.as_deref().and_then(snapshot::key));
             claimed.blobs.insert(file.etag);
         }
     }
@@ -111,19 +96,19 @@ fn downloading(store: &Store, reference: &HubReference) -> Downloading {
 }
 
 /// Removes the files a downloading `reference` recorded, final or partial,
-/// except blobs a sibling variant links or another downloading one records;
-/// the bytes freed.
+/// except those a sibling variant links or another downloading one
+/// records, and blobs another snapshot's link names; the bytes freed.
+/// `blobs` is what the removal read of the repository's snapshot links,
+/// and forgets what goes.
 pub(in crate::catalog::download) fn remove_pending(
     store: &Store,
     reference: &HubReference,
+    blobs: &mut Blobs,
 ) -> Result<u64> {
     let Some(pending) = super::pending::recorded(store.paths(), reference) else {
         return Ok(0);
     };
-    let kept = kept_files(&siblings(store, reference)?)
-        .iter()
-        .filter_map(|file| blob_of(file))
-        .collect::<HashSet<_>>();
+    let kept = kept(&siblings(store, reference)?);
     let root = store
         .paths()
         .hub_cache_dir
@@ -132,21 +117,32 @@ pub(in crate::catalog::download) fn remove_pending(
     let downloading = downloading(store, reference).blobs;
     let mut freed = 0;
     for ((blob, partial), file) in pending.blobs(store.paths())?.into_iter().zip(&pending.files) {
+        let entry = snapshot.join(&file.path);
+        let key = snapshot::key(&entry);
+        // Claimed by another download; a sibling's hard link or link, or
+        // its entry, which a sibling links.
         if downloading.contains(&file.etag)
-            || blob.canonicalize().is_ok_and(|blob| kept.contains(&blob))
+            || identity(&blob).is_some_and(|blob| kept.blobs.contains(&blob))
+            || blob.canonicalize().is_ok_and(|blob| kept.files.contains(&blob))
+            || key.as_ref().is_some_and(|key| kept.entries.contains(key))
         {
             continue;
         }
-        // The snapshot's hard link of a finished blob too.
-        for path in [partial, blob, snapshot.join(&file.path)] {
-            match freed::remove_file(&path) {
-                Ok(bytes) => freed += bytes,
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(error.into());
-                },
-                Err(_) => {},
-            }
+        let named = match (root.canonicalize(), blob.canonicalize()) {
+            (Ok(repository), Ok(blob)) => blobs.named(&repository, &blob, key.as_ref())?,
+            _ => false,
+        };
+        // The snapshot's entry of a finished blob too; what is gone, done.
+        // A marker kept until all of it goes, a failure is retried whole.
+        let mut freed_by = |removed: std::io::Result<u64>| match removed {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            removed => removed.map(|bytes| freed += bytes),
+        };
+        freed_by(blobs.remove(&partial))?;
+        if !named {
+            freed_by(blobs.remove(&blob))?;
         }
+        freed_by(blobs.remove_entry(&entry, key.as_ref()))?;
     }
     Ok(freed)
 }
@@ -155,12 +151,13 @@ pub(in crate::catalog::download) fn remove_pending(
 pub(in crate::catalog::download) fn remove_files(
     store: &Store,
     reference: &HubReference,
+    blobs: &mut Blobs,
 ) -> Result<u64> {
     let view = store.paths().gguf_variants_dir.join(reference.key());
     if !view.is_dir() {
         return Ok(0);
     }
-    remove_view(store, reference, &view)
+    remove_view(store, reference, &view, blobs)
 }
 
 /// The views of the model `reference` names, or of every model of a
@@ -181,35 +178,60 @@ pub(in crate::catalog::download) fn views_of(
 
 /// Removes the variant directory `view` of `reference` and its import, and
 /// the snapshot files and blobs no other model of the repository links nor
-/// a downloading one records; the bytes freed.
+/// a downloading one records; the bytes freed. `blobs` is what the removal
+/// read of the repository's, kept across its views and their shards.
 pub(in crate::catalog::download) fn remove_view(
     store: &Store,
     reference: &HubReference,
     view: &Path,
+    blobs: &mut Blobs,
 ) -> Result<u64> {
-    let kept = kept_files(&siblings(store, reference)?);
-    // A snapshot of another commit links the same blob at another path.
-    let kept_blobs = kept.iter().filter_map(|file| identity(file)).collect::<HashSet<_>>();
+    let kept = kept(&siblings(store, reference)?);
     let downloading = downloading(store, reference);
+    // A snapshot of another commit links the same blob at another path.
+    let needed = |blob: &Blob| {
+        let etag = blob.path.file_name().and_then(|etag| etag.to_str());
+        etag.is_some_and(|etag| downloading.blobs.contains(etag))
+            || kept.files.contains(&blob.path)
+            || blob.identity.is_some_and(|blob| kept.blobs.contains(&blob))
+    };
     let mut freed = 0;
-    for entry in fs::read_dir(view)?.flatten() {
-        // The snapshot file the view links, a hard link of its blob.
-        let Ok(snapshot_file) = entry.path().canonicalize() else {
+    for link in fs::read_dir(view)?.flatten() {
+        // The snapshot entry the view links: its blob's hard link, or a
+        // link to it. A link naming no snapshot's file leaves that file.
+        let Some((key, entry)) =
+            snapshot::entry(&link.path()).and_then(|entry| Some((snapshot::key(&entry)?, entry)))
+        else {
             continue;
         };
         // Linked by a sibling, or claimed by a download it is to publish.
-        if kept.contains(&snapshot_file) || downloading.entries.contains(&snapshot_file) {
+        if kept.entries.contains(&key) || downloading.entries.contains(&key) {
             continue;
         }
-        let blob = blob_of(&snapshot_file);
-        let etag = blob.as_ref().and_then(|blob| blob.file_name()?.to_str().map(str::to_owned));
-        let needed = etag.is_some_and(|etag| downloading.blobs.contains(&etag))
-            || identity(&snapshot_file).is_some_and(|file| kept_blobs.contains(&file));
-        if let Some(blob) = blob.filter(|_| !needed) {
-            freed += freed::remove_file(&blob)?;
+        let blob = match blobs.of(&entry)? {
+            Some(blob)
+                if !needed(&blob) && !blobs.named(&blob.repository, &blob.path, Some(&key))? =>
+            {
+                Some(blob)
+            },
+            _ => None,
+        };
+        // Its blob kept, the entry only names it; else its bytes go with
+        // whichever of the two goes last.
+        match blob {
+            // A hard link's blob first: should the entry then not go, it
+            // still names the blob for the removal tried again.
+            Some(blob) if blob.naming == Naming::HardLink => {
+                freed += blobs.remove(&blob.path)?;
+                freed += blobs.remove_entry(&entry, Some(&key))?;
+            },
+            // A link before its blob, never left naming nothing.
+            Some(blob) => {
+                freed += blobs.remove_entry(&entry, Some(&key))?;
+                freed += blobs.remove(&blob.path)?;
+            },
+            None => freed += blobs.remove_entry(&entry, Some(&key))?,
         }
-        // Its blob kept, the entry only names it; else its bytes go with it.
-        freed += freed::remove_file(&snapshot_file)?;
     }
     let view = view.canonicalize()?;
     let import = store.gguf_import_dir(&view);

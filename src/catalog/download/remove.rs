@@ -35,15 +35,17 @@ pub async fn remove(store: &Store, scope: &RemovalScope) -> Result<Removed> {
     let damaged =
         [store.damaged_configs_of(&asked)?, variant::damaged_markers_of(store.paths(), &asked)?];
     let (mut existed, mut freed_bytes) = (false, 0);
+    // The repository's blobs, read once for every file the removal takes.
+    let mut blobs = variant::Blobs::default();
     for pending in variant::pending_variants(store.paths()) {
         if pending.is_same_model(&asked) {
-            freed_bytes += variant::remove_pending(store, &pending)?;
+            freed_bytes += variant::remove_pending(store, &pending, &mut blobs)?;
             variant::end_pending(store, &pending)?;
             existed = true;
         }
     }
     for view in variant::views_of(store, &asked) {
-        freed_bytes += variant::remove_view(store, &asked, &view)?;
+        freed_bytes += variant::remove_view(store, &asked, &view, &mut blobs)?;
         existed = true;
     }
     for saved in saved_models(store)?.into_iter().filter(|saved| saved.is_same_model(&asked)) {
@@ -104,6 +106,7 @@ async fn remove_repository(store: &Store, scope: &RemovalScope, caches: Caches) 
         variant::damaged_markers_of(store.paths(), reference)?,
     ];
     let (mut removed, mut freed_bytes) = (false, 0);
+    let mut blobs = variant::Blobs::default();
     // Their partial blobs go with the caches.
     for pending in variant::pending_variants(store.paths()) {
         if pending.same_repository(reference) {
@@ -116,13 +119,13 @@ async fn remove_repository(store: &Store, scope: &RemovalScope, caches: Caches) 
         .filter(|saved| saved.same_repository(reference))
     {
         if saved.variant().is_some() {
-            freed_bytes += variant::remove_files(store, &saved)?;
+            freed_bytes += variant::remove_files(store, &saved, &mut blobs)?;
         }
         removed |= store.remove_hub_model_config(&saved.to_string())?;
     }
     // Views left by configurations that cannot be read.
     for view in variant::views_of(store, reference) {
-        freed_bytes += variant::remove_view(store, reference, &view)?;
+        freed_bytes += variant::remove_view(store, reference, &view, &mut blobs)?;
         removed = true;
     }
     for path in damaged.into_iter().flatten() {

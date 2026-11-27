@@ -7,7 +7,7 @@ use super::{cache, pinned};
 use crate::{
     catalog::{
         Catalog,
-        download::variant::{link, pending, remove_files},
+        download::variant::{Blobs, link, pending, remove_files},
     },
     config::HubReference,
     error::Result,
@@ -58,7 +58,7 @@ fn removing_a_variant_keeps_the_entry_a_download_claims() -> Result<()> {
     let files = [file("m-Q6_K.gguf", "b4", 6), file("mmproj-F16.gguf", "b3", 2)];
     pending::begin(&store, &downloading, &pinned(), &files)?;
     let installed = "owner/model-GGUF:Q4_0".parse::<HubReference>()?;
-    assert_eq!(remove_files(&store, &installed)?, 4);
+    assert_eq!(remove_files(&store, &installed, &mut Blobs::default())?, 4);
     let snapshot = repo.join("snapshots/abc");
     assert!(snapshot.join("mmproj-F16.gguf").exists() && repo.join("blobs/b3").exists());
     let view = link(&store, &downloading, &snapshot, &["mmproj-F16.gguf".to_owned()])?;

@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(super) use blobs::Blobs;
 pub(super) use holds::{holds_any, holds_more};
 use libmir::CancellationToken;
 pub(super) use pending::{damaged_markers_of, end as end_pending};
@@ -14,9 +15,11 @@ pub use pending::{pending_bytes, pending_variants};
 pub(super) use remove::{remove_files, remove_pending, remove_view, views_of};
 use tokio::sync::mpsc;
 
+mod blobs;
 mod holds;
 mod pending;
 mod remove;
+mod snapshot;
 #[cfg(test)]
 mod tests;
 

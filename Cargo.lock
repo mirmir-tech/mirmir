@@ -2366,6 +2366,7 @@ dependencies = [
  "libmir-core",
  "minijinja",
  "minijinja-contrib",
+ "rustix",
  "same-file",
  "serde",
  "serde_json",

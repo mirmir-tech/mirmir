@@ -3,7 +3,11 @@
 use std::fs;
 
 use super::{cache, downloaded};
-use crate::{catalog::download::variant::remove_files, config::HubReference, error::Result};
+use crate::{
+    catalog::download::variant::{Blobs, remove_files},
+    config::HubReference,
+    error::Result,
+};
 
 /// Variants pinned to different commits link one projector blob from two
 /// snapshots: removing the first frees only its text file and leaves the
@@ -19,11 +23,13 @@ fn a_blob_linked_from_another_commit_is_kept() -> Result<()> {
     let last = "owner/model-GGUF:Q8_0".parse::<HubReference>()?;
     downloaded(&store, &last, &other, &["m-Q8_0.gguf", "mmproj-F16.gguf"])?;
     let first = "owner/model-GGUF:Q4_0".parse::<HubReference>()?;
-    assert_eq!(remove_files(&store, &first)?, 4);
+    // One index across both, as a repository's removal takes them.
+    let mut blobs = Blobs::default();
+    assert_eq!(remove_files(&store, &first, &mut blobs)?, 4);
     assert!(repo.join("blobs/b3").exists() && other.join("mmproj-F16.gguf").exists());
     assert!(!repo.join("snapshots/abc/mmproj-F16.gguf").exists());
     store.remove_hub_model_config(&first.to_string())?;
-    assert_eq!(remove_files(&store, &last)?, 10);
+    assert_eq!(remove_files(&store, &last, &mut blobs)?, 10);
     assert_eq!(fs::read_dir(repo.join("blobs"))?.count(), 0);
     fs::remove_dir_all(root)?;
     Ok(())

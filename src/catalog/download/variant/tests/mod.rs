@@ -68,17 +68,19 @@ fn a_repository_without_an_owner_has_no_siblings_in_another() -> Result<()> {
 #[test]
 fn removing_a_variant_keeps_what_another_variant_links() -> Result<()> {
     let (store, repo, root) = cache("shared")?;
+    // One index across both, as a repository's removal takes them.
+    let mut blobs = Blobs::default();
     let first = "owner/model-GGUF:Q4_0".parse::<HubReference>()?;
     assert_eq!(siblings(&store, &first)?.len(), 1);
     // Its own text file goes, blob included; the shared tower stays.
-    assert_eq!(remove_files(&store, &first)?, 4);
+    assert_eq!(remove_files(&store, &first, &mut blobs)?, 4);
     assert!(!repo.join("blobs/b1").exists() && !repo.join("snapshots/abc/m-Q4_0.gguf").exists());
     assert!(repo.join("blobs/b3").exists() && repo.join("snapshots/abc/mmproj-F16.gguf").exists());
-    assert!(siblings(&store, &first)?.len() == 1 && remove_files(&store, &first)? == 0);
+    assert!(siblings(&store, &first)?.len() == 1 && remove_files(&store, &first, &mut blobs)? == 0);
     // The last variant takes the tower with it.
     store.remove_hub_model_config(&first.to_string())?;
     let last = "owner/model-GGUF:Q8_0".parse::<HubReference>()?;
-    assert_eq!(remove_files(&store, &last)?, 10);
+    assert_eq!(remove_files(&store, &last, &mut blobs)?, 10);
     assert!(siblings(&store, &last)?.is_empty());
     assert_eq!(fs::read_dir(repo.join("blobs"))?.count(), 0);
     fs::remove_dir_all(root)?;
@@ -94,7 +96,7 @@ fn removing_a_variant_keeps_the_base_snapshot() -> Result<()> {
     store.save_hub_model("owner/model-GGUF", "main", "abc", snapshot.clone())?;
     let variant = "owner/model-GGUF:Q4_0".parse::<HubReference>()?;
     store.remove_hub_model_config("owner/model-GGUF:Q8_0")?;
-    assert_eq!(remove_files(&store, &variant)?, 0);
+    assert_eq!(remove_files(&store, &variant, &mut Blobs::default())?, 0);
     for (blob, file) in [("b1", "m-Q4_0.gguf"), ("b2", "m-Q8_0.gguf"), ("b3", "mmproj-F16.gguf")] {
         assert!(repo.join("blobs").join(blob).exists() && snapshot.join(file).exists(), "{file}");
     }
@@ -197,7 +199,7 @@ fn a_pending_variant_owns_its_partial_blobs() -> Result<()> {
     let files = [file("m-Q6_K.gguf", "b4", 6), file("mmproj-F16.gguf", "b3", 2)];
     pending::begin(&store, &variant, &pinned(), &files)?;
     assert_eq!(pending_bytes(store.paths(), &variant), Some(5));
-    assert_eq!(remove_pending(&store, &variant)?, 3);
+    assert_eq!(remove_pending(&store, &variant, &mut Blobs::default())?, 3);
     assert!(!repo.join("blobs/b4.incomplete").exists());
     assert!(repo.join("blobs/b3").exists() && repo.join("snapshots/abc/mmproj-F16.gguf").exists());
     fs::remove_dir_all(root)?;
@@ -222,7 +224,7 @@ fn removing_a_pending_variant_keeps_what_another_one_resumes() -> Result<()> {
     fs::write(repo.join("blobs/b6.incomplete"), [0_u8; 6])?;
     fs::write(repo.join("blobs/b7.incomplete"), [0_u8; 2])?;
     assert_eq!(pending_bytes(store.paths(), &second), Some(6));
-    assert_eq!(remove_pending(&store, &first)?, 2);
+    assert_eq!(remove_pending(&store, &first, &mut Blobs::default())?, 2);
     assert!(!repo.join("blobs/b7.incomplete").exists());
     assert_eq!(fs::metadata(repo.join("blobs/b6.incomplete"))?.len(), 6);
     assert_eq!(pending_bytes(store.paths(), &second), Some(6));
@@ -230,6 +232,8 @@ fn removing_a_pending_variant_keeps_what_another_one_resumes() -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+mod blobs;
 mod damaged;
 mod repository;
 mod revisions;
