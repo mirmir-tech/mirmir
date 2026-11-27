@@ -27,6 +27,7 @@ pub use fit::{
 };
 pub use hub::{HubFacts, encoding_named};
 pub use preflight::RemoteHeaderPreflight;
+pub use pull::TransferConflict;
 use queue::TransferQueue;
 
 use crate::{

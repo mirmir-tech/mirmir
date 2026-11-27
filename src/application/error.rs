@@ -12,6 +12,9 @@ pub enum Error {
     ModelLoaded(String),
     #[error("model `{0}` is being removed")]
     ModelBeingRemoved(String),
+    /// Another pull or removal of the model or its repository is under way.
+    #[error("{0}")]
+    ModelTransferring(crate::catalog::TransferConflict),
     #[error("model request is invalid: {0}")]
     InvalidModel(String),
     #[error("generation request is invalid: {0}")]
@@ -58,7 +61,8 @@ impl Error {
             Self::ModelInUse(_)
             | Self::ModelAlreadyLoading(_)
             | Self::ModelLoaded(_)
-            | Self::ModelBeingRemoved(_) => ErrorClass::Conflict,
+            | Self::ModelBeingRemoved(_)
+            | Self::ModelTransferring(_) => ErrorClass::Conflict,
             Self::MemoryPressure(_) => ErrorClass::ResourceExhausted,
             Self::InvalidModelOutput(_) => ErrorClass::InvalidModelOutput,
             Self::Cancelled => ErrorClass::Cancelled,
@@ -80,6 +84,7 @@ impl From<crate::error::Error> for Error {
             | crate::error::Error::TomlDecode(_)
             | crate::error::Error::TomlEncode(_)) => Self::Configuration(error.to_string()),
             crate::error::Error::ModelNotFound(model) => Self::InvalidModel(model),
+            crate::error::Error::ModelTransferring(conflict) => Self::ModelTransferring(conflict),
             crate::error::Error::Io(error) => Self::Persistence(error.to_string()),
             error @ (crate::error::Error::Http(_)
             | crate::error::Error::Hub(_)

@@ -40,9 +40,17 @@ async fn a_repository_is_not_removed_under_a_variant_download() -> Result<()> {
     let refused = catalog.remove("owner/model").await;
     assert!(refused.is_err_and(|error| error.to_string().contains("downloading")));
     assert_eq!(std::fs::read(blobs.join("blob.incomplete"))?, b"partial");
-    // Nor is another variant's, whose files the downloading one may share.
+    // Nor is another variant's, whose files the downloading one may share:
+    // a typed conflict, which clients get as a failed precondition, as for
+    // a loaded model, not as an invalid argument.
     let refused = catalog.remove("owner/model:Q4_0").await;
-    assert!(refused.is_err_and(|error| error.to_string().contains("owner/model:Q8_0")));
+    assert!(
+        refused
+            .as_ref()
+            .is_err_and(|error| error.to_string().contains("owner/model:Q8_0"))
+    );
+    let class = refused.err().map(|error| crate::application::Error::from(error).class());
+    assert_eq!(class, Some(crate::application::ErrorClass::Conflict));
     assert!(catalog.reserve("owner/model:Q4_0", Activity::Removal).is_err());
     drop(pull);
     assert!(catalog.reserve("owner/model:Q4_0", Activity::Removal).is_ok());

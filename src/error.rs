@@ -30,6 +30,10 @@ pub enum Error {
     Certificate(#[from] rcgen::Error),
     #[error("model `{0}` is not configured and is not a local path")]
     ModelNotFound(String),
+    /// A pull or removal another transfer of the model or its repository
+    /// holds back.
+    #[error("{0}")]
+    ModelTransferring(crate::catalog::TransferConflict),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("dotenv error: {0}")]

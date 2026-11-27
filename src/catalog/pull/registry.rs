@@ -14,9 +14,41 @@ use crate::{
 
 /// What a registered model is undergoing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(in crate::catalog) enum Activity {
+pub enum Activity {
     Pull,
     Removal,
+}
+
+impl std::fmt::Display for Activity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Pull => "is currently downloading",
+            Self::Removal => "is being removed",
+        })
+    }
+}
+
+/// A pull or removal of `requested` refused while `held`, the same model
+/// or another of its repository, undergoes `activity`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransferConflict {
+    pub requested: String,
+    pub held: HubReference,
+    pub activity: Activity,
+}
+
+impl std::fmt::Display for TransferConflict {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { requested, held, activity } = self;
+        let same = requested
+            .parse::<HubReference>()
+            .is_ok_and(|wanted| held.is_same_model(&wanted));
+        if same {
+            write!(formatter, "model `{requested}` {activity}")
+        } else {
+            write!(formatter, "model `{held}`, of the repository of `{requested}`, {activity}")
+        }
+    }
 }
 
 /// The registry's entries.
@@ -41,15 +73,11 @@ impl Catalog {
         let Ok(mut active) = self.active_transfers.lock() else {
             return Err(Error::Config("model transfer registry lock is poisoned".to_owned()));
         };
-        if let Some((other, held)) = active.iter().find(|held| excludes(held, &entry)) {
-            let state = match held {
-                Activity::Pull => "is currently downloading",
-                Activity::Removal => "is being removed",
-            };
-            return Err(Error::Config(if other.is_same_model(&entry.0) {
-                format!("model `{repo_id}` {state}")
-            } else {
-                format!("model `{other}`, of the repository of `{repo_id}`, {state}")
+        if let Some((held, activity)) = active.iter().find(|held| excludes(held, &entry)) {
+            return Err(Error::ModelTransferring(TransferConflict {
+                requested: repo_id.to_owned(),
+                held: held.clone(),
+                activity: *activity,
             }));
         }
         active.insert(entry.clone());

@@ -3,8 +3,8 @@
 mod registry;
 
 use libmir::{BackendTarget, CancellationToken};
-pub(in crate::catalog) use registry::Activity;
 pub(super) use registry::Transfers;
+pub use registry::{Activity, TransferConflict};
 
 use super::{
     Catalog, DownloadedModel, MachineMemory, ModelVariants, Removal, TransferPhase, TransferUpdate,
