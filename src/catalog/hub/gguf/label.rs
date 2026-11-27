@@ -14,6 +14,8 @@ use crate::config::HubReference;
 /// suffix, in the order of the variants' first files. No variant is left
 /// out.
 pub(super) fn labelled(variants: impl Iterator<Item = GgufVariant>) -> Vec<GgufVariant> {
+    let mut variants = variants.collect::<Vec<_>>();
+    variants.sort_by(|left, right| first_file(left).cmp(first_file(right)));
     let (mut kept, mut turned) = (Vec::new(), Vec::new());
     for variant in variants {
         let label = label(&variant.name);
@@ -24,7 +26,6 @@ pub(super) fn labelled(variants: impl Iterator<Item = GgufVariant>) -> Vec<GgufV
             turned.push(GgufVariant { name: label, ..variant });
         }
     }
-    turned.sort_by(|left, right| first_file(left).cmp(first_file(right)));
     for mut variant in turned {
         let taken = |name: &str, kept: &[GgufVariant]| {
             !HubReference::is_variant_label(name)

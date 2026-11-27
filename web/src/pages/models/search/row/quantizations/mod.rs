@@ -23,6 +23,8 @@ pub enum Sizes {
 /// What a listing did to the row.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Listing {
+    /// A newer refresh or listing superseded this reply; nothing changed.
+    Stale,
     /// Its variants replaced the estimates.
     Taken,
     /// It offered no variants; the estimates stay and the next look
@@ -63,6 +65,9 @@ pub struct Quantizations {
     default: Option<String>,
     pick: Option<Pick>,
     sizes: Sizes,
+    /// Incremented on each listing and search refresh so late replies from an
+    /// earlier search or listing epoch are dropped.
+    generation: u64,
 }
 
 impl Quantizations {
@@ -73,6 +78,7 @@ impl Quantizations {
             default,
             pick: None,
             sizes: Sizes::Estimated,
+            generation: 0,
         }
     }
 
@@ -147,22 +153,32 @@ impl Quantizations {
     }
 
     /// Starts listing the files unless they are listed or being listed;
-    /// returns whether a request should be sent.
-    pub fn begin_listing(&mut self) -> bool {
-        let start = self.sizes == Sizes::Estimated;
-        if start {
-            self.sizes = Sizes::Listing;
+    /// returns the listing generation token when a request should be sent.
+    pub fn begin_listing(&mut self) -> Option<u64> {
+        if self.sizes != Sizes::Estimated {
+            return None;
         }
-        start
+        self.sizes = Sizes::Listing;
+        self.generation += 1;
+        Some(self.generation)
     }
 
-    /// Takes the listed variants and the default they imply, unless the
-    /// listing is empty. A pick the listing no longer offers falls back to
-    /// that default, unless `downloading` says the chosen variant is being
-    /// downloaded: then the row keeps it.
-    pub fn listed(&mut self, listing: ModelVariants, downloading: bool) -> Listing {
+    /// Takes the listed variants and the default they imply, unless a newer
+    /// refresh superseded `generation` or the listing is empty. A pick the
+    /// listing no longer offers falls back to that default, unless
+    /// `downloading` says the chosen variant is being downloaded: then the row
+    /// keeps it.
+    pub fn listed(
+        &mut self,
+        generation: u64,
+        listing: ModelVariants,
+        downloading: bool,
+    ) -> Listing {
+        if generation != self.generation {
+            return Listing::Stale;
+        }
         if listing.variants.is_empty() {
-            self.listing_failed();
+            self.listing_failed(generation);
             return Listing::Empty;
         }
         let chosen = self.chosen().cloned();
@@ -187,10 +203,45 @@ impl Quantizations {
         }
     }
 
-    /// Keeps the estimates after a failed listing; the next look retries.
-    pub fn listing_failed(&mut self) {
+    /// Keeps the estimates after a failed listing; returns whether `generation`
+    /// is still current so stale failures go unreported.
+    pub fn listing_failed(&mut self, generation: u64) -> bool {
+        if generation != self.generation {
+            return false;
+        }
         if self.sizes == Sizes::Listing {
             self.sizes = Sizes::Estimated;
+        }
+        true
+    }
+
+    /// Replaces the row's search estimates when a new search returns the same
+    /// repository with updated variants or default. Keeps a picked variant
+    /// that the new search still offers, or one currently downloading as not
+    /// offered, and drops any other withdrawn pick so a download never
+    /// submits a variant absent from the latest response.
+    pub fn refresh(
+        &mut self,
+        variants: Vec<CatalogVariant>,
+        default: Option<String>,
+        downloading: bool,
+    ) {
+        let chosen = self.chosen().cloned();
+        self.variants = variants;
+        self.default = default;
+        self.sizes = Sizes::Estimated;
+        self.generation += 1;
+        let name = match &self.pick {
+            Some(Pick::Offered(name)) => name.clone(),
+            Some(Pick::Kept(variant)) => variant.name.clone(),
+            None => return,
+        };
+        if self.offered(&name).is_some() {
+            self.pick = Some(Pick::Offered(name));
+        } else if let Some(variant) = chosen.filter(|variant| downloading && variant.name == name) {
+            self.pick = Some(Pick::Kept(variant));
+        } else {
+            self.pick = None;
         }
     }
 }

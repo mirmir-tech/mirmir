@@ -96,8 +96,10 @@ fn pages_continue_the_answered_query() {
 
     let page = results.page().expect("the failed page again");
     assert_eq!(page.cursor, "2");
-    assert_eq!(results.paged(page.ticket, Ok(answer(&["b"], None))), Settled::Applied);
+    assert!(results.has_more());
+    assert_eq!(results.paged(page.ticket, Ok(answer(&["a", "b"], None))), Settled::Applied);
     assert_eq!(ids(&results), ["a", "b"]);
+    assert!(!results.has_more());
     assert!(results.page().is_none(), "no cursor, no page");
 }
 

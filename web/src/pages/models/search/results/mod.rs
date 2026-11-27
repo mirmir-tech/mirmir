@@ -70,6 +70,11 @@ impl Results {
         matches!(self.latest, Latest::Waiting(_))
     }
 
+    /// Whether the server reported another page after the shown results.
+    pub const fn has_more(&self) -> bool {
+        self.next_cursor.is_some()
+    }
+
     pub const fn current(&self, ticket: Ticket) -> bool {
         ticket.0 == self.latest.ticket().0
     }
@@ -117,10 +122,16 @@ impl Results {
         })
     }
 
-    /// Appends the page that `ticket` requested to the results it continues.
+    /// Appends the page that `ticket` requested to the results it continues,
+    /// skipping models already shown so shifting Hub pages never duplicate
+    /// rows.
     pub fn paged(&mut self, ticket: Ticket, answer: Result<CatalogResults, String>) -> Settled {
         self.settle(ticket, answer, |results, page| {
-            results.models.extend(page.models);
+            for model in page.models {
+                if !results.models.iter().any(|existing| existing.id == model.id) {
+                    results.models.push(model);
+                }
+            }
             results.next_cursor = page.next_cursor;
         })
     }

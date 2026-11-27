@@ -66,10 +66,11 @@ fn search_and_pull_choose_the_same_default_with_the_vision_tower() {
 }
 
 /// A repository with `SafeTensors` weights beside its GGUF files is pulled
-/// as one model, so its row lists no variants and is sized by its weights.
+/// as one `SafeTensors` model, so search treats its container, encoding and
+/// admission as `SafeTensors` rather than GGUF.
 #[test]
 fn lists_no_variants_beside_safetensors_weights() {
-    let mut mixed = gguf("gemma4");
+    let mut mixed = gguf("bert");
     mixed.siblings.push(Sibling {
         rfilename: "model.safetensors".to_owned(),
     });
@@ -77,7 +78,21 @@ fn lists_no_variants_beside_safetensors_weights() {
     let result = evaluate(mixed, MachineMemory { budget: Some(64 * GIB), ..NO_MEMORY });
     assert!(result.variants.is_empty());
     assert_eq!(result.default_variant, None);
+    assert_eq!(result.container, Some(WeightContainer::SafeTensors));
+    assert_eq!(result.encoding, ModelEncoding::Unknown);
+    assert_eq!(result.compatibility, AdmissionStatus::Unknown);
     assert_eq!(result.weight_bytes, Some(2_000_000_000));
+
+    // Even when the Hub omits the `safetensors` summary object, a listed
+    // `.safetensors` sibling still marks the repository for SafeTensors
+    // header inspection, matching pull.
+    let mut mixed_without_summary = gguf("gemma4");
+    mixed_without_summary.siblings.push(Sibling {
+        rfilename: "model.safetensors".to_owned(),
+    });
+    let result = evaluate(mixed_without_summary, NO_MEMORY);
+    assert_eq!(result.container, Some(WeightContainer::SafeTensors));
+    assert_eq!(result.compatibility, AdmissionStatus::Unknown);
 }
 
 /// A row is downloaded when its own pull target is: a GGUF-only

@@ -65,7 +65,7 @@ fn row() -> Row {
     let state = RuntimeState::new();
     let (root, view) = mount(move || {
         provide_context(state);
-        view! { <table><tbody><CatalogRow model=model() /></tbody></table> }
+        view! { <table><tbody><CatalogRow model=Signal::stored(model()) /></tbody></table> }
     });
     Row { root, state, _view: Box::new(view) }
 }

@@ -1,3 +1,5 @@
+mod refresh;
+
 use serde_json::json;
 
 use super::{super::pull_body, Listing, Quantizations, Sizes};
@@ -43,8 +45,8 @@ fn chosen(quantizations: &Quantizations) -> Option<&str> {
 fn the_exact_default_replaces_the_estimated_one() {
     let mut quantizations = estimated();
     assert_eq!(chosen(&quantizations), Some("Q8_0"));
-    assert!(quantizations.begin_listing());
-    assert_eq!(quantizations.listed(exact(), false), Listing::Taken);
+    let generation = quantizations.begin_listing().expect("listing starts");
+    assert_eq!(quantizations.listed(generation, exact(), false), Listing::Taken);
 
     assert_eq!(chosen(&quantizations), Some("Q4_K_M"));
     assert_eq!(quantizations.chosen().map(|variant| variant.size_kind.as_str()), Some("exact"));
@@ -59,8 +61,8 @@ fn the_exact_default_replaces_the_estimated_one() {
 fn a_pick_outlasts_the_listing() {
     let mut quantizations = estimated();
     quantizations.pick("Q8_0");
-    assert!(quantizations.begin_listing());
-    assert_eq!(quantizations.listed(exact(), false), Listing::Taken);
+    let generation = quantizations.begin_listing().expect("listing starts");
+    assert_eq!(quantizations.listed(generation, exact(), false), Listing::Taken);
     assert_eq!(quantizations.target("demo/model"), "demo/model:Q8_0");
 
     quantizations.pick("Q4_K_M");
@@ -77,8 +79,11 @@ fn a_pick_the_listing_drops_falls_back_to_its_default() {
         Some("Q4_K_M".to_owned()),
     );
     quantizations.pick("Q2_K");
-    quantizations.begin_listing();
-    assert_eq!(quantizations.listed(exact(), false), Listing::Withdrawn("Q2_K".to_owned()));
+    let generation = quantizations.begin_listing().expect("listing starts");
+    assert_eq!(
+        quantizations.listed(generation, exact(), false),
+        Listing::Withdrawn("Q2_K".to_owned())
+    );
     assert_eq!(chosen(&quantizations), Some("Q4_K_M"));
 }
 
@@ -87,14 +92,14 @@ fn a_pick_the_listing_drops_falls_back_to_its_default() {
 #[test]
 fn a_download_pins_its_variant() {
     let mut quantizations = estimated();
-    assert!(quantizations.begin_listing());
+    let generation = quantizations.begin_listing().expect("listing starts");
     quantizations.pin_chosen();
-    assert_eq!(quantizations.listed(exact(), false), Listing::Taken);
+    assert_eq!(quantizations.listed(generation, exact(), false), Listing::Taken);
     assert_eq!(quantizations.target("demo/model"), "demo/model:Q8_0");
 
     let mut unpicked = estimated();
-    unpicked.begin_listing();
-    assert_eq!(unpicked.listed(exact(), false), Listing::Taken, "a default is not a pick");
+    let generation = unpicked.begin_listing().expect("listing starts");
+    assert_eq!(unpicked.listed(generation, exact(), false), Listing::Taken);
 }
 
 /// The select and the download agree even without a default.
@@ -111,17 +116,17 @@ fn without_a_default_the_first_variant_is_chosen() {
 #[test]
 fn a_failed_listing_is_retried() {
     let mut quantizations = estimated();
-    assert!(quantizations.begin_listing());
-    assert!(!quantizations.begin_listing(), "one listing in flight");
-    quantizations.listing_failed();
+    let first = quantizations.begin_listing().expect("listing starts");
+    assert!(quantizations.begin_listing().is_none(), "one listing in flight");
+    assert!(quantizations.listing_failed(first));
     assert_eq!(quantizations.sizes(), Sizes::Estimated);
     assert_eq!(chosen(&quantizations), Some("Q8_0"));
 
-    assert!(quantizations.begin_listing(), "the next look retries");
-    assert_eq!(quantizations.listed(exact(), false), Listing::Taken);
+    let second = quantizations.begin_listing().expect("the next look retries");
+    assert_eq!(quantizations.listed(second, exact(), false), Listing::Taken);
     assert_eq!(quantizations.sizes(), Sizes::Listed);
-    assert!(!quantizations.begin_listing());
-    quantizations.listing_failed();
+    assert!(quantizations.begin_listing().is_none());
+    assert!(quantizations.listing_failed(second));
     assert_eq!(quantizations.sizes(), Sizes::Listed, "a listed row stays listed");
 }
 
@@ -135,9 +140,12 @@ fn a_withdrawn_download_is_kept() {
         default_variant: Some("Q4_K_M".to_owned()),
     };
     let mut quantizations = estimated();
-    quantizations.begin_listing();
+    let generation = quantizations.begin_listing().expect("listing starts");
     quantizations.pin_chosen();
-    assert_eq!(quantizations.listed(only_q4(), true), Listing::Kept("Q8_0".to_owned()));
+    assert_eq!(
+        quantizations.listed(generation, only_q4(), true),
+        Listing::Kept("Q8_0".to_owned())
+    );
     assert_eq!(quantizations.target("demo/model"), "demo/model:Q8_0");
     let options = quantizations.options();
     let offered = options.iter().map(|option| (option.variant.name.as_str(), option.offered));
@@ -145,8 +153,6 @@ fn a_withdrawn_download_is_kept() {
     quantizations.pick("Q8_0");
     assert_eq!(chosen(&quantizations), Some("Q8_0"));
 
-    // Once its download ends, a kept variant gives way to the default and
-    // cannot be picked or downloaded again.
     let mut ended = quantizations.clone();
     ended.release_kept();
     assert_eq!(ended.target("demo/model"), "demo/model:Q4_K_M");
@@ -154,22 +160,20 @@ fn a_withdrawn_download_is_kept() {
     ended.pick("Q8_0");
     assert_eq!(chosen(&ended), Some("Q4_K_M"), "a withdrawn name is not a pick");
 
-    // A download takes only offered variants, even before the release.
     quantizations.pin_chosen();
     assert_eq!(quantizations.target("demo/model"), "demo/model:Q4_K_M");
 
-    // Picking an offered variant drops the kept one.
     let mut picked = estimated();
-    picked.begin_listing();
+    let generation = picked.begin_listing().expect("listing starts");
     picked.pin_chosen();
-    picked.listed(only_q4(), true);
+    picked.listed(generation, only_q4(), true);
     picked.pick("Q4_K_M");
     assert!(picked.kept().is_none() && picked.options().len() == 1);
 
     let mut idle = estimated();
-    idle.begin_listing();
+    let generation = idle.begin_listing().expect("listing starts");
     idle.pin_chosen();
-    assert_eq!(idle.listed(only_q4(), false), Listing::Withdrawn("Q8_0".to_owned()));
+    assert_eq!(idle.listed(generation, only_q4(), false), Listing::Withdrawn("Q8_0".to_owned()));
     assert_eq!(idle.options().len(), 1);
 }
 
@@ -177,26 +181,29 @@ fn a_withdrawn_download_is_kept() {
 #[test]
 fn an_empty_listing_keeps_the_estimates() {
     let mut quantizations = estimated();
-    assert!(quantizations.begin_listing());
+    let generation = quantizations.begin_listing().expect("listing starts");
     let empty = ModelVariants {
         variants: Vec::new(),
         default_variant: None,
     };
-    assert_eq!(quantizations.listed(empty, false), Listing::Empty);
+    assert_eq!(quantizations.listed(generation, empty, false), Listing::Empty);
     assert_eq!(quantizations.sizes(), Sizes::Estimated);
     assert_eq!(quantizations.target("demo/model"), "demo/model:Q8_0");
-    assert!(quantizations.begin_listing(), "the next look lists again");
+    assert!(quantizations.begin_listing().is_some(), "the next look lists again");
 }
 
 fn kept_q8() -> Quantizations {
     let mut quantizations = estimated();
-    quantizations.begin_listing();
+    let generation = quantizations.begin_listing().expect("listing starts");
     quantizations.pin_chosen();
     let only_q4 = ModelVariants {
         variants: vec![variant("Q4_K_M", "exact", 5, "fits")],
         default_variant: Some("Q4_K_M".to_owned()),
     };
-    assert_eq!(quantizations.listed(only_q4, true), Listing::Kept("Q8_0".to_owned()));
+    assert_eq!(
+        quantizations.listed(generation, only_q4, true),
+        Listing::Kept("Q8_0".to_owned())
+    );
     quantizations
 }
 

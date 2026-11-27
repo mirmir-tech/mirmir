@@ -104,7 +104,7 @@ impl GgufRepository {
             let name = if unique {
                 quantization.label().to_owned()
             } else {
-                stem.replace('/', "_")
+                stem
             };
             GgufVariant { name, quantization, shards }
         });
@@ -118,6 +118,12 @@ impl GgufRepository {
             vision: vision(towers),
             safetensors,
         }
+    }
+
+    /// Whether the listing also holds `SafeTensors` weights.
+    #[must_use]
+    pub const fn has_safetensors(&self) -> bool {
+        self.safetensors
     }
 
     /// Whether the listing is GGUF variants only, with no `SafeTensors`
@@ -139,15 +145,20 @@ impl GgufRepository {
         Some(quantization::bytes(VISION_PARAMETERS, bits))
     }
 
-    /// The variant `name` names: its label or its file stem, in any case.
+    /// The variant `name` names: its canonical label first, else its file
+    /// stem, in any case.
     #[must_use]
     pub fn variant(&self, name: &str) -> Option<&GgufVariant> {
-        self.variants.iter().find(|variant| {
-            variant.name.eq_ignore_ascii_case(name)
-                || variant.shards.first().is_some_and(|shard| {
-                    basename(&unsharded(&shard.path)).eq_ignore_ascii_case(name)
+        self.variants
+            .iter()
+            .find(|variant| variant.name.eq_ignore_ascii_case(name))
+            .or_else(|| {
+                self.variants.iter().find(|variant| {
+                    variant.shards.first().is_some_and(|shard| {
+                        basename(&unsharded(&shard.path)).eq_ignore_ascii_case(name)
+                    })
                 })
-        })
+            })
     }
 
     /// The variant to download when none is named, the one rule of search

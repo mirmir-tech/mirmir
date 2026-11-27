@@ -1,6 +1,8 @@
 //! The search popup in a browser, with the catalog's answers held so an
 //! older one arrives after a newer one.
 
+mod refresh;
+
 use leptos::prelude::*;
 use serde_json::{Value, json};
 use wasm_bindgen_test::wasm_bindgen_test;

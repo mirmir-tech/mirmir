@@ -89,8 +89,9 @@ impl App {
         }
     }
 
-    fn apply_search_response(&mut self, response: proto::SearchModelsResponse, append: bool) {
+    fn apply_search_response(&mut self, mut response: proto::SearchModelsResponse, append: bool) {
         if append {
+            response.models.retain(|m| !self.catalog.iter().any(|e| e.id == m.id));
             self.catalog.extend(response.models);
         } else {
             self.catalog = response.models;

@@ -31,7 +31,7 @@ pub struct CatalogModel {
 /// One quantization of a GGUF repository; it downloads as `id:name`.
 /// Whether it, or a repository, is downloaded the server's live model list
 /// tells, as a pull or removal changes it, not the search.
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct CatalogVariant {
     pub name: String,
     /// `exact`, `estimated` or `unknown`.

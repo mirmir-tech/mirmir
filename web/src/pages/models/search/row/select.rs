@@ -23,30 +23,33 @@ pub(super) fn VariantSelect(repo: String, quantizations: RwSignal<Quantizations>
     let path = format!("/catalog/variants?repo_id={}", urlencoding::encode(&repo));
     let named = repo.clone();
     let list = move |_| {
-        let start = quantizations
+        let Some(generation) = quantizations
             .try_maybe_update(|item| {
-                let start = item.begin_listing();
-                (start, start)
+                let generation = item.begin_listing();
+                (generation.is_some(), generation)
             })
-            .unwrap_or(false);
-        if !start {
+            .flatten()
+        else {
             return;
-        }
+        };
         let (path, repo) = (path.clone(), named.clone());
         spawn_local(async move {
-            // A row the search has replaced takes no answer and reports none.
+            // A row the search has replaced or refreshed takes no stale answer.
             match api::get::<ModelVariants>(&path).await {
                 Ok(listing) => {
                     let listed = quantizations.try_update(|item| {
                         let downloading = pulling(state, &item.target(&repo));
-                        (item.listed(listing, downloading), item.target(&repo))
+                        (item.listed(generation, listing, downloading), item.target(&repo))
                     });
                     if let Some((listed, target)) = listed {
                         report(state, &repo, listed, &target);
                     }
                 },
                 Err(error) => {
-                    if quantizations.try_update(Quantizations::listing_failed).is_some() {
+                    if quantizations
+                        .try_update(|item| item.listing_failed(generation))
+                        .unwrap_or(false)
+                    {
                         state.notify(error, true);
                     }
                 },
@@ -77,7 +80,7 @@ pub(super) fn VariantSelect(repo: String, quantizations: RwSignal<Quantizations>
 /// withdrawn pick is replaced, or kept while it downloads.
 fn report(state: RuntimeState, repo: &str, listed: Listing, target: &str) {
     match listed {
-        Listing::Taken => {},
+        Listing::Stale | Listing::Taken => {},
         Listing::Empty => {
             state.notify(format!("{repo} listed no quantizations; sizes stay estimated"), true);
         },

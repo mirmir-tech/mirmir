@@ -1,6 +1,6 @@
 //! What a Hub model's tags say, read once: here Hub tags become libmir types.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, path::Path};
 
 use libmir::{EncodingKind, WeightContainer};
 
@@ -54,9 +54,16 @@ impl HubModel {
     pub fn facts(&self) -> HubFacts {
         let tags = self.tags.iter().map(|tag| tag.to_ascii_lowercase()).collect::<HashSet<_>>();
         let has = |tag: &str| tags.contains(tag);
-        let container = if has(GGUF_TAG) {
+        let has_file = |kind| {
+            self.siblings
+                .iter()
+                .any(|sibling| WeightContainer::of(Path::new(&sibling.rfilename)) == Some(kind))
+        };
+        let container = if has_file(WeightContainer::SafeTensors) || self.safetensors.is_some() {
+            Some(WeightContainer::SafeTensors)
+        } else if has(GGUF_TAG) || has_file(WeightContainer::Gguf) {
             Some(WeightContainer::Gguf)
-        } else if self.safetensors.is_some() || has(SAFETENSORS_TAG) {
+        } else if has(SAFETENSORS_TAG) {
             Some(WeightContainer::SafeTensors)
         } else {
             None

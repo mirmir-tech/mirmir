@@ -1,3 +1,5 @@
+mod naming;
+
 use super::*;
 
 fn files(names: &[(&str, u64)]) -> Vec<RepoFile> {

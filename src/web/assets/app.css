@@ -327,6 +327,7 @@ tr.removing td { background: rgb(94 109 123 / 7%); }
 .catalog-more { display: flex; min-height: 54px; margin: 0; align-items: center; justify-content: center; gap: 9px; color: var(--mir-color-muted); font: var(--mir-text-label) var(--mir-font-mono); }
 .catalog-more::before { width: 13px; height: 13px; border: 2px solid var(--mir-color-thought); border-top-color: var(--mir-color-glacier); border-radius: 50%; content: ""; animation: button-activity .7s linear infinite; }
 .catalog-more[hidden] { display: none; }
+.catalog-load-more { display: flex; padding: 12px 16px; justify-content: center; border-top: 1px solid var(--mir-color-raised); }
 
 #chat { height: calc(100vh - 136px); height: calc(100dvh - 136px); min-height: 0; overflow: hidden; }
 #chat.active { display: flex; }

@@ -32,16 +32,26 @@ pub fn SearchPopup() -> impl IntoView {
     let results = RwSignal::new(Results::default());
     let loading = move || results.with(Results::loading);
     let show_incompatible = RwSignal::new(false);
-    let visible_results = move || {
+    let visible_ids = move || {
         let show_incompatible = show_incompatible.get();
         results.with(|results| {
             results
                 .models()
                 .iter()
                 .filter(|model| show_incompatible || (!unsupported(model) && row_fits(model)))
-                .cloned()
+                .map(|model| model.id.clone())
                 .collect::<Vec<_>>()
         })
+    };
+    let has_more = move || results.with(Results::has_more);
+    let empty_message = move || {
+        if results.with(|results| results.models().is_empty()) {
+            "No results."
+        } else if has_more() {
+            "No compatible models on this page."
+        } else {
+            "No compatible models."
+        }
     };
     let search = move |value: String| {
         query.set(value.clone());
@@ -69,14 +79,25 @@ pub fn SearchPopup() -> impl IntoView {
             <Show when=move || ui.search_open.get()>
                 <button class="catalog-dismiss-layer" type="button" aria-label="Close model search overlay" on:click=move |_| ui.search_open.set(false)></button>
                 <div class="catalog-popup">
-                    <div class="catalog-toolbar"><p class="catalog-status" class:loading=loading>{move || if loading() { "Searching Hugging Face…" } else if query.get().is_empty() { "Start typing to search Hugging Face." } else { "Search results" }}</p><label class="search-toggle"><input type="checkbox" on:change=move |event| show_incompatible.set(event_target_checked(&event)) />"Show incompatible models"</label></div>
+                    <div class="catalog-toolbar"><p class="catalog-status" class:loading=loading>{move || if loading() { "Searching Hugging Face…" } else if query.get().is_empty() { "Start typing to search Hugging Face." } else { "Search results" }}</p><label class="search-toggle"><input type="checkbox" prop:checked=move || show_incompatible.get() on:change=move |event| show_incompatible.set(event_target_checked(&event)) />"Show incompatible models"</label></div>
                     <div class="table-wrap catalog-table" on:scroll=move |event| {
                         let element = event_target::<web_sys::HtmlElement>(&event);
                         if element.scroll_height() - element.scroll_top() - element.client_height() < 160 { load_more(state, results); }
                     }>
                         <table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Features</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-                        <tbody><For each=visible_results key=|model| model.id.clone() children=move |model| view! { <CatalogRow model=model /> } /></tbody></table>
-                        <Show when=move || !loading() && !query.get().is_empty() && results.with(|results| results.models().is_empty())><p class="empty">"No results."</p></Show>
+                        <tbody><For each=visible_ids key=|id| id.clone() children=move |id| {
+                            let fallback = results
+                                .with_untracked(|results| results.models().iter().find(|model| model.id == id).cloned())
+                                .unwrap_or_default();
+                            let model = Signal::derive(move || {
+                                results
+                                    .with(|results| results.models().iter().find(|model| model.id == id).cloned())
+                                    .unwrap_or_else(|| fallback.clone())
+                            });
+                            view! { <CatalogRow model=model /> }
+                        } /></tbody></table>
+                        <Show when=move || !loading() && !query.get().is_empty() && visible_ids().is_empty()><p class="empty">{empty_message}</p></Show>
+                        <Show when=move || !query.get().is_empty() && has_more()><div class="catalog-load-more"><button class="action secondary" type="button" disabled=loading on:click=move |_| load_more(state, results)>{move || if loading() { "Loading more…" } else { "Load more" }}</button></div></Show>
                     </div>
                 </div>
             </Show>

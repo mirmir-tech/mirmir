@@ -100,16 +100,19 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
     let gguf = model.gguf_variants();
     // Variants only where a pull takes one: a repository with `SafeTensors`
     // weights beside its GGUF files downloads those.
-    let (variants, default_variant) = if gguf.gguf_only() {
-        let parameters = model.gguf.as_ref().and_then(|gguf| gguf.total);
-        variants::variants(&gguf, parameters, memory)
-    } else {
-        (Vec::new(), None)
-    };
+    let (variants, default_variant) =
+        if facts.container == Some(WeightContainer::Gguf) && gguf.gguf_only() {
+            let parameters = model.gguf.as_ref().and_then(|gguf| gguf.total);
+            variants::variants(&gguf, parameters, memory)
+        } else {
+            (Vec::new(), None)
+        };
     let architecture = model.gguf.as_ref().and_then(|gguf| gguf.architecture.as_deref());
     let compatibility = match facts.container {
         Some(WeightContainer::Gguf) => variants::compatibility(architecture, &gguf),
-        Some(WeightContainer::SafeTensors) | None => compatibility(&model, facts.container),
+        Some(WeightContainer::SafeTensors) | None => {
+            compatibility(&model, facts.container, gguf.has_safetensors())
+        },
     };
     let chosen = variants.iter().find(|variant| Some(&variant.name) == default_variant.as_ref());
     let weight_bytes = chosen.map_or_else(|| weights(&model), |variant| variant.size.bytes());
@@ -167,10 +170,14 @@ pub fn compare(left: &CatalogModel, right: &CatalogModel) -> Ordering {
 }
 
 /// A `SafeTensors` repository's admission waits for its headers.
-const fn compatibility(model: &HubModel, container: Option<WeightContainer>) -> AdmissionStatus {
+const fn compatibility(
+    model: &HubModel,
+    container: Option<WeightContainer>,
+    has_safetensors: bool,
+) -> AdmissionStatus {
     match container {
         Some(WeightContainer::Gguf) => AdmissionStatus::Unknown,
-        Some(WeightContainer::SafeTensors) if model.safetensors.is_some() => {
+        Some(WeightContainer::SafeTensors) if model.safetensors.is_some() || has_safetensors => {
             AdmissionStatus::Unknown
         },
         Some(WeightContainer::SafeTensors) | None => AdmissionStatus::Unsupported,
