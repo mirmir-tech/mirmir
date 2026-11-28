@@ -108,11 +108,8 @@ mod tests {
             top_k: Some(40),
             repetition_penalty: Some(1.1),
         };
-        let hub = HubModelConfig {
-            repo_id: "Qwen/Test".to_owned(),
-            revision: "main".to_owned(),
-            commit: "abc123".to_owned(),
-        };
+        let hub =
+            HubModelConfig::new("Qwen/Test".to_owned(), "main".to_owned(), "abc123".to_owned());
 
         let key = store.save_model_config(
             &model_path.display().to_string(),

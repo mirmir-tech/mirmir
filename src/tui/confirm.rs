@@ -6,7 +6,10 @@ use ratatui::{
     widgets::{Block, Clear, Paragraph},
 };
 
-use super::{app::RemoveDialog, theme};
+use super::{
+    app::{CacheOrigin, RemoveDialog},
+    theme,
+};
 
 pub fn draw_exit(frame: &mut Frame<'_>) {
     let area = centered(frame.area(), 54, 9);
@@ -35,10 +38,9 @@ pub fn draw_exit(frame: &mut Frame<'_>) {
 pub fn draw_remove(frame: &mut Frame<'_>, dialog: &RemoveDialog) {
     let area = centered(frame.area(), 78, 13);
     frame.render_widget(Clear, area);
-    let ownership = if dialog.source == "HF CACHE" {
-        "This cache may also be used by other applications."
-    } else {
-        "This model is stored in the Mirmir-managed cache."
+    let ownership = match dialog.source {
+        CacheOrigin::HfCache => "This cache may also be used by other applications.",
+        CacheOrigin::Mirmir => "This model is stored in the Mirmir-managed cache.",
     };
     frame.render_widget(
         Paragraph::new(vec![
@@ -49,7 +51,7 @@ pub fn draw_remove(frame: &mut Frame<'_>, dialog: &RemoveDialog) {
             )),
             Line::from(vec![
                 Span::styled("Source  ", Style::new().fg(theme::MUTED)),
-                Span::styled(&dialog.source, Style::new().fg(theme::SIGNAL)),
+                Span::styled(dialog.source.label(), Style::new().fg(theme::SIGNAL)),
             ]),
             Line::from(vec![
                 Span::styled("Snapshot  ", Style::new().fg(theme::MUTED)),

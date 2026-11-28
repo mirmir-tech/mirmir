@@ -3,10 +3,10 @@ use std::fmt::Write as _;
 use ratatui::{Frame, layout::Rect, style::Style, widgets::Paragraph};
 
 use super::super::theme;
-use crate::tui::app::LoadDialog;
+use crate::tui::app::{LoadDialog, LoadTask};
 
 pub(super) fn draw(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) -> bool {
-    if dialog.task == "generation" {
+    if dialog.task.is_generation() {
         return false;
     }
     frame.render_widget(Paragraph::new(summary(dialog)).style(Style::new().fg(theme::MUTED)), area);
@@ -15,10 +15,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) -> bo
 
 pub(super) fn summary(dialog: &LoadDialog) -> String {
     let Some(capabilities) = dialog.capabilities.as_ref() else {
-        return format!("task {:<14} no editable load settings", dialog.task);
+        return format!("task {:<14} no editable load settings", dialog.task.as_str());
     };
-    let mut lines = vec![format!("task {:<14} detected from checkpoint", dialog.task)];
-    let limit = if dialog.task == "rerank" {
+    let mut lines = vec![format!("task {:<14} detected from checkpoint", dialog.task.as_str())];
+    let limit = if dialog.task == LoadTask::Rerank {
         "maximum pair"
     } else {
         "maximum input"
@@ -96,7 +96,7 @@ mod tests {
                 revision: String::new(),
                 commit: String::new(),
             },
-            task: "embedding".to_owned(),
+            task: LoadTask::Embedding,
             capabilities: Some(crate::rpc::proto::ModelTaskCapabilities {
                 max_input_tokens: 32_768,
                 embedding: Some(embedding),
@@ -118,7 +118,7 @@ mod tests {
         assert!(embedding_summary.contains("query, passage · default query"));
         assert!(embedding_summary.contains("none required"));
 
-        dialog.task = "rerank".to_owned();
+        dialog.task = LoadTask::Rerank;
         dialog.capabilities = Some(crate::rpc::proto::ModelTaskCapabilities {
             max_input_tokens: 8192,
             embedding: None,

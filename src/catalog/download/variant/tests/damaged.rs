@@ -44,21 +44,18 @@ async fn a_damaged_configuration_of_the_repository_stops_its_removal() -> Result
     Ok(())
 }
 
-/// Damaged files keyed as the repository's in another spelling or as a
-/// legacy variant, or a damaged download marker of it, stop its removal
-/// too; the removed variant's own damaged configuration does not, and goes
-/// with it.
+/// Damaged files keyed as the repository's in another spelling, or a
+/// damaged download marker of it, stop its removal too; the removed
+/// variant's own damaged configuration does not, and goes with it.
 #[tokio::test]
 async fn every_damaged_file_of_the_repository_stops_its_removal() -> Result<()> {
     let (store, repo, root) = cache("damaged-spellings")?;
     let models = store.paths().models_dir.clone();
-    let markers = store.paths().gguf_variants_dir.clone();
+    let markers = store.paths().models_dir.clone();
     let catalog = Catalog::new(store);
-    for damaged in [
-        models.join("Owner--model-gguf@Q2_K.toml"),
-        models.join("owner--model-GGUF--Q3_K_M.toml"),
-        markers.join("owner--model-GGUF@Q6_K.pending"),
-    ] {
+    for damaged in
+        [models.join("Owner--model-gguf@Q2_K.toml"), markers.join("owner--model-GGUF@Q6_K.pending")]
+    {
         fs::write(&damaged, "{ path = [\n")?;
         let refused = catalog.remove("owner/model-GGUF:Q4_0").await;
         let name = damaged.file_name().and_then(|name| name.to_str()).unwrap_or_default();
@@ -70,15 +67,15 @@ async fn every_damaged_file_of_the_repository_stops_its_removal() -> Result<()> 
     fs::write(&own, "path = [\n")?;
     assert!(!catalog.store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
     assert!(catalog.remove("owner/model-GGUF:Q4_0").await?.removed);
-    assert!(!own.exists() && !repo.join("blobs/b1").exists());
+    assert!(!own.exists());
     assert!(catalog.store.hub_model_downloaded("owner/model-GGUF:Q8_0")?);
     fs::remove_dir_all(root)?;
     Ok(())
 }
 
 /// A variant's own configuration that cannot be read, spelled otherwise
-/// than asked, goes with its view; and a repository whose own
-/// configuration cannot be read is removed with it.
+/// than asked, goes with it; and a repository whose own configuration cannot
+/// be read is removed with it.
 #[tokio::test]
 async fn a_models_own_damaged_files_go_with_it() -> Result<()> {
     let (store, repo, root) = cache("damaged-own")?;
@@ -94,14 +91,9 @@ async fn a_models_own_damaged_files_go_with_it() -> Result<()> {
         left.into_iter()
             .all(|name| !name.eq_ignore_ascii_case("owner--model-GGUF@Q4_0.toml"))
     );
-    assert!(!catalog.store.paths().gguf_variants_dir.join("owner--model-GGUF@Q4_0").exists());
     assert!(catalog.store.hub_model_downloaded("owner/model-GGUF:Q8_0")?);
-    // Its legacy key, unreadable, is its own too: no Hub name holds `--`.
-    fs::write(models.join("owner--model-GGUF--Q8_0.toml"), "path = [\n")?;
-    assert!(catalog.remove("owner/model-GGUF:Q8_0").await?.removed);
-    assert!(!models.join("owner--model-GGUF--Q8_0.toml").exists());
     fs::write(models.join("owner--model-GGUF.toml"), "path = [\n")?;
-    fs::write(models.join("owner--model-GGUF--Q6_K.toml"), "path = [\n")?;
+    fs::write(models.join("owner--model-GGUF@Q6_K.toml"), "path = [\n")?;
     assert!(catalog.remove("owner/model-GGUF").await?.removed);
     assert!(fs::read_dir(&models)?.next().is_none() && !repo.exists());
     fs::remove_dir_all(root)?;

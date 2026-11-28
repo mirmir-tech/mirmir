@@ -7,25 +7,24 @@ use super::{cache, pinned};
 use crate::{
     catalog::{
         Catalog,
-        download::variant::{Blobs, link, pending, remove_files},
+        download::variant::{Blobs, pending, remove_files},
     },
     config::HubReference,
     error::Result,
 };
 
 /// Removing `owner/model-GGUF:q4_0` removes the installed `Q4_0` whole:
-/// its view, its configuration and its own blob, and it is no longer
+/// its configuration, snapshot file, and its own blob, and it is no longer
 /// downloaded in either spelling.
 #[tokio::test]
 async fn removing_a_variant_by_another_spelling_removes_the_installed_one() -> Result<()> {
     let (store, repo, root) = cache("spelling-remove")?;
     let models = store.paths().models_dir.clone();
-    let view = store.paths().gguf_variants_dir.join("owner--model-GGUF@Q4_0");
     let catalog = Catalog::new(store);
     let removal = catalog.remove("owner/model-GGUF:q4_0").await?;
     assert!(removal.removed);
     assert_eq!(removal.freed_bytes, 4);
-    assert!(!view.exists() && !repo.join("blobs/b1").exists());
+    assert!(!repo.join("snapshots/abc/m-Q4_0.gguf").exists() && !repo.join("blobs/b1").exists());
     assert!(!models.join("owner--model-GGUF@Q4_0.toml").exists());
     let store = &catalog.store;
     assert!(!store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
@@ -33,7 +32,7 @@ async fn removing_a_variant_by_another_spelling_removes_the_installed_one() -> R
     // The other variant stays usable.
     assert!(store.hub_model_downloaded("owner/model-GGUF:Q8_0")?);
     let other = store.selected_model("owner/model-GGUF:Q8_0")?;
-    assert_eq!(fs::read(other.path.join("m-Q8_0.gguf"))?.len(), 8);
+    assert_eq!(fs::read(&other.path)?.len(), 8);
     // A label nothing was saved under removes nothing.
     let unknown = catalog.remove("owner/model-GGUF:Q2_K").await?;
     assert!(!unknown.removed && unknown.freed_bytes == 0);
@@ -43,8 +42,7 @@ async fn removing_a_variant_by_another_spelling_removes_the_installed_one() -> R
 }
 
 /// A variant downloading at the commit an installed one links its projector
-/// from keeps that snapshot entry when the installed one goes, and its view,
-/// published after, reads the projector.
+/// from keeps that snapshot entry when the installed one goes.
 #[test]
 fn removing_a_variant_keeps_the_entry_a_download_claims() -> Result<()> {
     let (store, repo, root) = cache("in-flight")?;
@@ -61,8 +59,7 @@ fn removing_a_variant_keeps_the_entry_a_download_claims() -> Result<()> {
     assert_eq!(remove_files(&store, &installed, &mut Blobs::default())?, 4);
     let snapshot = repo.join("snapshots/abc");
     assert!(snapshot.join("mmproj-F16.gguf").exists() && repo.join("blobs/b3").exists());
-    let view = link(&store, &downloading, &snapshot, &["mmproj-F16.gguf".to_owned()])?;
-    assert_eq!(fs::read(view.join("mmproj-F16.gguf"))?.len(), 2);
+    assert_eq!(fs::read(snapshot.join("mmproj-F16.gguf"))?.len(), 2);
     fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -81,8 +78,8 @@ async fn removing_by_another_owner_spelling_keeps_the_other_variant() -> Result<
     assert!(repo.join("blobs/b2").exists() && repo.join("blobs/b3").exists());
     let other = store.selected_model("OWNER/Model-gguf:q8_0")?;
     assert_eq!(other.key, "owner--model-GGUF@Q8_0");
-    assert_eq!(fs::read(other.path.join("m-Q8_0.gguf"))?.len(), 8);
-    assert_eq!(fs::read(other.path.join("mmproj-F16.gguf"))?.len(), 2);
+    assert_eq!(fs::read(&other.path)?.len(), 8);
+    assert_eq!(fs::read(other.vision.as_ref().expect("vision path"))?.len(), 2);
     // The last variant, spelled otherwise again, takes the cache with it.
     assert!(catalog.remove("OWNER/model-gguf:Q8_0").await?.removed);
     assert!(!repo.exists());

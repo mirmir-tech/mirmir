@@ -3,10 +3,7 @@
 //! and the transfer registry match them. Its configuration is saved under
 //! the spelling it was pulled by, the one name every file system agrees on.
 
-use super::{
-    super::{HubReference, ModelConfig, Store},
-    Keys,
-};
+use super::super::{HubReference, ModelConfig, Store};
 use crate::error::{Error, Result};
 
 /// The downloaded Hub models, read once for many membership checks.
@@ -65,9 +62,9 @@ impl Store {
 
     /// The configuration of the Hub model keyed `key` saved under another
     /// spelling of it, as the Hub reference it keys is matched.
-    pub(super) fn spelled_hub_model(&self, key: &str, keys: Keys) -> Result<Option<ModelConfig>> {
+    pub(super) fn spelled_hub_model(&self, key: &str) -> Result<Option<ModelConfig>> {
         Ok(self
-            .model_configs(keys)?
+            .list_model_configs()?
             .into_iter()
             .find(|model| model.hub.is_some() && model.id.eq_ignore_ascii_case(key)))
     }

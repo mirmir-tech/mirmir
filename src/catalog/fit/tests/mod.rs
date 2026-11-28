@@ -24,7 +24,7 @@ impl Default for CatalogModel {
             confidence: Confidence::Low,
             reason: String::new(),
             downloaded: false,
-            local_source: "remote",
+            local_source: LocalSource::Remote,
             ecosystem: Ecosystem::Unknown,
             container: None,
             encoding: ModelEncoding::Unknown,

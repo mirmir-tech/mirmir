@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use super::{App, InitialRefresh};
+use super::{App, InitialRefresh, LocalRow};
 use crate::rpc::{Client, PROTOCOL_VERSION, proto};
 
 const HISTORY_LENGTH: u32 = 900;
@@ -76,7 +76,7 @@ impl App {
         self.server_version = snapshot.health.server_version;
         self.protocol_version = snapshot.health.protocol_version;
         self.models = snapshot.models.models;
-        self.local_models = snapshot.local.models;
+        self.local_models = snapshot.local.models.into_iter().map(LocalRow::from).collect();
         self.local_selected = self.local_selected.min(self.local_model_count().saturating_sub(1));
         self.apply_history(&snapshot.history);
         self.apply_telemetry(snapshot.telemetry);

@@ -42,7 +42,13 @@ impl ModelFormat {
     /// weights libmir reads.
     pub fn local(path: &Path, config: &Value, descriptor: Option<&ModelDescriptor>) -> Self {
         let container = descriptor.map_or_else(
-            || WeightContainer::detect(path).ok().flatten(),
+            || {
+                if path.is_file() {
+                    WeightContainer::of(path)
+                } else {
+                    WeightContainer::detect(path).ok().flatten()
+                }
+            },
             ModelDescriptor::weight_container,
         );
         let (ecosystem, encoding) = match container {

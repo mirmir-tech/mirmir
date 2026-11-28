@@ -28,6 +28,19 @@ impl TransferPhase {
             Self::Available => "available",
         }
     }
+
+    #[must_use]
+    pub fn from_protocol(value: &str) -> Option<Self> {
+        match value {
+            "queued" => Some(Self::Queued),
+            "checking" => Some(Self::Checking),
+            "resolving" => Some(Self::Resolving),
+            "downloading" => Some(Self::Downloading),
+            "validating" => Some(Self::Validating),
+            "available" => Some(Self::Available),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

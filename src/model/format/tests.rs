@@ -79,7 +79,7 @@ fn declared_methods_take_the_family_or_ecosystem_spelling() {
 #[test]
 fn mlx_is_decided_from_the_encoding_family() {
     let dense = ModelEncoding::Checkpoint(CheckpointEncoding {
-        weights: vec![WeightEncoding::Dense { dtype: "BF16".into() }],
+        weights: vec![WeightEncoding::Dense { dtype: libmir::DenseDType::Bf16 }],
     });
     assert_eq!(safetensors_ecosystem(&json!({}), &dense), Ecosystem::Transformers);
     let mlx = json!({ "quantization": { "group_size": 64, "bits": 4 } });

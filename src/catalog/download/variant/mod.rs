@@ -1,18 +1,15 @@
 //! One GGUF variant of a Hub repository: downloaded alone with the vision
-//! tower, seen through a directory linking its snapshot files, and removed
-//! without the files another downloaded variant still uses.
-
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+//! tower directly into the Hub snapshot, and removed without the files another
+//! downloaded variant still uses.
 
 pub(super) use blobs::Blobs;
 pub(super) use holds::{holds_any, holds_more};
 use libmir::CancellationToken;
 pub(super) use pending::{damaged_markers_of, end as end_pending};
 pub use pending::{pending_bytes, pending_variants};
-pub(super) use remove::{remove_files, remove_pending, remove_view, views_of};
+#[cfg(test)]
+use remove::remove_files;
+pub(super) use remove::{remove_pending, remove_variant};
 use tokio::sync::mpsc;
 
 mod admission;
@@ -24,7 +21,7 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
-use super::{DownloadedModel, TransferPhase, TransferUpdate, directory_size, send};
+use super::{DownloadedModel, TransferPhase, TransferUpdate, send};
 use crate::{
     catalog::{
         hub::{GgufRepository, GgufVariant, RepoFile},
@@ -154,35 +151,40 @@ pub(super) async fn pull(
         cancellation,
     )
     .await?;
-    let view = link(store, &reference, &snapshot, &wanted)?;
+    let text = snapshot.join(&variant.shards[0].path);
+    let vision = gguf.vision.as_ref().map(|file| snapshot.join(&file.path));
+    let bytes = gguf_bytes(&wanted, &gguf);
     send(
         updates,
         TransferPhase::Validating,
-        directory_size(&view),
+        bytes,
         None,
-        format!("importing {reference}"),
+        format!("validating {reference}"),
     )
     .await;
-    let load_unavailable_reason = match store.gguf_import(&view) {
-        Ok(Some(import)) => {
-            libmir::ModelDescriptor::inspect(&import, libmir::GenerationOverrides::default())
-                .err()
-                .map(|error| error.to_string())
-        },
-        Ok(None) => Some("the variant holds no GGUF text model".to_owned()),
-        Err(error) => Some(error.to_string()),
-    };
+    let source = libmir::ModelSource::Gguf { text: &text, vision: vision.as_deref() };
+    let load_unavailable_reason =
+        libmir::ModelDescriptor::inspect_source(source, libmir::GenerationOverrides::default())
+            .err()
+            .map(|error| error.to_string());
     let commit = snapshot
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::Config("Hub snapshot has no commit directory".to_owned()))?;
-    let config = store.save_hub_model(&reference.to_string(), &pinned.requested, commit, view)?;
+    let config = store.save_hub_variant(
+        &reference.to_string(),
+        &pinned.requested,
+        commit,
+        text,
+        wanted,
+        vision,
+    )?;
     pending::end(store, &reference)?;
     let message = load_unavailable_reason.as_ref().map_or_else(
         || format!("saved model configuration for {reference}"),
         |reason| format!("downloaded {reference}; loading is unavailable: {reason}"),
     );
-    send(updates, TransferPhase::Available, gguf_bytes(&wanted, &gguf), None, message).await;
+    send(updates, TransferPhase::Available, bytes, None, message).await;
     Ok(DownloadedModel { config, load_unavailable_reason })
 }
 
@@ -193,33 +195,4 @@ fn gguf_bytes(wanted: &[String], gguf: &GgufRepository) -> u64 {
         .filter(|file| wanted.contains(&file.path))
         .filter_map(|file| file.size)
         .sum()
-}
-
-/// The variant's directory: a link per file into `snapshot`, recreated.
-fn link(
-    store: &Store,
-    reference: &HubReference,
-    snapshot: &Path,
-    files: &[String],
-) -> Result<PathBuf> {
-    let view = store.paths().gguf_variants_dir.join(reference.key());
-    if view.exists() {
-        fs::remove_dir_all(&view)?;
-    }
-    fs::create_dir_all(&view)?;
-    for file in files {
-        let name = file.rsplit('/').next().unwrap_or(file);
-        symlink(&snapshot.join(file), &view.join(name))?;
-    }
-    Ok(view.canonicalize()?)
-}
-
-#[cfg(unix)]
-fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(target, link)
-}
-
-#[cfg(windows)]
-fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_file(target, link)
 }

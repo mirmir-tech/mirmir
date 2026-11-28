@@ -204,7 +204,19 @@ impl WebError {
 
     #[expect(clippy::needless_pass_by_value, reason = "map_err boundary consumes the error")]
     pub fn application(error: crate::application::Error) -> Self {
-        Self::runtime(error.to_string())
+        use crate::application::ErrorClass;
+        let (status, code) = match error.class() {
+            ErrorClass::InvalidArgument => (StatusCode::BAD_REQUEST, "invalid_request"),
+            ErrorClass::InvalidModelOutput => {
+                (StatusCode::UNPROCESSABLE_ENTITY, "invalid_model_output")
+            },
+            ErrorClass::Conflict => (StatusCode::CONFLICT, "conflict"),
+            ErrorClass::ResourceExhausted => (StatusCode::TOO_MANY_REQUESTS, "resource_exhausted"),
+            ErrorClass::Cancelled => (StatusCode::REQUEST_TIMEOUT, "cancelled"),
+            ErrorClass::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable"),
+            ErrorClass::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "runtime_error"),
+        };
+        Self::new(status, error.to_string(), code)
     }
 
     pub fn invalid(message: impl Into<String>) -> Self {

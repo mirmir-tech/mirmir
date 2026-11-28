@@ -6,12 +6,15 @@ mod target;
 
 pub use context::{ContextChoice, ContextControl};
 use crossterm::event::{KeyCode, KeyEvent};
-pub use dialog::{LoadDialog, LoadRow, LoadStatus, LoadTarget};
+pub use dialog::{LoadDialog, LoadRow, LoadStatus, LoadTarget, LoadTask};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
-use super::App;
-use crate::rpc::{Client, proto};
+use super::{App, LocalRowState};
+use crate::{
+    application::LocalModelState,
+    rpc::{Client, proto},
+};
 
 impl App {
     pub(super) fn open_load_dialog(&mut self, client: &Client) {
@@ -35,7 +38,7 @@ impl App {
         }));
         self.load_dialog = Some(LoadDialog {
             target,
-            task: String::new(),
+            task: LoadTask::Other(String::new()),
             capabilities: None,
             status: LoadStatus::Inspecting,
             context: None,
@@ -102,11 +105,11 @@ impl App {
     fn apply_inspection(&mut self, response: proto::InspectModelResponse) {
         let settings = response.settings;
         let task = if response.task.is_empty() && settings.is_some() {
-            "generation".to_owned()
+            LoadTask::Generation
         } else {
-            response.task
+            LoadTask::from_protocol(&response.task)
         };
-        if task == "generation" && settings.is_none() {
+        if task.is_generation() && settings.is_none() {
             self.fail_inspection("server returned no model settings".to_owned());
             return;
         }
@@ -156,7 +159,7 @@ impl App {
     pub(super) fn start_load_request(&mut self, client: &Client, request: proto::LoadModelRequest) {
         self.restore_in_flight = None;
         self.context_rx = None;
-        self.set_local_state(&request.selector, "loading");
+        self.set_local_state(&request.selector, LocalRowState::Server(LocalModelState::Loading));
         let (sender, receiver) = mpsc::channel(64);
         let mut client = client.clone();
         drop(tokio::spawn(async move {
@@ -186,7 +189,7 @@ impl App {
             .iter_mut()
             .find(|local| local.id == model.id || local.path == model.path)
         {
-            "ready".clone_into(&mut local.state);
+            local.state = LocalRowState::Server(LocalModelState::Ready);
         }
         if !self.models.iter().any(|loaded| loaded.id == model.id) {
             self.models.push(model);
@@ -202,7 +205,7 @@ impl App {
             .map(|dialog| dialog.target.selector.clone())
             .or_else(|| self.restore_in_flight.clone());
         if let Some(selector) = selector {
-            self.set_local_state(&selector, "available");
+            self.set_local_state(&selector, LocalRowState::Server(LocalModelState::Available));
         }
         self.action_message = Some(error.clone());
         if self.restore_in_flight.take().is_none()

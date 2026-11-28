@@ -48,6 +48,45 @@ impl MemoryFit {
     }
 }
 
+/// Where a catalog model's files currently live relative to this server.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LocalSource {
+    /// Downloaded and managed by mirmir.
+    Mirmir,
+    /// A partial download exists in mirmir's cache.
+    Partial,
+    /// Present in an external Hugging Face cache.
+    HfCache,
+    /// Only available remotely on the Hub.
+    #[default]
+    Remote,
+}
+
+impl LocalSource {
+    /// The protocol spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mirmir => "mirmir",
+            Self::Partial => "partial",
+            Self::HfCache => "hf_cache",
+            Self::Remote => "remote",
+        }
+    }
+
+    /// Parses a protocol spelling.
+    #[must_use]
+    pub fn from_protocol(value: &str) -> Option<Self> {
+        match value {
+            "mirmir" => Some(Self::Mirmir),
+            "partial" => Some(Self::Partial),
+            "hf_cache" => Some(Self::HfCache),
+            "remote" => Some(Self::Remote),
+            _ => None,
+        }
+    }
+}
+
 /// How much evidence backs a catalog estimate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confidence {

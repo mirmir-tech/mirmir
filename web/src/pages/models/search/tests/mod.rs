@@ -1,7 +1,7 @@
 use super::*;
 use crate::types::{
-    ModelState,
-    catalog::{CatalogModel, CatalogVariant},
+    Compatibility, ModelState,
+    catalog::{CatalogFit, CatalogModel, CatalogVariant, SizeKind},
 };
 
 fn local(repo_id: &str, state: ModelState) -> Model {
@@ -50,41 +50,47 @@ fn an_incomplete_model_is_not_downloaded() {
 /// offered variant fits, even when its default variant does not.
 #[test]
 fn gguf_row_fits_when_any_offered_variant_fits() {
-    let variant = |name: &str, fit: &str| CatalogVariant {
+    let variant = |name: &str, fit: CatalogFit| CatalogVariant {
         name: name.to_owned(),
-        size_kind: "estimated".to_owned(),
+        size_kind: SizeKind::Estimated,
         weight_bytes: Some(4 << 30),
-        memory_fit: fit.to_owned(),
+        memory_fit: fit,
     };
     let mixed = CatalogModel {
         id: "demo/mixed-GGUF".to_owned(),
-        memory_fit: "does_not_fit".to_owned(),
+        memory_fit: CatalogFit::DoesNotFit,
         default_variant: Some("Q4_K_M".to_owned()),
-        variants: vec![variant("Q2_K", "fits"), variant("Q4_K_M", "does_not_fit")],
+        variants: vec![
+            variant("Q2_K", CatalogFit::Fits),
+            variant("Q4_K_M", CatalogFit::DoesNotFit),
+        ],
         ..Default::default()
     };
     assert!(row_fits(&mixed));
 
     let none_fit = CatalogModel {
-        variants: vec![variant("Q2_K", "does_not_fit"), variant("Q4_K_M", "does_not_fit")],
+        variants: vec![
+            variant("Q2_K", CatalogFit::DoesNotFit),
+            variant("Q4_K_M", CatalogFit::DoesNotFit),
+        ],
         ..mixed
     };
     assert!(!row_fits(&none_fit));
 
     let plain_too_large = CatalogModel {
         id: "demo/plain".to_owned(),
-        memory_fit: "does_not_fit".to_owned(),
+        memory_fit: CatalogFit::DoesNotFit,
         ..Default::default()
     };
     assert!(!row_fits(&plain_too_large));
 
     let bert_gguf = CatalogModel {
         id: "owner/bert-GGUF".to_owned(),
-        compatibility: "unsupported".to_owned(),
-        metal_compatibility: "unknown".to_owned(),
-        cuda_compatibility: "unknown".to_owned(),
-        memory_fit: "fits".to_owned(),
-        variants: vec![variant("Q8_0", "fits")],
+        compatibility: Compatibility::Unsupported,
+        metal_compatibility: Compatibility::Unknown,
+        cuda_compatibility: Compatibility::Unknown,
+        memory_fit: CatalogFit::Fits,
+        variants: vec![variant("Q8_0", CatalogFit::Fits)],
         ..Default::default()
     };
     assert!(unsupported(&bert_gguf));

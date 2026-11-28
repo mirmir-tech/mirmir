@@ -9,9 +9,9 @@ use ratatui::{
     },
 };
 
-use crate::{
-    rpc::proto,
-    tui::{app::App, theme},
+use crate::tui::{
+    app::{ActivityRow, ActivityRowState, App},
+    theme,
 };
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
@@ -49,20 +49,23 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
     columns[0]
 }
 
-fn item((index, event): (usize, &proto::ActivityEvent)) -> ListItem<'static> {
-    let (symbol, color) = match event.state.as_str() {
-        "completed" => ("●", theme::SUCCESS),
-        "failed" => ("●", theme::DANGER),
-        "cancelled" => ("■", theme::MUTED),
-        "cancelling" => ("◐", theme::SIGNAL),
-        _ => ("◌", theme::GLACIER),
+fn item((index, event): (usize, &ActivityRow)) -> ListItem<'static> {
+    let (symbol, color) = match event.state {
+        ActivityRowState::Completed => ("●", theme::SUCCESS),
+        ActivityRowState::Failed => ("●", theme::DANGER),
+        ActivityRowState::Cancelled => ("■", theme::MUTED),
+        ActivityRowState::Cancelling => ("◐", theme::SIGNAL),
+        ActivityRowState::Queued | ActivityRowState::Running | ActivityRowState::Unknown => {
+            ("◌", theme::GLACIER)
+        },
     };
+    let kind = event
+        .kind
+        .map_or(event.kind_label.as_str(), |kind| kind.as_str())
+        .to_uppercase();
     ListItem::new(Line::from(vec![
         Span::styled(format!("{symbol} "), Style::new().fg(color)),
-        Span::styled(
-            event.kind.to_uppercase(),
-            Style::new().fg(theme::INK).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(kind, Style::new().fg(theme::INK).add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {}  {}", event.target, event.stage), Style::new().fg(theme::MUTED)),
     ]))
     .style(Style::new().bg(if index.is_multiple_of(2) {

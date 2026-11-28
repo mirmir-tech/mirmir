@@ -1,9 +1,13 @@
+pub mod row;
+
 use crossterm::event::{KeyCode, KeyEvent};
+use libmir::AdmissionStatus;
 use tokio::sync::mpsc;
 
+use self::row::{CatalogRow, LocalRow};
 use super::{App, CatalogFilter};
 use crate::{
-    catalog,
+    catalog::LocalSource,
     rpc::{Client, proto},
 };
 
@@ -89,17 +93,18 @@ impl App {
         }
     }
 
-    fn apply_search_response(&mut self, mut response: proto::SearchModelsResponse, append: bool) {
+    fn apply_search_response(&mut self, response: proto::SearchModelsResponse, append: bool) {
+        let mut incoming = response.models.into_iter().map(CatalogRow::from).collect::<Vec<_>>();
         if append {
-            response.models.retain(|m| !self.catalog.iter().any(|e| e.id == m.id));
-            self.catalog.extend(response.models);
+            incoming.retain(|m| !self.catalog.iter().any(|e| e.id == m.id));
+            self.catalog.extend(incoming);
         } else {
-            self.catalog = response.models;
+            self.catalog = incoming;
             self.catalog_selected = 0;
         }
         self.catalog.sort_by(|left, right| {
-            catalog_rank(left)
-                .cmp(&catalog_rank(right))
+            left.rank()
+                .cmp(&right.rank())
                 .then_with(|| right.downloads.cmp(&left.downloads))
                 .then_with(|| left.id.cmp(&right.id))
         });
@@ -125,25 +130,26 @@ impl App {
         self.visible_local_models().count()
     }
 
-    pub(crate) fn visible_local_models(&self) -> impl Iterator<Item = &proto::LocalModelInfo> {
-        self.local_models.iter().filter(|model| model.state != "missing")
+    pub(crate) fn visible_local_models(&self) -> impl Iterator<Item = &LocalRow> {
+        self.local_models.iter().filter(|model| !model.state.is_missing())
     }
 
-    pub(crate) fn selected_local_model(&self) -> Option<&proto::LocalModelInfo> {
+    pub(crate) fn selected_local_model(&self) -> Option<&LocalRow> {
         self.visible_local_models().nth(self.local_selected)
     }
 
-    pub(crate) fn selected_catalog_model(&self) -> Option<&proto::CatalogModel> {
+    pub(crate) fn selected_catalog_model(&self) -> Option<&CatalogRow> {
         self.visible_catalog_models().nth(self.catalog_selected)
     }
 
-    pub(crate) fn visible_catalog_models(&self) -> impl Iterator<Item = &proto::CatalogModel> {
+    pub(crate) fn visible_catalog_models(&self) -> impl Iterator<Item = &CatalogRow> {
         self.catalog.iter().filter(|model| {
             self.catalog_filter == CatalogFilter::All
                 || model.downloaded
-                || model.local_source != "remote"
+                || model.local_source != LocalSource::Remote
                 || model.variants.iter().any(|variant| variant.downloaded)
-                || (model.compatibility != "unsupported" && Self::catalog_row_fits(model))
+                || (model.compatibility != Some(AdmissionStatus::Unsupported)
+                    && Self::catalog_row_fits(model))
         })
     }
 
@@ -183,7 +189,7 @@ impl App {
             self.activities.iter().find(|event| {
                 targets.contains(&event.target)
                     && event.cancellable
-                    && matches!(event.state.as_str(), "queued" | "running")
+                    && event.state.is_cancellable_state()
             })
         }) else {
             self.action_message = Some("selected model has no cancellable operation".to_owned());
@@ -212,10 +218,7 @@ impl App {
         }
     }
 
-    pub(super) fn local_catalog_model(
-        &self,
-        catalog: &proto::CatalogModel,
-    ) -> Option<&proto::LocalModelInfo> {
+    pub(super) fn local_catalog_model(&self, catalog: &CatalogRow) -> Option<&LocalRow> {
         let target =
             self.catalog_local_target(catalog).or_else(|| self.pull_target(catalog).ok())?;
         self.local_models
@@ -234,16 +237,6 @@ impl App {
     pub(crate) const fn catalog_loading(&self) -> bool {
         self.catalog_search_rx.is_some()
     }
-}
-
-/// The server's catalog order of a row; a status this client does not know
-/// ranks last.
-fn catalog_rank(model: &proto::CatalogModel) -> u8 {
-    let compatibility = catalog::admission_status(&model.compatibility);
-    let memory_fit = catalog::MemoryFit::from_protocol(&model.memory_fit);
-    compatibility
-        .zip(memory_fit)
-        .map_or(u8::MAX, |(compatibility, memory_fit)| catalog::rank(compatibility, memory_fit))
 }
 
 #[cfg(test)]

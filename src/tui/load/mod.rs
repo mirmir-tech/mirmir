@@ -141,10 +141,10 @@ fn event_ratio(event: &crate::rpc::proto::ModelLifecycleEvent) -> (f64, u16) {
 }
 
 fn header(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
-    let source = match (dialog.task.as_str(), dialog.has_mirmir_overrides) {
-        ("generation", true) => "Mirmir configuration",
-        ("generation", false) => "model defaults",
-        _ => "checkpoint capabilities",
+    let source = match (dialog.task.is_generation(), dialog.has_mirmir_overrides) {
+        (true, true) => "Mirmir configuration",
+        (true, false) => "model defaults",
+        (false, _) => "checkpoint capabilities",
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
@@ -199,7 +199,7 @@ fn hint(frame: &mut Frame<'_>, area: Rect, dialog: &LoadDialog) {
     let text = match dialog.status {
         LoadStatus::Inspecting => "Reading checkpoint capabilities…",
         LoadStatus::Editing => "Review the resolved settings before loading",
-        LoadStatus::Loading if dialog.task == "generation" => "Settings saved · loading",
+        LoadStatus::Loading if dialog.task.is_generation() => "Settings saved · loading",
         LoadStatus::Loading => "Loading checkpoint · no task settings",
     };
     frame.render_widget(

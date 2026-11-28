@@ -6,7 +6,7 @@ use wasm_bindgen_futures::spawn_local;
 use crate::{
     api,
     state::RuntimeState,
-    types::{Activity, Model, ModelState, catalog::CatalogModel},
+    types::{Activity, ActivityKind, ActivityState, Model, ModelState, catalog::CatalogModel},
 };
 
 pub(super) fn pull_activity(state: RuntimeState, id: &str) -> Option<Activity> {
@@ -14,20 +14,20 @@ pub(super) fn pull_activity(state: RuntimeState, id: &str) -> Option<Activity> {
 }
 
 /// The state of the latest pull of `target` the server reported.
-pub(super) fn last_pull(state: RuntimeState, target: &str) -> Option<String> {
+pub(super) fn last_pull(state: RuntimeState, target: &str) -> Option<ActivityState> {
     state.activities.with(|items| {
         items
             .iter()
-            .find(|item| item.target == target && item.kind == "pull")
-            .map(|item| item.state.clone())
+            .find(|item| item.target == target && item.kind == ActivityKind::Pull)
+            .map(|item| item.state)
     })
 }
 
 /// Whether a pull that is no longer running left nothing to install: it
 /// failed, was cancelled, or was never reported. A completed pull did
 /// install, though the models list may not show it yet.
-pub(super) fn pull_ended_without_install(last: Option<&str>) -> bool {
-    matches!(last, None | Some("failed" | "cancelled"))
+pub(super) const fn pull_ended_without_install(last: Option<ActivityState>) -> bool {
+    matches!(last, None | Some(ActivityState::Failed | ActivityState::Cancelled))
 }
 
 /// Whether `target` is being downloaded, as the row shows it: busy since
@@ -40,9 +40,7 @@ pub(super) fn pulling(state: RuntimeState, target: &str) -> bool {
 }
 
 fn live_pull(item: &Activity, id: &str) -> bool {
-    item.target == id
-        && item.kind == "pull"
-        && matches!(item.state.as_str(), "queued" | "running" | "cancelling")
+    item.target == id && item.kind == ActivityKind::Pull && item.state.is_live()
 }
 
 pub(super) fn start_download(state: RuntimeState, model: &CatalogModel, repo_id: String) {
@@ -80,8 +78,8 @@ fn download_placeholder(model: &CatalogModel, repo_id: &str) -> Model {
         ecosystem: model.ecosystem.clone(),
         container: model.container.clone(),
         encoding: model.encoding.clone(),
-        metal_compatibility: model.metal_compatibility.clone(),
-        cuda_compatibility: model.cuda_compatibility.clone(),
+        metal_compatibility: model.metal_compatibility,
+        cuda_compatibility: model.cuda_compatibility,
         size_bytes: model.estimated_weight_bytes.unwrap_or_default(),
         tool_use: model.tool_use,
         thinking: model.thinking,

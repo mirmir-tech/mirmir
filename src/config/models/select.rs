@@ -1,42 +1,28 @@
 //! Selecting a model: by a path it is configured at or named by, or by
-//! its configuration key, a Hub reference's or a legacy variant's.
+//! its configuration key.
 
 use std::{fs, path::Path};
 
 use super::{
     super::{GenerationConfig, Store, model_runtime::ModelRuntimeConfig},
-    Keys, ResolvedModel, selector_key,
+    ResolvedModel, selector_key,
 };
 use crate::error::{Error, Result};
 
 impl Store {
-    /// The model `selector` names, with the checkpoint it loads from: a GGUF
-    /// model's import, written only when missing or older than its files.
+    /// The model `selector` names, ready for direct inspection or loading.
     pub(crate) fn resolve_model(&self, selector: &str) -> Result<ResolvedModel> {
-        let model = self.selected_model(selector)?;
-        // A model whose files are gone keeps its path, for its load to name.
-        let path = if model.path.exists() {
-            self.checkpoint(&model.path)?
-        } else {
-            model.path
-        };
-        Ok(ResolvedModel { path, ..model })
+        self.selected_model(selector)
     }
 
     /// The model `selector` names, at the path it was configured or named
     /// by, without reading its checkpoint.
     pub(crate) fn selected_model(&self, selector: &str) -> Result<ResolvedModel> {
-        self.select(selector, Keys::Migrate)
-    }
-
-    /// The model `selector` names; with `Keys::Migrated`, without moving a
-    /// legacy variant, for a caller holding a lock that the move takes.
-    pub(in crate::config) fn select(&self, selector: &str, keys: Keys) -> Result<ResolvedModel> {
         let direct = Path::new(selector);
         if direct.exists() {
             let canonical = fs::canonicalize(direct)?;
             if let Some(model) = self
-                .model_configs(keys)
+                .list_model_configs()
                 .unwrap_or_default()
                 .into_iter()
                 .find(|model| fs::canonicalize(&model.path).is_ok_and(|path| path == canonical))
@@ -44,6 +30,7 @@ impl Store {
                 return Ok(ResolvedModel {
                     key: model.id,
                     path: model.path,
+                    vision: model.hub.and_then(|hub| hub.vision),
                     generation: model.generation,
                     runtime: model.runtime,
                 });
@@ -51,31 +38,22 @@ impl Store {
             return Ok(ResolvedModel {
                 key: canonical.display().to_string(),
                 path: canonical,
+                vision: None,
                 generation: GenerationConfig::default(),
                 runtime: ModelRuntimeConfig::default(),
             });
         }
         let key = selector_key(selector)?;
-        let model = match self.model_config(&key, keys) {
+        let model = match self.load_model_config(&key) {
             Err(Error::ModelNotFound(missing)) => {
-                // A Hub model spelled otherwise than it was saved, else a
-                // selection saved before its variant moved, naming its
-                // legacy key, which holds no `@`.
-                let found = match self.spelled_hub_model(&key, keys)? {
-                    Some(model) => Some(model),
-                    None if !key.contains('@') => match self.current_variant_id(&key, keys)? {
-                        Some(id) => Some(self.model_config(&id, keys)?),
-                        None => None,
-                    },
-                    None => None,
-                };
-                found.ok_or(Error::ModelNotFound(missing))?
+                self.spelled_hub_model(&key)?.ok_or(Error::ModelNotFound(missing))?
             },
             model => model?,
         };
         Ok(ResolvedModel {
             key: model.id,
             path: model.path,
+            vision: model.hub.and_then(|hub| hub.vision),
             generation: model.generation,
             runtime: model.runtime,
         })

@@ -5,62 +5,13 @@ use tonic::Status;
 use super::RuntimeService;
 use crate::{
     application::TransferProgress,
-    catalog::{CatalogVariant, SearchResults},
-    model::format::{container_name, legacy_library},
+    catalog::SearchResults,
+    protocol::catalog::{WireModelVariants, WireSearchResults},
     rpc::proto,
 };
 
 pub fn response(results: SearchResults) -> proto::SearchModelsResponse {
-    proto::SearchModelsResponse {
-        models: results.models.into_iter().map(model).collect(),
-        total_memory_bytes: results.memory.total,
-        available_memory_bytes: results.memory.available,
-        memory_source: results.memory.source.to_owned(),
-        next_cursor: results.next_cursor,
-    }
-}
-
-fn model(model: crate::catalog::CatalogModel) -> proto::CatalogModel {
-    proto::CatalogModel {
-        id: model.id,
-        downloads: model.downloads,
-        likes: model.likes,
-        gated: model.gated,
-        model_class: model.model_class,
-        compatibility: model.compatibility.as_str().to_owned(),
-        memory_fit: model.memory_fit.as_str().to_owned(),
-        estimated_weight_bytes: model.weight_bytes,
-        estimated_required_bytes: model.required_bytes,
-        budget_bytes: model.budget_bytes,
-        confidence: model.confidence.as_str().to_owned(),
-        reason: model.reason,
-        downloaded: model.downloaded,
-        local_source: model.local_source.to_owned(),
-        library: legacy_library(model.container, &model.ecosystem).to_owned(),
-        ecosystem: model.ecosystem.name().to_owned(),
-        container: container_name(model.container).to_owned(),
-        encoding: model.encoding.known_label(),
-        metal_compatibility: model.metal_compatibility.as_str().to_owned(),
-        cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
-        preflight_bytes: model.preflight_bytes,
-        preflight_error: model.preflight_error,
-        tool_use: model.features.tool_use,
-        thinking: model.features.thinking,
-        vision: model.features.vision,
-        variants: model.variants.into_iter().map(variant).collect(),
-        default_variant: model.default_variant,
-    }
-}
-
-fn variant(variant: CatalogVariant) -> proto::CatalogVariant {
-    proto::CatalogVariant {
-        name: variant.name,
-        size_kind: variant.size.kind().to_owned(),
-        weight_bytes: variant.size.bytes(),
-        required_bytes: variant.required_bytes,
-        memory_fit: variant.memory_fit.as_str().to_owned(),
-        downloaded: variant.downloaded,
-    }
+    WireSearchResults::from(results).into_proto()
 }
 
 pub async fn variants(
@@ -75,10 +26,7 @@ pub async fn variants(
         .catalog_variants(request.repo_id.trim())
         .await
         .map_err(super::status::application)?;
-    Ok(proto::ListModelVariantsResponse {
-        variants: listed.variants.into_iter().map(variant).collect(),
-        default_variant: listed.default_variant,
-    })
+    Ok(WireModelVariants::from(listed).into_proto())
 }
 
 pub async fn search(

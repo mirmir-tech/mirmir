@@ -1,9 +1,11 @@
 use futures_util::StreamExt;
+use libmir::AdmissionStatus;
 use tokio::sync::mpsc;
 
 use super::App;
 use crate::{
-    catalog::MemoryFit,
+    application::TransferPhase,
+    catalog::{LocalSource, MemoryFit},
     rpc::{Client, proto},
 };
 
@@ -20,12 +22,12 @@ impl App {
             self.action_message = Some("model is already downloaded".to_owned());
             return;
         }
-        if model.local_source == "hf_cache" {
+        if model.local_source == LocalSource::HfCache {
             self.action_message =
                 Some("model is already available in the external HF cache".to_owned());
             return;
         }
-        if model.compatibility == "unsupported" {
+        if model.compatibility == Some(AdmissionStatus::Unsupported) {
             self.action_message =
                 Some("this remote weight format cannot be inspected by libmir".to_owned());
             return;
@@ -59,7 +61,7 @@ impl App {
             }
         }));
         self.transfer_repo = Some(repo_id);
-        self.transfer_phase = Some("queued".to_owned());
+        self.transfer_phase = Some(TransferPhase::Queued);
         self.transfer_downloaded_bytes = 0;
         self.transfer_total_bytes = None;
         self.action_message = None;
@@ -99,14 +101,15 @@ impl App {
     }
 
     fn apply_transfer(&mut self, event: proto::ModelTransferEvent) {
+        let phase = TransferPhase::from_protocol(&event.phase);
         self.transfer_repo = Some(event.repo_id.clone());
-        self.transfer_phase = Some(event.phase.clone());
+        self.transfer_phase = phase;
         if event.downloaded_bytes > 0 {
             self.transfer_downloaded_bytes = event.downloaded_bytes;
         }
         self.transfer_total_bytes = event.total_bytes.or(self.transfer_total_bytes);
         self.action_message = Some(event.message);
-        if event.phase == "available" {
+        if phase == Some(TransferPhase::Available) {
             self.mark_downloaded(&event.repo_id, true);
         }
     }

@@ -23,7 +23,7 @@ use super::{super::row::cancel, installed};
 use crate::{
     components::{FeaturePills, Icon, StatePill, TypePill},
     state::{RuntimeState, bytes},
-    types::catalog::{CatalogModel, CatalogVariant},
+    types::catalog::{CatalogModel, CatalogVariant, SizeKind},
 };
 
 #[component]
@@ -80,7 +80,7 @@ pub(super) fn CatalogRow(#[prop(into)] model: Signal<CatalogModel>) -> impl Into
             && !busy()
             && operation().is_none()
             && !downloaded()
-            && pull_ended_without_install(last_pull(state, &target()).as_deref())
+            && pull_ended_without_install(last_pull(state, &target()))
         {
             quantizations.update(Quantizations::release_kept);
         }
@@ -163,7 +163,7 @@ fn sync_quantizations(
 
 /// The variant's size; `~` marks one estimated before its files are listed.
 pub(super) fn size_label(variant: &CatalogVariant) -> String {
-    let estimated = if variant.size_kind == "estimated" {
+    let estimated = if variant.size_kind == SizeKind::Estimated {
         "~"
     } else {
         ""

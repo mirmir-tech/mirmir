@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
-use super::App;
+use super::{ActivityRow, App};
 use crate::rpc::{Client, proto};
 
 pub(super) struct ActivityTask(Option<tokio::task::JoinHandle<()>>);
@@ -103,9 +103,7 @@ impl App {
         let Some(event) = self.activities.get(self.activity_selected) else {
             return;
         };
-        if !event.cancellable
-            || !matches!(event.state.as_str(), "queued" | "running" | "cancelling")
-        {
+        if !event.cancellable || !event.state.is_live() {
             self.activity_error = Some("selected operation cannot be cancelled".to_owned());
             return;
         }
@@ -121,6 +119,7 @@ impl App {
     }
 
     fn apply_activity(&mut self, event: proto::ActivityEvent) {
+        let event = ActivityRow::from(event);
         let selected = self
             .activities
             .get(self.activity_selected)

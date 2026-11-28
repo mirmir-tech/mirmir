@@ -37,7 +37,8 @@ fn applies_remote_contract_statuses_and_diagnostics() -> crate::error::Result<()
         tensors: vec![TensorInfo {
             name: "model.layers.0.self_attn.q_proj.weight".into(),
             file: PathBuf::from("model.safetensors"),
-            dtype: "BF16".into(),
+            container: libmir::WeightContainer::SafeTensors,
+            dtype: libmir::DenseDType::Bf16.into(),
             shape: vec![32, 32],
             data_start: 128,
             data_offsets: [0, 2048],
@@ -72,7 +73,7 @@ fn applies_remote_contract_statuses_and_diagnostics() -> crate::error::Result<()
     assert_eq!(
         model.encoding,
         ModelEncoding::Checkpoint(libmir::CheckpointEncoding {
-            weights: vec![libmir::WeightEncoding::Dense { dtype: "BF16".into() }],
+            weights: vec![libmir::WeightEncoding::Dense { dtype: libmir::DenseDType::Bf16 }],
         })
     );
     assert_eq!(model.preflight_bytes, Some(512));

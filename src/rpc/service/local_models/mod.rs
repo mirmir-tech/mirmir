@@ -1,11 +1,7 @@
 use tonic::Status;
 
 use super::RuntimeService;
-use crate::{
-    application::LocalModelInfo,
-    model::format::{container_name, legacy_library},
-    rpc::proto,
-};
+use crate::{application::LocalModelInfo, protocol::local::WireLocalModel, rpc::proto};
 
 impl RuntimeService {
     pub(super) fn local_models(&self) -> Result<Vec<proto::LocalModelInfo>, Status> {
@@ -18,32 +14,7 @@ impl RuntimeService {
 
 impl From<LocalModelInfo> for proto::LocalModelInfo {
     fn from(value: LocalModelInfo) -> Self {
-        Self {
-            id: value.id,
-            repo_id: value.repo_id,
-            revision: value.revision,
-            commit: value.commit,
-            path: value.path,
-            state: value.state.as_str().to_owned(),
-            recent_rank: value.recent_rank,
-            selector: value.selector,
-            managed: value.managed,
-            image_input: value.image_input,
-            image_unavailable_reason: value.image_unavailable_reason,
-            model_class: value.model_class,
-            loadable: value.loadable,
-            load_unavailable_reason: value.load_unavailable_reason,
-            library: legacy_library(value.container, &value.ecosystem).to_owned(),
-            ecosystem: value.ecosystem.name().to_owned(),
-            container: container_name(value.container).to_owned(),
-            encoding: value.encoding.known_label(),
-            metal_compatibility: value.metal_compatibility.as_str().to_owned(),
-            cuda_compatibility: value.cuda_compatibility.as_str().to_owned(),
-            size_bytes: value.size_bytes,
-            tool_use: value.tool_use,
-            thinking: value.thinking,
-            vision: value.vision,
-        }
+        WireLocalModel::from(value).into_proto()
     }
 }
 

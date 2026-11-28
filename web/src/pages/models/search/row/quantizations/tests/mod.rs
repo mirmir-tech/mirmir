@@ -3,23 +3,26 @@ mod refresh;
 use serde_json::json;
 
 use super::{super::pull_body, Listing, Quantizations, Sizes};
-use crate::types::catalog::{CatalogVariant, ModelVariants};
+use crate::types::catalog::{CatalogFit, CatalogVariant, ModelVariants, SizeKind};
 
 const GIB: u64 = 1 << 30;
 
-fn variant(name: &str, size_kind: &str, gib: u64, memory_fit: &str) -> CatalogVariant {
+fn variant(name: &str, size_kind: SizeKind, gib: u64, memory_fit: CatalogFit) -> CatalogVariant {
     CatalogVariant {
         name: name.to_owned(),
-        size_kind: size_kind.to_owned(),
+        size_kind,
         weight_bytes: Some(gib * GIB),
-        memory_fit: memory_fit.to_owned(),
+        memory_fit,
     }
 }
 
 /// The search estimated `Q8_0` as the default.
 fn estimated() -> Quantizations {
     Quantizations::estimated(
-        vec![variant("Q4_K_M", "estimated", 4, "fits"), variant("Q8_0", "estimated", 7, "fits")],
+        vec![
+            variant("Q4_K_M", SizeKind::Estimated, 4, CatalogFit::Fits),
+            variant("Q8_0", SizeKind::Estimated, 7, CatalogFit::Fits),
+        ],
         Some("Q8_0".to_owned()),
     )
 }
@@ -28,8 +31,8 @@ fn estimated() -> Quantizations {
 fn exact() -> ModelVariants {
     ModelVariants {
         variants: vec![
-            variant("Q4_K_M", "exact", 5, "fits"),
-            variant("Q8_0", "exact", 9, "does_not_fit"),
+            variant("Q4_K_M", SizeKind::Exact, 5, CatalogFit::Fits),
+            variant("Q8_0", SizeKind::Exact, 9, CatalogFit::DoesNotFit),
         ],
         default_variant: Some("Q4_K_M".to_owned()),
     }
@@ -49,7 +52,7 @@ fn the_exact_default_replaces_the_estimated_one() {
     assert_eq!(quantizations.listed(generation, exact(), false), Listing::Taken);
 
     assert_eq!(chosen(&quantizations), Some("Q4_K_M"));
-    assert_eq!(quantizations.chosen().map(|variant| variant.size_kind.as_str()), Some("exact"));
+    assert_eq!(quantizations.chosen().map(|variant| variant.size_kind), Some(SizeKind::Exact));
     assert_eq!(
         pull_body(&quantizations.target("demo/model")),
         json!({"repo_id": "demo/model:Q4_K_M", "revision": null})
@@ -75,7 +78,10 @@ fn a_pick_outlasts_the_listing() {
 #[test]
 fn a_pick_the_listing_drops_falls_back_to_its_default() {
     let mut quantizations = Quantizations::estimated(
-        vec![variant("Q2_K", "estimated", 2, "fits"), variant("Q4_K_M", "estimated", 4, "fits")],
+        vec![
+            variant("Q2_K", SizeKind::Estimated, 2, CatalogFit::Fits),
+            variant("Q4_K_M", SizeKind::Estimated, 4, CatalogFit::Fits),
+        ],
         Some("Q4_K_M".to_owned()),
     );
     quantizations.pick("Q2_K");
@@ -105,8 +111,10 @@ fn a_download_pins_its_variant() {
 /// The select and the download agree even without a default.
 #[test]
 fn without_a_default_the_first_variant_is_chosen() {
-    let quantizations =
-        Quantizations::estimated(vec![variant("Q4_K_M", "estimated", 4, "fits")], None);
+    let quantizations = Quantizations::estimated(
+        vec![variant("Q4_K_M", SizeKind::Estimated, 4, CatalogFit::Fits)],
+        None,
+    );
     assert_eq!(quantizations.target("demo/model"), "demo/model:Q4_K_M");
     assert_eq!(Quantizations::estimated(Vec::new(), None).target("demo/model"), "demo/model");
 }
@@ -136,7 +144,7 @@ fn a_failed_listing_is_retried() {
 #[test]
 fn a_withdrawn_download_is_kept() {
     let only_q4 = || ModelVariants {
-        variants: vec![variant("Q4_K_M", "exact", 5, "fits")],
+        variants: vec![variant("Q4_K_M", SizeKind::Exact, 5, CatalogFit::Fits)],
         default_variant: Some("Q4_K_M".to_owned()),
     };
     let mut quantizations = estimated();
@@ -197,7 +205,7 @@ fn kept_q8() -> Quantizations {
     let generation = quantizations.begin_listing().expect("listing starts");
     quantizations.pin_chosen();
     let only_q4 = ModelVariants {
-        variants: vec![variant("Q4_K_M", "exact", 5, "fits")],
+        variants: vec![variant("Q4_K_M", SizeKind::Exact, 5, CatalogFit::Fits)],
         default_variant: Some("Q4_K_M".to_owned()),
     };
     assert_eq!(

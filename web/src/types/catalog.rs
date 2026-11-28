@@ -10,15 +10,18 @@ pub struct CatalogResults {
 pub struct CatalogModel {
     pub id: String,
     #[serde(default)]
-    pub compatibility: String,
-    pub memory_fit: String,
+    pub compatibility: super::Compatibility,
+    #[serde(default)]
+    pub memory_fit: CatalogFit,
     pub reason: String,
     pub estimated_weight_bytes: Option<u64>,
     pub ecosystem: String,
     pub container: String,
     pub encoding: Option<String>,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    #[serde(default)]
+    pub metal_compatibility: super::Compatibility,
+    #[serde(default)]
+    pub cuda_compatibility: super::Compatibility,
     pub tool_use: bool,
     pub thinking: bool,
     pub vision: bool,
@@ -34,10 +37,57 @@ pub struct CatalogModel {
 #[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct CatalogVariant {
     pub name: String,
-    /// `exact`, `estimated` or `unknown`.
-    pub size_kind: String,
+    #[serde(default)]
+    pub size_kind: SizeKind,
     pub weight_bytes: Option<u64>,
-    pub memory_fit: String,
+    #[serde(default)]
+    pub memory_fit: CatalogFit,
+}
+
+/// Precision of a catalog variant's reported weight size.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SizeKind {
+    Exact,
+    Estimated,
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Estimated memory fit of a catalog model or variant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogFit {
+    Fits,
+    Tight,
+    #[serde(rename = "does_not_fit", alias = "does-not-fit")]
+    DoesNotFit,
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+impl CatalogFit {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Fits => "fits",
+            Self::Tight => "tight",
+            Self::DoesNotFit => "does_not_fit",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Fits => "fits",
+            Self::Tight => "tight",
+            Self::DoesNotFit => "does not fit",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 /// A repository's variants with the sizes of their listed files.

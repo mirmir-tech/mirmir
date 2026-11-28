@@ -118,10 +118,10 @@ fn ActivityList() -> impl IntoView {
     view! { <div class="activity-timeline compact">
         <Show when=move || !state.activities.get().is_empty() fallback=|| view! { <p class="empty">"No operations recorded in this server session."</p> }>
             <For each=move || state.activities.get() key=|item| item.operation_id.clone() children=move |item| {
-                let class = format!("activity-entry {}", item.state);
+                let class = format!("activity-entry {}", item.state.as_str());
                 view! { <article class=class>
                     <span class="activity-marker"></span>
-                    <strong>{item.kind.to_uppercase()}</strong>
+                    <strong>{item.kind.as_str().to_uppercase()}</strong>
                     <span>{item.target}</span>
                     <small>{item.detail}</small>
                 </article> }

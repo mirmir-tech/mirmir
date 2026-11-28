@@ -13,7 +13,10 @@ use super::super::CatalogRow;
 use crate::{
     state::RuntimeState,
     testing::{Answer, Recorded, Route, find, mount, requests, until},
-    types::catalog::{CatalogModel, CatalogVariant},
+    types::{
+        Compatibility,
+        catalog::{CatalogFit, CatalogModel, CatalogVariant, SizeKind},
+    },
 };
 
 const GIB: u64 = 1 << 30;
@@ -23,9 +26,9 @@ const PULL: &str = "/api/mirmir/v1/models/pull";
 fn variant(name: &str, gib: u64) -> CatalogVariant {
     CatalogVariant {
         name: name.to_owned(),
-        size_kind: "estimated".to_owned(),
+        size_kind: SizeKind::Estimated,
         weight_bytes: Some(gib * GIB),
-        memory_fit: "fits".to_owned(),
+        memory_fit: CatalogFit::Fits,
     }
 }
 
@@ -33,10 +36,10 @@ fn variant(name: &str, gib: u64) -> CatalogVariant {
 fn model() -> CatalogModel {
     CatalogModel {
         id: "demo/model".to_owned(),
-        memory_fit: "fits".to_owned(),
+        memory_fit: CatalogFit::Fits,
         reason: "estimated weights and runtime reserve fit the current budget".to_owned(),
-        metal_compatibility: "supported".to_owned(),
-        cuda_compatibility: "supported".to_owned(),
+        metal_compatibility: Compatibility::Supported,
+        cuda_compatibility: Compatibility::Supported,
         variants: vec![variant("Q4_K_M", 4), variant("Q8_0", 7)],
         default_variant: Some("Q8_0".to_owned()),
         ..Default::default()

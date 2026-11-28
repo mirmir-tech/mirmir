@@ -55,19 +55,20 @@ fn renders_identity_dashboard_at_minimum_size() -> Result<(), std::convert::Infa
 fn renders_activity_and_cancellation_capability() -> Result<(), std::convert::Infallible> {
     let mut app = App::new(true);
     app.screen = Screen::Dashboard;
-    app.activities.push(crate::rpc::proto::ActivityEvent {
-        operation_id: "op-7".to_owned(),
-        kind: "generate".to_owned(),
-        target: "Qwen--Test".to_owned(),
-        state: "running".to_owned(),
-        stage: "decode".to_owned(),
-        detail: "streaming tokens".to_owned(),
-        started_at_unix_ms: 1,
-        updated_at_unix_ms: 2,
-        cancellable: true,
-        current: None,
-        total: None,
-    });
+    app.activities
+        .push(super::super::app::ActivityRow::from(crate::rpc::proto::ActivityEvent {
+            operation_id: "op-7".to_owned(),
+            kind: "generate".to_owned(),
+            target: "Qwen--Test".to_owned(),
+            state: "running".to_owned(),
+            stage: "decode".to_owned(),
+            detail: "streaming tokens".to_owned(),
+            started_at_unix_ms: 1,
+            updated_at_unix_ms: 2,
+            cancellable: true,
+            current: None,
+            total: None,
+        }));
     let text = rendered(&mut app, 110, 28)?;
     assert!(text.contains("RECENT ACTIVITY"));
     assert!(text.contains("Qwen--Test"));

@@ -22,7 +22,7 @@ pub use download::{
     DownloadedModel, Removal, TransferPhase, TransferUpdate, pending_bytes, pending_variants,
 };
 pub use fit::{
-    CatalogModel, CatalogVariant, Confidence, MachineMemory, MemoryFit, VariantSize,
+    CatalogModel, CatalogVariant, Confidence, LocalSource, MachineMemory, MemoryFit, VariantSize,
     admission_status, rank,
 };
 pub use hub::{HubFacts, encoding_named};
@@ -111,13 +111,13 @@ impl Catalog {
                 Ok(downloaded.contains(&reference) || managed.contains(&id))
             })?;
             model.local_source = if model.downloaded {
-                "mirmir"
+                LocalSource::Mirmir
             } else if partial.contains(&id) {
-                "partial"
+                LocalSource::Partial
             } else if external.contains(&id) {
-                "hf_cache"
+                LocalSource::HfCache
             } else {
-                "remote"
+                LocalSource::Remote
             };
         }
         search_preflight::enrich(self, &mut models).await;

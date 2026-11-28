@@ -1,5 +1,12 @@
+use libmir::AdmissionStatus;
+
 use super::{App, Screen, rendered};
-use crate::rpc::proto::{CatalogModel, LocalModelInfo};
+use crate::{
+    application::{LocalModelState, TransferPhase},
+    catalog::MemoryFit,
+    rpc::proto::{CatalogModel, LocalModelInfo},
+    tui::app::{CatalogRow, CatalogVariantRow, LocalRow, LocalRowState},
+};
 
 #[test]
 fn empty_search_renders_only_local_models() -> Result<(), std::convert::Infallible> {
@@ -7,7 +14,7 @@ fn empty_search_renders_only_local_models() -> Result<(), std::convert::Infallib
     app.screen = Screen::Models;
     app.local_models.push(local_model("Qwen--Local", "Qwen/Local"));
     let mut missing = local_model("Missing--Hidden", "Missing/Hidden");
-    missing.state = "missing".to_owned();
+    missing.state = LocalRowState::Server(LocalModelState::Missing);
     app.local_models.push(missing);
     app.catalog.push(catalog_model("Remote/Hidden", ""));
 
@@ -78,8 +85,8 @@ fn incompatible_remote_models_are_hidden_until_requested() -> Result<(), std::co
     app.search_query = "encoder".to_owned();
     app.editing_search = true;
     let mut incompatible = catalog_model("BAAI/Encoder", "remote");
-    incompatible.compatibility = "unsupported".to_owned();
-    incompatible.memory_fit = "unknown".to_owned();
+    incompatible.compatibility = Some(AdmissionStatus::Unsupported);
+    incompatible.memory_fit = Some(MemoryFit::Unknown);
     app.catalog.push(incompatible);
 
     assert!(!rendered(&mut app, 120, 36)?.contains("BAAI/Encoder"));
@@ -95,7 +102,7 @@ fn unknown_remote_contracts_remain_visible_for_download() -> Result<(), std::con
     app.search_query = "reranker".to_owned();
     app.editing_search = true;
     let mut candidate = catalog_model("Alibaba-NLP/Reranker", "remote");
-    candidate.compatibility = "unknown".to_owned();
+    candidate.compatibility = Some(AdmissionStatus::Unknown);
     app.catalog.push(candidate);
 
     assert!(rendered(&mut app, 120, 36)?.contains("Alibaba-NLP/Reranker"));
@@ -109,7 +116,7 @@ fn local_gated_results_remain_visible_and_marked() -> Result<(), std::convert::I
     app.search_query = "gated".to_owned();
     app.editing_search = true;
     let mut model = catalog_model("Org/Gated", "hf_cache");
-    model.compatibility = "unsupported".to_owned();
+    model.compatibility = Some(AdmissionStatus::Unsupported);
     model.gated = true;
     app.catalog.push(model);
 
@@ -124,7 +131,7 @@ fn renders_download_percentage_and_binary_sizes() -> Result<(), std::convert::In
     let mut app = App::new(true);
     app.screen = Screen::Models;
     app.transfer_repo = Some("Qwen/Downloading".to_owned());
-    app.transfer_phase = Some("downloading".to_owned());
+    app.transfer_phase = Some(TransferPhase::Downloading);
     app.transfer_downloaded_bytes = 512 * 1_024 * 1_024;
     app.transfer_total_bytes = Some(1_024 * 1_024 * 1_024);
     app.action_message = Some("4 files".to_owned());
@@ -137,8 +144,8 @@ fn renders_download_percentage_and_binary_sizes() -> Result<(), std::convert::In
     Ok(())
 }
 
-fn local_model(id: &str, repo_id: &str) -> LocalModelInfo {
-    LocalModelInfo {
+fn local_model(id: &str, repo_id: &str) -> LocalRow {
+    LocalRow::from(LocalModelInfo {
         id: id.to_owned(),
         repo_id: repo_id.to_owned(),
         revision: "main".to_owned(),
@@ -151,11 +158,11 @@ fn local_model(id: &str, repo_id: &str) -> LocalModelInfo {
         loadable: true,
         model_class: "Qwen2ForCausalLM".to_owned(),
         ..Default::default()
-    }
+    })
 }
 
-fn catalog_model(id: &str, local_source: &str) -> CatalogModel {
-    CatalogModel {
+fn catalog_model(id: &str, local_source: &str) -> CatalogRow {
+    CatalogRow::from(CatalogModel {
         id: id.to_owned(),
         downloads: 42,
         likes: 7,
@@ -171,23 +178,18 @@ fn catalog_model(id: &str, local_source: &str) -> CatalogModel {
         downloaded: local_source == "mirmir",
         local_source: local_source.to_owned(),
         ..Default::default()
-    }
+    })
 }
 
-fn variant(
-    name: &str,
-    size_kind: &str,
-    required: u64,
-    fit: &str,
-) -> crate::rpc::proto::CatalogVariant {
-    crate::rpc::proto::CatalogVariant {
+fn variant(name: &str, size_kind: &str, required: u64, fit: &str) -> CatalogVariantRow {
+    CatalogVariantRow::from(crate::rpc::proto::CatalogVariant {
         name: name.to_owned(),
         size_kind: size_kind.to_owned(),
         weight_bytes: Some(required / 2),
         required_bytes: Some(required),
         memory_fit: fit.to_owned(),
         downloaded: false,
-    }
+    })
 }
 
 /// A GGUF repository is one row showing its default quantization; ←/→
@@ -200,7 +202,7 @@ fn search_chooses_a_gguf_repositorys_quantization() -> Result<(), std::convert::
     app.search_query = "gemma".to_owned();
     app.editing_search = true;
     let mut model = catalog_model("ggml-org/gemma-4-E4B-it-GGUF", "remote");
-    model.compatibility = "unknown".to_owned();
+    model.compatibility = Some(AdmissionStatus::Unknown);
     model.variants = vec![
         variant("Q4_0", "estimated", 6_000_000_000, "fits"),
         variant("Q8_0", "estimated", 10_000_000_000, "tight"),

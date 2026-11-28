@@ -7,7 +7,7 @@ use std::{fs, path::PathBuf};
 
 use super::{
     super::{HubReference, ModelConfig, Store},
-    Keys, read_model_config,
+    read_model_config,
 };
 use crate::error::{Error, Result};
 
@@ -22,11 +22,7 @@ impl Store {
     /// The configurations that can be read, by id; each one that cannot is
     /// logged with its file.
     pub fn list_model_configs(&self) -> Result<Vec<ModelConfig>> {
-        self.model_configs(Keys::Migrate)
-    }
-
-    pub(super) fn model_configs(&self, keys: Keys) -> Result<Vec<ModelConfig>> {
-        let (models, damaged) = self.read_configs(keys)?;
+        let (models, damaged) = self.read_configs()?;
         for damaged in damaged {
             tracing::warn!(
                 file = %damaged.path.display(),
@@ -43,7 +39,7 @@ impl Store {
     /// repository's other models would take what that one holds.
     pub(crate) fn damaged_configs_of(&self, reference: &HubReference) -> Result<Vec<PathBuf>> {
         let mut own = Vec::new();
-        for damaged in self.read_configs(Keys::Migrate)?.1 {
+        for damaged in self.read_configs()?.1 {
             let Some(stem) = damaged.path.file_stem().and_then(|stem| stem.to_str()) else {
                 continue;
             };
@@ -62,13 +58,9 @@ impl Store {
     }
 
     /// The configurations that can be read, by id, and those that cannot.
-    fn read_configs(&self, keys: Keys) -> Result<(Vec<ModelConfig>, Vec<Damaged>)> {
+    fn read_configs(&self) -> Result<(Vec<ModelConfig>, Vec<Damaged>)> {
         if !self.paths.models_dir.exists() {
             return Ok((Vec::new(), Vec::new()));
-        }
-        // Once per listing: every configuration below is under its own key.
-        if keys == Keys::Migrate {
-            self.migrate_variant_keys()?;
         }
         let (mut models, mut damaged) = (Vec::new(), Vec::new());
         for entry in fs::read_dir(&self.paths.models_dir)? {

@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+mod activity;
 pub mod catalog;
+
+pub use activity::{Activity, ActivityKind, ActivityState, Compatibility};
 
 #[derive(Clone, Default, Deserialize)]
 pub struct Bootstrap {
@@ -56,8 +59,10 @@ pub struct Model {
     pub ecosystem: String,
     pub container: String,
     pub encoding: Option<String>,
-    pub metal_compatibility: String,
-    pub cuda_compatibility: String,
+    #[serde(default)]
+    pub metal_compatibility: Compatibility,
+    #[serde(default)]
+    pub cuda_compatibility: Compatibility,
     pub size_bytes: u64,
     pub tool_use: bool,
     pub thinking: bool,
@@ -118,19 +123,6 @@ impl ModelState {
 #[derive(Clone, Default, Deserialize)]
 pub struct Models {
     pub models: Vec<Model>,
-}
-
-#[derive(Clone, Default, Deserialize)]
-pub struct Activity {
-    pub operation_id: String,
-    pub kind: String,
-    pub target: String,
-    pub state: String,
-    pub detail: String,
-    pub updated_at_unix_ms: u64,
-    pub cancellable: bool,
-    pub current: Option<u64>,
-    pub total: Option<u64>,
 }
 
 #[derive(Clone, Default, Deserialize)]

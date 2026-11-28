@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use super::super::{app::App, theme};
+use crate::application::TransferPhase;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let Some(repo) = app.transfer_repo.as_deref() else {
@@ -22,12 +23,13 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
         frame.render_widget(Paragraph::new(text).style(Style::new().fg(theme::MUTED)), area);
         return;
     };
-    let phase = app.transfer_phase.as_deref().unwrap_or("starting");
+    let phase = app.transfer_phase;
+    let phase_label = phase.map_or("starting", TransferPhase::as_str);
     let color = phase_color(phase);
     let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
     frame.render_widget(
         Block::bordered()
-            .title(format!(" DOWNLOAD · {} ", phase.to_ascii_uppercase()))
+            .title(format!(" DOWNLOAD · {} ", phase_label.to_ascii_uppercase()))
             .border_style(Style::new().fg(color))
             .style(Style::new().bg(theme::SURFACE)),
         area,
@@ -79,10 +81,9 @@ fn progress(app: &App) -> (f64, String) {
     )
 }
 
-fn phase_color(phase: &str) -> ratatui::style::Color {
+const fn phase_color(phase: Option<TransferPhase>) -> ratatui::style::Color {
     match phase {
-        "available" => theme::SUCCESS,
-        "failed" => theme::DANGER,
+        Some(TransferPhase::Available) => theme::SUCCESS,
         _ => theme::SIGNAL,
     }
 }

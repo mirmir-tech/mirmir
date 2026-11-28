@@ -24,11 +24,6 @@ pub struct Paths {
     pub ux_state_file: PathBuf,
     pub telemetry_file: PathBuf,
     pub hub_cache_dir: PathBuf,
-    /// Imports of GGUF files, which load like `SafeTensors` checkpoints.
-    pub gguf_imports_dir: PathBuf,
-    /// One directory per downloaded GGUF variant of a Hub repository, linking
-    /// the snapshot files of that quantization and its vision tower.
-    pub gguf_variants_dir: PathBuf,
     /// The user's own Hugging Face cache, listed beside the managed one.
     /// Discovered paths include it; explicit roots, as in tests, do not.
     pub external_hub_cache: Option<PathBuf>,
@@ -75,8 +70,6 @@ impl Paths {
             ux_state_file: config_dir.join("state.toml"),
             telemetry_file: state_dir.join("telemetry.toml"),
             hub_cache_dir: state_dir.join("hf-hub"),
-            gguf_imports_dir: state_dir.join("gguf"),
-            gguf_variants_dir: state_dir.join("gguf-variants"),
             external_hub_cache: None,
             socket_file: runtime_dir.join("mirmir.sock"),
             lock_file: runtime_dir.join("mirmir.lock"),

@@ -2,7 +2,7 @@ mod telemetry;
 
 use telemetry::{points, snapshot};
 
-use super::super::super::app::{App, InitialRefresh, Message, Screen};
+use super::super::super::app::{ActivityRow, App, InitialRefresh, LocalRow, Message, Screen};
 use crate::rpc::proto::{
     ActivityEvent, Completion, ConfigurationSnapshot, ConfigurationValue, LocalModelInfo,
     ModelInfo, SecretState,
@@ -21,8 +21,8 @@ pub(super) fn demo_app(view: &str) -> App {
     });
     app.telemetry = Some(snapshot());
     app.telemetry_history = points();
-    app.activities = activities();
-    app.local_models = models();
+    app.activities = activities().into_iter().map(ActivityRow::from).collect();
+    app.local_models = models().into_iter().map(LocalRow::from).collect();
     app.configuration = Some(configuration());
     seed_chat(&mut app);
     app.screen = match view {

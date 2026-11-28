@@ -105,9 +105,8 @@ impl Store {
     fn normalize_active_models(&self, state: &mut UxState) -> bool {
         let mut normalized = Vec::with_capacity(state.active_models.len());
         for selector in &state.active_models {
-            // `lock_state` moved every legacy variant before this lock.
             let key = self
-                .select(selector, super::models::Keys::Migrated)
+                .selected_model(selector)
                 .map_or_else(|_| selector.clone(), |model| model.key);
             if !normalized.contains(&key) {
                 normalized.push(key);
@@ -165,42 +164,11 @@ impl Store {
             .join(format!("state.corrupt-{timestamp}-{}.toml", std::process::id()))
     }
 
-    /// Holds the UX state for one read or write. Legacy variant keys move
-    /// first, renaming the selections that name them, so nothing resolves
-    /// a selection while its key may still change, and no migration runs
-    /// under this lock.
     fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
-        self.migrate_variant_keys()?;
-        self.ux_state_guard()
-    }
-
-    fn ux_state_guard(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
         let Ok(state) = self.ux_state_lock.lock() else {
             return Err(Error::Config("UX state lock is poisoned".to_owned()));
         };
         Ok(state)
-    }
-
-    /// Renames the recent and active selections of the configuration `from`
-    /// to `to`, while `from` still names the model that moved: a namesake
-    /// saved there later is not the selected one.
-    pub(super) fn rename_selections(&self, from: &str, to: &str) -> Result<()> {
-        if !self.paths.ux_state_file.exists() {
-            return Ok(());
-        }
-        let _guard = self.ux_state_guard()?;
-        let mut state = self.load_ux_state()?;
-        let mut renamed = false;
-        for id in state.recent_models.iter_mut().chain(&mut state.active_models) {
-            if id == from {
-                to.clone_into(id);
-                renamed = true;
-            }
-        }
-        if renamed {
-            write_toml(&self.paths.ux_state_file, &state, false)?;
-        }
-        Ok(())
     }
 
     fn recovery_lock(&self) -> Result<std::sync::MutexGuard<'_, Option<StateRecovery>>> {

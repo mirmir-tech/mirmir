@@ -117,10 +117,10 @@ async fn badge_and_tooltip_follow_the_selected_variant() {
 async fn unsupported_gguf_keeps_rejection_reason_and_shows_variant_fit_separately() {
     let bert = crate::types::catalog::CatalogModel {
         id: "owner/bert-GGUF".to_owned(),
-        compatibility: "unsupported".to_owned(),
-        metal_compatibility: "unknown".to_owned(),
-        cuda_compatibility: "unknown".to_owned(),
-        memory_fit: "fits".to_owned(),
+        compatibility: crate::types::Compatibility::Unsupported,
+        metal_compatibility: crate::types::Compatibility::Unknown,
+        cuda_compatibility: crate::types::Compatibility::Unknown,
+        memory_fit: crate::types::catalog::CatalogFit::Fits,
         reason: "model contract or weight format is not supported by libmir".to_owned(),
         variants: vec![variant("Q4_K_M", 1), variant("Q8_0", 2)],
         default_variant: Some("Q8_0".to_owned()),

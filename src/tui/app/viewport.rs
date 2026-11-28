@@ -165,8 +165,8 @@ mod tests {
         assert_eq!(view.row(9, 6), None);
     }
 
-    fn local_model(index: usize) -> LocalModelInfo {
-        LocalModelInfo {
+    fn local_model(index: usize) -> super::super::LocalRow {
+        super::super::LocalRow::from(LocalModelInfo {
             id: format!("model-{index}"),
             repo_id: format!("Test/Model-{index}"),
             revision: "main".to_owned(),
@@ -177,6 +177,6 @@ mod tests {
             selector: format!("model-{index}"),
             managed: true,
             ..Default::default()
-        }
+        })
     }
 }

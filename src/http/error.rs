@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn temporary_memory_admission_remains_http_429() {
         let error = libmir::Error::MemoryAdmission {
-            model: "test".into(),
+            model: libmir::ModelId::new("test"),
             required_bytes: 20,
             available_bytes: 10,
         };
@@ -170,7 +170,9 @@ mod tests {
     #[tokio::test]
     async fn malformed_model_tool_output_has_a_distinct_non_server_error_code()
     -> Result<(), Box<dyn std::error::Error>> {
-        let error = libmir::Error::InvalidToolCall("non-string parameter must contain JSON".into());
+        let error = libmir::Error::InvalidToolCall(libmir::ToolCallError::Malformed(
+            "non-string parameter must contain JSON".into(),
+        ));
         let application: crate::application::Error = error.into();
         assert_eq!(application.class(), crate::application::ErrorClass::InvalidModelOutput);
         let response = ApiError::from_application(&application).into_response();

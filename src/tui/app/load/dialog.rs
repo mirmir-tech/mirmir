@@ -27,10 +27,42 @@ pub struct LoadTarget {
     pub commit: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoadTask {
+    Generation,
+    Embedding,
+    Rerank,
+    Other(String),
+}
+
+impl LoadTask {
+    pub fn from_protocol(value: &str) -> Self {
+        match value {
+            "generation" => Self::Generation,
+            "embedding" => Self::Embedding,
+            "rerank" => Self::Rerank,
+            other => Self::Other(other.to_owned()),
+        }
+    }
+
+    pub const fn as_str(&self) -> &str {
+        match self {
+            Self::Generation => "generation",
+            Self::Embedding => "embedding",
+            Self::Rerank => "rerank",
+            Self::Other(other) => other.as_str(),
+        }
+    }
+
+    pub const fn is_generation(&self) -> bool {
+        matches!(self, Self::Generation)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LoadDialog {
     pub target: LoadTarget,
-    pub task: String,
+    pub task: LoadTask,
     pub capabilities: Option<proto::ModelTaskCapabilities>,
     pub status: LoadStatus,
     pub context: Option<ContextControl>,
@@ -47,7 +79,7 @@ impl LoadDialog {
     /// The editable rows in display order: the context first when the model has
     /// one, then the generation settings of a generation model.
     pub fn rows(&self) -> impl Iterator<Item = LoadRow> {
-        let fields = if self.task == "generation" {
+        let fields = if self.task.is_generation() {
             GENERATION_FIELDS
         } else {
             0
@@ -74,7 +106,7 @@ impl LoadDialog {
     }
 
     pub(super) fn request(&self) -> Result<proto::LoadModelRequest, String> {
-        let settings = if self.task == "generation" {
+        let settings = if self.task.is_generation() {
             let [tokens, temperature, top_p, top_k, penalty] = self.ranges();
             Some(proto::GenerationSettings {
                 max_tokens: tokens.clamped(&self.fields[0])?,
@@ -110,7 +142,7 @@ pub(super) fn dialog(task: &str, context: Option<ContextControl>) -> LoadDialog 
             revision: "main".to_owned(),
             commit: "abc123".to_owned(),
         },
-        task: task.to_owned(),
+        task: LoadTask::from_protocol(task),
         capabilities: None,
         status: LoadStatus::Editing,
         context,

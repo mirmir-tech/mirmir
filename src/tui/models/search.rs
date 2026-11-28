@@ -8,15 +8,12 @@ use ratatui::{
 
 use super::{
     super::{
-        app::{App, CatalogPresence, variant_size},
+        app::{App, CatalogPresence, CatalogRow, CatalogVariantRow},
         theme,
     },
     bytes,
 };
-use crate::{
-    catalog::{MemoryFit, VariantSize},
-    rpc::proto::{CatalogModel, CatalogVariant},
-};
+use crate::catalog::{MemoryFit, VariantSize};
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = title(app);
@@ -27,7 +24,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Cell::from(name(model)),
             Cell::from(format_label(model, variant)),
             Cell::from(size(model, variant)),
-            Cell::from(features(model.tool_use, model.thinking, model.vision)),
+            Cell::from(features(
+                model.features.tool_use,
+                model.features.thinking,
+                model.features.vision,
+            )),
             Cell::from(status(app.catalog_fit(model), presence)),
             Cell::from(match presence {
                 CatalogPresence::Downloaded => "✓ downloaded",
@@ -63,7 +64,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-fn name(model: &CatalogModel) -> String {
+fn name(model: &CatalogRow) -> String {
     let lock = if model.gated {
         "🔒 "
     } else {
@@ -74,10 +75,10 @@ fn name(model: &CatalogModel) -> String {
 
 /// What the download needs; `~` marks a size estimated before its files
 /// are listed.
-fn size(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+fn size(model: &CatalogRow, variant: Option<&CatalogVariantRow>) -> String {
     let (required, estimated) =
         variant.map_or((model.estimated_required_bytes, false), |variant| {
-            let estimated = matches!(variant_size(variant), VariantSize::Estimated(_));
+            let estimated = matches!(variant.size, VariantSize::Estimated(_));
             (variant.required_bytes, estimated)
         });
     required.map_or_else(
@@ -98,7 +99,7 @@ fn size(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
 
 /// A GGUF repository's chosen quantization between the ←/→ marks that
 /// change it, and its place among them; the encoding of another.
-fn format_label(model: &CatalogModel, variant: Option<&CatalogVariant>) -> String {
+fn format_label(model: &CatalogRow, variant: Option<&CatalogVariantRow>) -> String {
     let Some(variant) = variant else {
         return model.encoding.as_deref().unwrap_or(&model.ecosystem).to_ascii_uppercase();
     };

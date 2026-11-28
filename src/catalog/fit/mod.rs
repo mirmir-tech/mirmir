@@ -3,7 +3,7 @@ mod variants;
 
 use std::cmp::Ordering;
 
-pub use estimate::{Confidence, MemoryFit, admission_status, rank};
+pub use estimate::{Confidence, LocalSource, MemoryFit, admission_status, rank};
 use libmir::{AdmissionStatus, WeightContainer};
 use sysinfo::System;
 pub use variants::{CatalogVariant, VariantSize, variants};
@@ -36,7 +36,7 @@ pub struct CatalogModel {
     pub confidence: Confidence,
     pub reason: String,
     pub downloaded: bool,
-    pub local_source: &'static str,
+    pub local_source: LocalSource,
     pub ecosystem: Ecosystem,
     pub container: Option<WeightContainer>,
     pub encoding: ModelEncoding,
@@ -148,7 +148,7 @@ pub fn evaluate(model: HubModel, memory: MachineMemory) -> CatalogModel {
         confidence,
         reason,
         downloaded: false,
-        local_source: "remote",
+        local_source: LocalSource::Remote,
         ecosystem: format.ecosystem,
         container: format.container,
         encoding: format.encoding,

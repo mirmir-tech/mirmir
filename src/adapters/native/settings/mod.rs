@@ -22,7 +22,11 @@ impl NativeRuntime {
         context: Option<ContextChoice>,
     ) -> Result<ModelInspection> {
         let resolved = self.store.resolve_model(selector)?;
-        let descriptor = ModelDescriptor::inspect(&resolved.path, overrides(resolved.generation))?;
+        let source = resolved.source()?;
+        let descriptor = ModelDescriptor::inspect_source(
+            source.as_model_source(),
+            overrides(resolved.generation),
+        )?;
         // A loaded copy is replaced by a reload, so its memory counts as free.
         let resident = self.peek_resident_model(&resolved.key)?;
         let limits = self.context_limits(&descriptor);
@@ -93,8 +97,10 @@ impl NativeRuntime {
             Some(self.lifecycle.memory_gate()?)
         };
         let resolved = self.store.resolve_model(selector)?;
+        let source = resolved.source()?;
         let generation = defaults.generation.unwrap_or(resolved.generation);
-        let descriptor = ModelDescriptor::inspect(&resolved.path, overrides(generation))?;
+        let descriptor =
+            ModelDescriptor::inspect_source(source.as_model_source(), overrides(generation))?;
         let runtime = defaults
             .context
             .map(|choice| -> Result<ModelRuntimeConfig> {
@@ -134,11 +140,8 @@ impl NativeRuntime {
             return Ok((folder_key(&resolved.path), hub));
         };
         let id = model_key(&model.repo_id)?;
-        let hub = hub.or(Some(HubModelConfig {
-            repo_id: model.repo_id,
-            revision: model.revision,
-            commit: model.commit,
-        }));
+        let hub =
+            hub.or_else(|| Some(HubModelConfig::new(model.repo_id, model.revision, model.commit)));
         Ok((id, hub))
     }
 

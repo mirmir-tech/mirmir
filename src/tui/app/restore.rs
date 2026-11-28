@@ -1,7 +1,10 @@
 use tokio::sync::mpsc;
 
-use super::App;
-use crate::rpc::{Client, proto};
+use super::{App, LocalRowState};
+use crate::{
+    application::LocalModelState,
+    rpc::{Client, proto},
+};
 
 impl App {
     pub fn begin_restore(&mut self, client: &Client) {
@@ -53,7 +56,7 @@ impl App {
             return;
         };
         self.restore_in_flight = Some(selector.clone());
-        self.set_local_state(&selector, "loading");
+        self.set_local_state(&selector, LocalRowState::Server(LocalModelState::Loading));
         self.start_background_restore(
             client,
             proto::LoadModelRequest { selector, ..Default::default() },

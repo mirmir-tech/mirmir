@@ -5,7 +5,7 @@ use super::super::status::application_ref;
 #[test]
 fn reports_atomic_memory_admission_failures_as_resource_exhaustion() {
     let error: crate::application::Error = libmir::Error::MemoryAdmission {
-        model: "test".into(),
+        model: libmir::ModelId::new("test"),
         required_bytes: 2,
         available_bytes: 1,
     }

@@ -10,7 +10,7 @@ use super::{super::NativeRuntime, presentation};
 use crate::{
     application::{LocalModelInfo, LocalModelState, ModelInfo, Result},
     catalog::{CachedModel, discover_cached_models_in, discover_external_models, pending_variants},
-    config::{GenerationConfig, HubModelConfig, ModelConfig, Store, model_key},
+    config::{GenerationConfig, ModelConfig, model_key},
 };
 
 impl NativeRuntime {
@@ -44,13 +44,13 @@ impl NativeRuntime {
         for cached in discover_cached_models_in(&self.store.paths().hub_cache_dir) {
             append_cached(
                 &mut listed, cached, true, &mut known_repos, &mut known_paths, &resident,
-                &state.loading, &self.store,
+                &state.loading,
             );
         }
         for cached in discover_external_models(self.store.paths()) {
             append_cached(
                 &mut listed, cached, false, &mut known_repos, &mut known_paths, &resident,
-                &state.loading, &self.store,
+                &state.loading,
             );
         }
         drop(state);
@@ -74,7 +74,6 @@ fn append_cached(
     known_paths: &mut HashSet<PathBuf>,
     models: &Resident<'_>,
     loading: &Loading,
-    store: &Store,
 ) {
     // Path selectors resolve to canonical keys, so residency must match on the
     // same key even when the hub cache is reached through a symlink.
@@ -85,13 +84,7 @@ fn append_cached(
     let Ok(id) = model_key(&cached.repo_id) else {
         return;
     };
-    // A cache holding GGUF files, ours or another tool's, is read through
-    // its import, as a configured GGUF model is; other checkpoints are the
-    // snapshot itself.
-    let details = match store.checkpoint(&snapshot) {
-        Ok(checkpoint) => presentation::inspect(&checkpoint, GenerationConfig::default()),
-        Err(error) => presentation::unimported(&snapshot, &error),
-    };
+    let details = presentation::inspect(&snapshot, None, GenerationConfig::default());
     let selector = snapshot.display().to_string();
     listed.push(info(
         id,
@@ -121,17 +114,8 @@ fn configured(
     loading: &Loading,
     runtime: &NativeRuntime,
 ) -> LocalModelInfo {
-    let hub = config.hub.clone().unwrap_or_else(|| HubModelConfig {
-        repo_id: String::new(),
-        revision: String::new(),
-        commit: String::new(),
-    });
-    // A GGUF model that does not import says why, not that its files lack
-    // a configuration.
-    let details = match runtime.store.checkpoint(&config.path) {
-        Ok(checkpoint) => presentation::inspect(&checkpoint, config.generation),
-        Err(error) => presentation::unimported(&config.path, &error),
-    };
+    let hub = config.hub.clone().unwrap_or_default();
+    let details = presentation::inspect(&config.path, hub.vision.as_deref(), config.generation);
     info(
         config.id.clone(),
         hub.repo_id,

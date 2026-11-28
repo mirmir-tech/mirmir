@@ -1,5 +1,8 @@
 use super::{App, LoadTarget};
-use crate::{config::model_key, rpc::proto, tui::app::actions::selector};
+use crate::{
+    config::model_key,
+    tui::app::{LocalRow, actions::selector},
+};
 
 impl App {
     pub(in crate::tui::app) fn load_target(&mut self) -> Option<LoadTarget> {
@@ -7,8 +10,8 @@ impl App {
             return self.catalog_load_target();
         }
         let model = self.selected_local_model()?;
-        if model.state == "missing" || model.state == "ready" {
-            self.action_message = Some(format!("model is already {}", model.state));
+        if model.state.is_missing() || model.state.is_ready() {
+            self.action_message = Some(format!("model is already {}", model.state.as_str()));
             return None;
         }
         if !model.loadable {
@@ -26,8 +29,8 @@ impl App {
             return None;
         };
         if let Some(local) = self.local_catalog_model(model) {
-            if local.state == "missing" || local.state == "ready" {
-                self.action_message = Some(format!("model is already {}", local.state));
+            if local.state.is_missing() || local.state.is_ready() {
+                self.action_message = Some(format!("model is already {}", local.state.as_str()));
                 return None;
             }
             if !local.loadable {
@@ -46,7 +49,7 @@ impl App {
     }
 }
 
-fn local_load_target(model: &proto::LocalModelInfo) -> LoadTarget {
+fn local_load_target(model: &LocalRow) -> LoadTarget {
     LoadTarget {
         selector: selector(model).to_owned(),
         config_id: model.id.clone(),

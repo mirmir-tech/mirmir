@@ -5,11 +5,11 @@
 //! variant goes with the files no other model of its repository holds; a
 //! repository with all of it.
 
-use std::{fs, io, path::Path};
+use std::fs;
 
 use super::{Removal, freed, variant};
 use crate::{
-    config::{CacheKind, HubReference, RemovalScope, RepositoryCache, Store},
+    config::{CacheKind, HubReference, ModelConfig, RemovalScope, RepositoryCache, Store},
     error::{Error, Result},
 };
 
@@ -27,8 +27,6 @@ pub async fn remove(store: &Store, scope: &RemovalScope) -> Result<Removed> {
         let removal = remove_repository(store, scope, Caches::AnyKnown).await?;
         return Ok(Removed { removal, emptied: None });
     }
-    // A variant saved under its legacy key is found by its current one.
-    store.migrate_variant(&asked)?;
     // What a removal keeps is decided by the repository's other models: a
     // file that cannot be read and may be one refuses it before anything
     // goes. The variant's own unreadable files go with it.
@@ -44,11 +42,11 @@ pub async fn remove(store: &Store, scope: &RemovalScope) -> Result<Removed> {
             existed = true;
         }
     }
-    for view in variant::views_of(store, &asked) {
-        freed_bytes += variant::remove_view(store, &asked, &view, &mut blobs)?;
-        existed = true;
-    }
-    for saved in saved_models(store)?.into_iter().filter(|saved| saved.is_same_model(&asked)) {
+    for (saved, model) in saved_models(store)?
+        .into_iter()
+        .filter(|(saved, _)| saved.is_same_model(&asked))
+    {
+        freed_bytes += variant::remove_variant(store, &asked, &model, &mut blobs)?;
         existed |= store.remove_hub_model_config(&saved.to_string())?;
     }
     for path in damaged.into_iter().flatten() {
@@ -76,15 +74,18 @@ pub async fn remove_emptied(
     if variant::holds_any(store, repository)? {
         return Ok(0);
     }
-    Ok(remove_caches(store, scope, Caches::Managed).await?.1)
+    Ok(remove_caches(scope, Caches::Managed).await?.1)
 }
 
 /// The Hub models saved, by the references their configurations record.
-fn saved_models(store: &Store) -> Result<Vec<HubReference>> {
+fn saved_models(store: &Store) -> Result<Vec<(HubReference, ModelConfig)>> {
     Ok(store
         .list_model_configs()?
         .into_iter()
-        .filter_map(|model| model.hub?.repo_id.parse::<HubReference>().ok())
+        .filter_map(|model| {
+            let reference = model.hub.as_ref()?.repo_id.parse::<HubReference>().ok()?;
+            Some((reference, model))
+        })
         .collect())
 }
 
@@ -114,19 +115,14 @@ async fn remove_repository(store: &Store, scope: &RemovalScope, caches: Caches) 
             removed = true;
         }
     }
-    for saved in saved_models(store)?
+    for (saved, model) in saved_models(store)?
         .into_iter()
-        .filter(|saved| saved.same_repository(reference))
+        .filter(|(saved, _)| saved.same_repository(reference))
     {
         if saved.variant().is_some() {
-            freed_bytes += variant::remove_files(store, &saved, &mut blobs)?;
+            freed_bytes += variant::remove_variant(store, &saved, &model, &mut blobs)?;
         }
         removed |= store.remove_hub_model_config(&saved.to_string())?;
-    }
-    // Views left by configurations that cannot be read.
-    for view in variant::views_of(store, reference) {
-        freed_bytes += variant::remove_view(store, reference, &view, &mut blobs)?;
-        removed = true;
     }
     for path in damaged.into_iter().flatten() {
         fs::remove_file(path)?;
@@ -139,7 +135,7 @@ async fn remove_repository(store: &Store, scope: &RemovalScope, caches: Caches) 
     } else {
         caches
     };
-    let (removed_cache, cache_bytes) = remove_caches(store, scope, caches).await?;
+    let (removed_cache, cache_bytes) = remove_caches(scope, caches).await?;
     Ok(Removal {
         removed: removed || removed_cache,
         freed_bytes: freed_bytes + cache_bytes,
@@ -149,7 +145,7 @@ async fn remove_repository(store: &Store, scope: &RemovalScope, caches: Caches) 
 /// Removes the repository caches `scope` names that are there: mirmir's
 /// own, else, as `caches` lets it, another tool's; whether there were any,
 /// and the bytes freed.
-async fn remove_caches(store: &Store, scope: &RemovalScope, caches: Caches) -> Result<(bool, u64)> {
+async fn remove_caches(scope: &RemovalScope, caches: Caches) -> Result<(bool, u64)> {
     let present = |kind| {
         let caches = scope.caches().iter();
         caches
@@ -163,34 +159,18 @@ async fn remove_caches(store: &Store, scope: &RemovalScope, caches: Caches) -> R
     let removed = !targets.is_empty();
     let mut freed_bytes = 0;
     for cache in targets {
-        freed_bytes += remove_cache_repo(store, cache).await?;
+        freed_bytes += remove_cache_repo(cache).await?;
     }
     Ok((removed, freed_bytes))
 }
 
-/// Removes the repository cache `cache` and the GGUF imports that listing
-/// or loading a model by a path within it made; the bytes freed. An import
-/// that cannot go stays behind, unused once its files are gone.
-pub(super) async fn remove_cache_repo(store: &Store, cache: RepositoryCache) -> Result<u64> {
-    let store = store.clone();
+/// Removes the repository cache `cache`; returns the bytes freed.
+pub(super) async fn remove_cache_repo(cache: RepositoryCache) -> Result<u64> {
     tokio::task::spawn_blocking(move || {
         let path = validated_cache_repo(cache.path(), cache.root())?;
-        let imports = store.gguf_imports_within(&path);
-        let freed = freed::remove_tree(&path)?;
-        Ok(freed + imports.iter().map(|import| remove_import(import)).sum::<u64>())
+        Ok(freed::remove_tree(&path)?)
     })
     .await?
-}
-
-fn remove_import(import: &Path) -> u64 {
-    match freed::remove_tree(import) {
-        Ok(freed) => freed,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
-        Err(error) => {
-            tracing::warn!(import = %import.display(), %error, "GGUF import not removed");
-            0
-        },
-    }
 }
 
 pub(super) fn validated_cache_repo(

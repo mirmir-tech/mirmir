@@ -7,10 +7,57 @@ use ratatui::{
 };
 
 use super::{
-    super::{app::App, theme},
+    super::{
+        app::{App, LocalRow, LocalRowState},
+        theme,
+    },
     bytes,
 };
-use crate::rpc::proto;
+use crate::application::{ActivityKind, LocalModelState};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DisplayState {
+    Working,
+    State(LocalRowState),
+}
+
+impl DisplayState {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Working => "◌ WORKING",
+            Self::State(state) => state.label(),
+        }
+    }
+
+    const fn color(self) -> Color {
+        match self {
+            Self::State(LocalRowState::Server(LocalModelState::Ready)) => theme::SUCCESS,
+            Self::State(LocalRowState::Server(LocalModelState::Available)) => theme::SIGNAL,
+            Self::State(LocalRowState::Server(LocalModelState::Error)) => theme::DANGER,
+            Self::State(LocalRowState::Removing) => theme::MUTED,
+            _ => theme::GLACIER,
+        }
+    }
+
+    const fn actions(self, managed: bool) -> &'static str {
+        match self {
+            Self::State(LocalRowState::Server(LocalModelState::Ready)) => "■ unload",
+            Self::State(LocalRowState::Server(LocalModelState::Available)) if managed => {
+                "▶ load  × remove"
+            },
+            Self::State(LocalRowState::Server(LocalModelState::Available)) => "▶ load",
+            Self::State(LocalRowState::Server(LocalModelState::Error)) if managed => "× remove",
+            Self::State(state) if state.is_resumable() => "↻ resume  × remove",
+            Self::Working
+            | Self::State(
+                LocalRowState::Server(LocalModelState::Loading)
+                | LocalRowState::Unloading
+                | LocalRowState::Removing,
+            ) => "◌ working  ■ stop",
+            Self::State(_) => "—",
+        }
+    }
+}
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let rows = app.visible_local_models().map(|model| {
@@ -20,13 +67,13 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Cell::from(type_badge(model)),
             Cell::from(bytes(model.size_bytes)),
             Cell::from(features(model)),
+            Cell::from(Line::from(Span::styled(state.label(), Style::new().fg(state.color())))),
             Cell::from(Line::from(Span::styled(
-                state.clone(),
-                Style::new().fg(state_color(&state)),
+                state.actions(model.managed),
+                Style::new().fg(theme::GLACIER),
             ))),
-            Cell::from(actions(&state, model.managed)),
         ]);
-        if state == "REMOVING" {
+        if state == DisplayState::State(LocalRowState::Removing) {
             row.style(Style::new().fg(theme::MUTED))
         } else {
             row
@@ -58,24 +105,22 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-fn model_state(app: &App, model: &proto::LocalModelInfo) -> String {
+fn model_state(app: &App, model: &LocalRow) -> DisplayState {
     if app.activities.iter().any(|event| {
         (event.target == model.id || event.target == model.repo_id)
-            && matches!(event.state.as_str(), "queued" | "running" | "cancelling")
-            && (event.kind.contains("load")
-                || event.kind.contains("pull")
-                || event.kind.contains("download"))
+            && event.state.is_live()
+            && matches!(event.kind, Some(ActivityKind::Load | ActivityKind::Pull))
     }) {
-        return "◌ WORKING".to_owned();
+        return DisplayState::Working;
     }
-    if model.state == "available" && !model.loadable {
-        "ERROR".to_owned()
+    if model.state == LocalRowState::Server(LocalModelState::Available) && !model.loadable {
+        DisplayState::State(LocalRowState::Server(LocalModelState::Error))
     } else {
-        model.state.to_ascii_uppercase()
+        DisplayState::State(model.state)
     }
 }
 
-fn type_badge(model: &proto::LocalModelInfo) -> Line<'static> {
+fn type_badge(model: &LocalRow) -> Line<'static> {
     let value = if let Some(encoding) = &model.encoding {
         encoding
     } else if !model.ecosystem.is_empty() {
@@ -91,12 +136,12 @@ fn type_badge(model: &proto::LocalModelInfo) -> Line<'static> {
     ))
 }
 
-fn features(model: &proto::LocalModelInfo) -> Line<'static> {
+fn features(model: &LocalRow) -> Line<'static> {
     let mut spans = Vec::new();
     for (enabled, label, color) in [
-        (model.tool_use, "⌘ tools", theme::SIGNAL),
-        (model.thinking, "◈ think", theme::GLACIER),
-        (model.vision, "◉ vision", theme::SUCCESS),
+        (model.features.tool_use, "⌘ tools", theme::SIGNAL),
+        (model.features.thinking, "◈ think", theme::GLACIER),
+        (model.features.vision, "◉ vision", theme::SUCCESS),
     ] {
         if enabled {
             spans
@@ -108,27 +153,4 @@ fn features(model: &proto::LocalModelInfo) -> Line<'static> {
         spans.push(Span::styled("—", Style::new().fg(theme::MUTED)));
     }
     Line::from(spans)
-}
-
-fn actions(state: &str, managed: bool) -> Line<'static> {
-    let text = match state {
-        "READY" => "■ unload",
-        "AVAILABLE" if managed => "▶ load  × remove",
-        "AVAILABLE" => "▶ load",
-        "ERROR" if managed => "× remove",
-        "PAUSED" | "PARTIAL" | "FAILED" => "↻ resume  × remove",
-        "LOADING" | "UNLOADING" | "REMOVING" | "◌ WORKING" => "◌ working  ■ stop",
-        _ => "—",
-    };
-    Line::from(Span::styled(text, Style::new().fg(theme::GLACIER)))
-}
-
-fn state_color(state: &str) -> Color {
-    match state {
-        "READY" => theme::SUCCESS,
-        "AVAILABLE" => theme::SIGNAL,
-        "ERROR" => theme::DANGER,
-        "REMOVING" => theme::MUTED,
-        _ => theme::GLACIER,
-    }
 }

@@ -18,8 +18,8 @@ use crate::{
     api,
     state::RuntimeState,
     types::{
-        Model,
-        catalog::{CatalogModel, CatalogResults},
+        Compatibility, Model,
+        catalog::{CatalogFit, CatalogModel, CatalogResults},
     },
 };
 
@@ -135,21 +135,21 @@ pub(super) fn installed(local: &[Model], target: &str) -> bool {
 }
 
 /// Whether the server marked the model unsupported overall or on every backend.
-pub(super) fn unsupported(model: &CatalogModel) -> bool {
-    model.compatibility == "unsupported"
-        || (model.metal_compatibility == "unsupported" && model.cuda_compatibility == "unsupported")
+pub(super) const fn unsupported(model: &CatalogModel) -> bool {
+    matches!(model.compatibility, Compatibility::Unsupported)
+        || (matches!(model.metal_compatibility, Compatibility::Unsupported)
+            && matches!(model.cuda_compatibility, Compatibility::Unsupported))
 }
 
 /// Whether a catalog row stays visible under the compatible filter: a GGUF
 /// repository stays listed when any offered variant fits, matching the TUI.
 pub(super) fn row_fits(model: &CatalogModel) -> bool {
     if model.variants.is_empty() {
-        !does_not_fit(&model.memory_fit)
+        model.memory_fit != CatalogFit::DoesNotFit
     } else {
-        model.variants.iter().any(|variant| !does_not_fit(&variant.memory_fit))
+        model
+            .variants
+            .iter()
+            .any(|variant| variant.memory_fit != CatalogFit::DoesNotFit)
     }
-}
-
-pub(super) fn does_not_fit(state: &str) -> bool {
-    matches!(state, "does_not_fit" | "does-not-fit")
 }

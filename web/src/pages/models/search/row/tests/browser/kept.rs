@@ -32,12 +32,12 @@ fn serve_q4_only() {
     serve(&routes(vec![Answer::held(listing)]));
 }
 
-fn pull_ends(row: &Row, state: &str) {
+fn pull_ends(row: &Row, state: crate::types::ActivityState) {
     row.state.apply_activity(&Activity {
         operation_id: "pull-1".to_owned(),
-        kind: "pull".to_owned(),
+        kind: crate::types::ActivityKind::Pull,
         target: "demo/model:Q8_0".to_owned(),
-        state: state.to_owned(),
+        state,
         ..Default::default()
     });
 }
@@ -68,7 +68,7 @@ async fn a_cancelled_kept_download_falls_back_to_the_default() {
     serve_q4_only();
     let row = row();
     let select = keep_q8(&row).await;
-    pull_ends(&row, "cancelled");
+    pull_ends(&row, crate::types::ActivityState::Cancelled);
     until("the row falls back", || select.value() == "Q4_K_M").await;
     assert!(row.root.query_selector("option[value=Q8_0]").ok().flatten().is_none());
     assert!(!button(&row.root).disabled());
@@ -92,7 +92,7 @@ async fn a_completed_kept_download_stays() {
     serve_q4_only();
     let row = row();
     let select = keep_q8(&row).await;
-    pull_ends(&row, "completed");
+    pull_ends(&row, crate::types::ActivityState::Completed);
     settle(50).await;
     assert_eq!(select.value(), "Q8_0", "kept before the models list shows it");
     assert!(button(&row.root).disabled());

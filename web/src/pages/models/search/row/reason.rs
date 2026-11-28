@@ -1,7 +1,7 @@
 //! Compatibility and per-variant memory explanations for a catalog row.
 
 use super::super::unsupported;
-use crate::types::catalog::{CatalogModel, CatalogVariant};
+use crate::types::catalog::{CatalogFit, CatalogModel, CatalogVariant, SizeKind};
 
 const DEFAULT_UNSUPPORTED_REASON: &str =
     "model contract or weight format is not supported by libmir";
@@ -12,7 +12,10 @@ pub(super) fn badge_state(model: &CatalogModel, variant: Option<&CatalogVariant>
     if unsupported(model) {
         return "unsupported".to_owned();
     }
-    variant.map_or_else(|| model.memory_fit.clone(), |variant| variant.memory_fit.clone())
+    variant
+        .map_or(model.memory_fit, |variant| variant.memory_fit)
+        .as_str()
+        .to_owned()
 }
 
 /// Subtitle under the model name: preserves the server's incompatibility
@@ -47,7 +50,7 @@ pub(super) fn separate_fit_label(
     if !unsupported(model) {
         return None;
     }
-    variant.map(|variant| variant.memory_fit.replace(['_', '-'], " "))
+    variant.map(|variant| variant.memory_fit.label().to_owned())
 }
 
 /// Memory explanation matching the resolved variant and its size precision,
@@ -75,19 +78,17 @@ fn server_reason(model: &CatalogModel) -> String {
 }
 
 fn variant_memory_reason(variant: &CatalogVariant) -> String {
-    let exact = variant.size_kind == "exact";
-    match (variant.memory_fit.as_str(), exact) {
-        ("fits", true) => "weights and runtime reserve fit the current budget".to_owned(),
-        ("fits", false) => {
-            "estimated weights and runtime reserve fit the current budget".to_owned()
+    let exact = variant.size_kind == SizeKind::Exact;
+    match (variant.memory_fit, exact) {
+        (CatalogFit::Fits, true) => "weights and runtime reserve fit the current budget",
+        (CatalogFit::Fits, false) => "estimated weights and runtime reserve fit the current budget",
+        (CatalogFit::Tight, true) => "weights and runtime reserve leave less than 15% headroom",
+        (CatalogFit::Tight, false) => "estimated usage leaves less than 15% headroom",
+        (CatalogFit::DoesNotFit, true) => {
+            "weights and runtime reserve exceed the current memory budget"
         },
-        ("tight", true) => "weights and runtime reserve leave less than 15% headroom".to_owned(),
-        ("tight", false) => "estimated usage leaves less than 15% headroom".to_owned(),
-        ("does_not_fit", true) => {
-            "weights and runtime reserve exceed the current memory budget".to_owned()
-        },
-        ("does_not_fit", false) => "estimated usage exceeds the current memory budget".to_owned(),
-        ("unknown", _) => "insufficient Hub or device metadata for a reliable estimate".to_owned(),
-        _ => String::new(),
+        (CatalogFit::DoesNotFit, false) => "estimated usage exceeds the current memory budget",
+        (CatalogFit::Unknown, _) => "insufficient Hub or device metadata for a reliable estimate",
     }
+    .to_owned()
 }

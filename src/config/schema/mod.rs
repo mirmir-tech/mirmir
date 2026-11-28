@@ -59,12 +59,32 @@ pub struct ModelConfig {
     pub runtime: ModelRuntimeConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HubModelConfig {
     pub repo_id: String,
     pub revision: String,
     pub commit: String,
+    /// Snapshot-relative paths owned by this download (set for GGUF variants).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+    /// Optional `mmproj` vision projector path beside a direct `.gguf` text
+    /// file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vision: Option<PathBuf>,
+}
+
+impl HubModelConfig {
+    #[must_use]
+    pub const fn new(repo_id: String, revision: String, commit: String) -> Self {
+        Self {
+            repo_id,
+            revision,
+            commit,
+            files: Vec::new(),
+            vision: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]

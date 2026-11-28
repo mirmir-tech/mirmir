@@ -90,7 +90,7 @@ fn renders_stage_only_during_model_loading() -> Result<(), std::convert::Infalli
             revision: "main".to_owned(),
             commit: "abc123".to_owned(),
         },
-        task: "generation".to_owned(),
+        task: super::app::LoadTask::Generation,
         capabilities: None,
         status: super::app::LoadStatus::Loading,
         context: None,
@@ -170,7 +170,7 @@ fn renders_external_cache_removal_confirmation() -> Result<(), std::convert::Inf
         id: "Qwen--Test".to_owned(),
         repo_id: "Qwen/Test".to_owned(),
         path: "/cache/models--Qwen--Test/snapshots/abc123".to_owned(),
-        source: "HF CACHE".to_owned(),
+        source: super::app::CacheOrigin::HfCache,
     });
 
     let text = rendered(&mut app, 120, 36)?;

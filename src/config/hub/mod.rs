@@ -61,33 +61,22 @@ impl HubReference {
     }
 
     /// Whether a file keyed `stem`, a configuration or a download marker,
-    /// may hold a model of this repository in any spelling: its key, a
-    /// variant's (`@`) or a legacy variant's (`--`). A namesake repository
-    /// `owner/name--x` keys alike; a caller unable to read the file treats
-    /// it as this repository's.
+    /// may hold a model of this repository in any spelling: its key or a
+    /// variant's (`@`).
     #[must_use]
     pub fn may_key(&self, stem: &str) -> bool {
         let key = self.repository.replace('/', "--").to_ascii_lowercase();
         let stem = stem.to_ascii_lowercase();
         stem.strip_prefix(&key)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('@') || rest.starts_with("--"))
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('@'))
     }
 
     /// Whether a file keyed `stem` is this model's own in any spelling: a
-    /// variant's key, or its legacy key when the repository has an owner
-    /// (no Hub repository's name holds `--`, so `owner--name--VARIANT` is
-    /// no other one's); a repository's key or any of its variants', current
-    /// or legacy.
+    /// variant's key, or a repository's key and any of its variants'.
     #[must_use]
     pub fn owns_key(&self, stem: &str) -> bool {
         let (key, stem) = (self.key().to_ascii_lowercase(), stem.to_ascii_lowercase());
-        let has_owner = self.repository.contains('/');
-        let legacy_variant = has_owner && stem == key.replacen('@', "--", 1);
-        let repository_variant = stem.starts_with(&format!("{key}@"))
-            || (has_owner && stem.starts_with(&format!("{key}--")));
-        stem == key
-            || (self.variant.is_some() && legacy_variant)
-            || (self.variant.is_none() && repository_variant)
+        stem == key || (self.variant.is_none() && stem.starts_with(&format!("{key}@")))
     }
 
     /// The name of the repository's directory in a Hugging Face cache:

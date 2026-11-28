@@ -61,8 +61,8 @@ fn of_repository(config: &ModelConfig, asked: &HubReference) -> bool {
 }
 
 /// Whether mirmir holds anything of the repository `reference` that its
-/// removal takes before any cache: a model, downloaded or downloading, a
-/// view, or a file that may be one but cannot be read.
+/// removal takes before any cache: a model, downloaded or downloading, or a
+/// file that may be one but cannot be read.
 fn holds_any(store: &Store, reference: &HubReference) -> Result<bool> {
-    Ok(variant::holds_any(store, reference)? || !variant::views_of(store, reference).is_empty())
+    variant::holds_any(store, reference)
 }

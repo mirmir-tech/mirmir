@@ -41,10 +41,7 @@ pub(super) fn repositories(configs: &[ModelConfig]) -> Repositories {
     known
 }
 
-/// Whether `path` is in the Hub cache, or a GGUF variant's view of it.
+/// Whether `path` lies inside mirmir's managed Hub cache.
 pub(super) fn managed(path: &Path, paths: &Paths) -> bool {
-    let path = canonical(path);
-    [&paths.hub_cache_dir, &paths.gguf_variants_dir]
-        .iter()
-        .any(|root| path.starts_with(canonical(root)))
+    canonical(path).starts_with(canonical(&paths.hub_cache_dir))
 }

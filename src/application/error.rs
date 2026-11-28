@@ -116,13 +116,16 @@ impl From<libmir::Error> for Error {
     fn from(error: libmir::Error) -> Self {
         match error {
             libmir::Error::Cancelled => Self::Cancelled,
-            libmir::Error::InvalidToolCall(message)
-            | libmir::Error::InvalidResponseFormat(message) => Self::InvalidModelOutput(message),
+            libmir::Error::InvalidToolCall(error) => Self::InvalidModelOutput(error.to_string()),
+            libmir::Error::InvalidResponseFormat(error) => {
+                Self::InvalidModelOutput(error.to_string())
+            },
             error @ (libmir::Error::MemoryAdmission { .. }
             | libmir::Error::VisionResourceLimit { .. }) => Self::MemoryPressure(error.to_string()),
             error @ (libmir::Error::EmptyPrompt
             | libmir::Error::Runtime(libmir::RuntimeError::KvCapacity { .. })
             | libmir::Error::TaskMismatch { .. }
+            | libmir::Error::Admission(_)
             | libmir::Error::Model(_)
             | libmir::Error::Context { .. }) => Self::InvalidRequest(error.to_string()),
             error => Self::Inference(error.to_string()),

@@ -1,5 +1,8 @@
-use super::App;
-use crate::rpc::{Client, proto};
+use super::{App, LocalRow, LocalRowState};
+use crate::{
+    application::LocalModelState,
+    rpc::{Client, proto},
+};
 
 impl App {
     pub(super) async fn activate_selected_model(&mut self, client: &mut Client) {
@@ -11,7 +14,7 @@ impl App {
                     ModelAction::Download
                 } else if self
                     .local_catalog_model(model)
-                    .is_some_and(|local| local.state == "ready")
+                    .is_some_and(|local| local.state.is_ready())
                 {
                     ModelAction::Unload
                 } else {
@@ -19,14 +22,13 @@ impl App {
                 }
             })
         } else {
-            self.selected_local_model().map_or(ModelAction::None, |model| {
-                match model.state.as_str() {
-                    "ready" => ModelAction::Unload,
-                    "available" => ModelAction::Load,
-                    "paused" | "partial" | "failed" => ModelAction::Resume,
+            self.selected_local_model()
+                .map_or(ModelAction::None, |model| match model.state {
+                    LocalRowState::Server(LocalModelState::Ready) => ModelAction::Unload,
+                    LocalRowState::Server(LocalModelState::Available) => ModelAction::Load,
+                    state if state.is_resumable() => ModelAction::Resume,
                     _ => ModelAction::None,
-                }
-            })
+                })
         };
         match action {
             ModelAction::Download => self.start_pull(client),
@@ -47,14 +49,14 @@ impl App {
         let Some(selector) = selector.map(ToOwned::to_owned) else {
             return;
         };
-        self.set_local_state(&selector, "unloading");
+        self.set_local_state(&selector, LocalRowState::Unloading);
         match client
             .unload_model(proto::UnloadModelRequest { selector: selector.clone() })
             .await
         {
             Ok(response) => self.apply_unload(response.into_inner().unloaded, &selector),
             Err(error) => {
-                self.set_local_state(&selector, "ready");
+                self.set_local_state(&selector, LocalRowState::Server(LocalModelState::Ready));
                 self.action_message = Some(error.to_string());
             },
         }
@@ -72,16 +74,16 @@ impl App {
             .iter_mut()
             .find(|model| model.id == key || model.selector == selector)
         {
-            "available".clone_into(&mut local.state);
+            local.state = LocalRowState::Server(LocalModelState::Available);
         }
         self.action_message = Some(format!("unloaded {selector}"));
     }
 
-    pub(super) fn set_local_state(&mut self, selector: &str, state: &str) {
+    pub(super) fn set_local_state(&mut self, selector: &str, state: LocalRowState) {
         if let Some(local) = self.local_models.iter_mut().find(|model| {
             model.id == selector || model.selector == selector || model.repo_id == selector
         }) {
-            state.clone_into(&mut local.state);
+            local.state = state;
         }
     }
 }
@@ -94,7 +96,7 @@ enum ModelAction {
     None,
 }
 
-pub(super) fn selector(model: &proto::LocalModelInfo) -> &str {
+pub(super) fn selector(model: &LocalRow) -> &str {
     if model.selector.is_empty() {
         &model.id
     } else {

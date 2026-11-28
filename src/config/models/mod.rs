@@ -9,9 +9,72 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone)]
 pub struct ResolvedModel {
     pub key: String,
-    pub path: std::path::PathBuf,
+    pub path: PathBuf,
+    pub vision: Option<PathBuf>,
     pub generation: GenerationConfig,
     pub runtime: super::model_runtime::ModelRuntimeConfig,
+}
+
+/// Owned local model source ready to pass as [`libmir::ModelSource`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedSource {
+    Directory(PathBuf),
+    Gguf { text: PathBuf, vision: Option<PathBuf> },
+}
+
+impl ResolvedSource {
+    #[must_use]
+    pub fn as_model_source(&self) -> libmir::ModelSource<'_> {
+        match self {
+            Self::Directory(path) => libmir::ModelSource::Directory(path),
+            Self::Gguf { text, vision } => {
+                libmir::ModelSource::Gguf { text, vision: vision.as_deref() }
+            },
+        }
+    }
+}
+
+impl ResolvedModel {
+    pub(crate) fn source(&self) -> Result<ResolvedSource> {
+        resolve_source(&self.path, self.vision.as_deref())
+    }
+}
+
+/// Resolves a local path (directory or direct `.gguf` file) into a typed
+/// [`ResolvedSource`] without writing any files to disk.
+pub fn resolve_source(path: &Path, vision: Option<&Path>) -> Result<ResolvedSource> {
+    if path.is_file() && libmir::WeightContainer::of(path) == Some(libmir::WeightContainer::Gguf) {
+        return Ok(ResolvedSource::Gguf {
+            text: path.to_path_buf(),
+            vision: vision.map(Path::to_path_buf),
+        });
+    }
+    if !path.is_dir() || path.join("config.json").exists() {
+        return Ok(ResolvedSource::Directory(path.to_path_buf()));
+    }
+    let (mut text, mut discovered_vision, mut unreadable) = (None, None, None);
+    for file in libmir::gguf::files_in(path).map_err(libmir::Error::from)? {
+        match libmir::gguf::GgufHeader::read(&file) {
+            Ok(header) if header.is_projector() => {
+                discovered_vision.get_or_insert(file);
+            },
+            Ok(_) => {
+                text.get_or_insert(file);
+            },
+            Err(error) => {
+                tracing::warn!(file = %file.display(), %error, "skipping an unreadable GGUF file");
+                unreadable.get_or_insert(error);
+            },
+        }
+    }
+    match (text, unreadable) {
+        (Some(text), _) => Ok(ResolvedSource::Gguf {
+            text,
+            vision: vision.map(Path::to_path_buf).or(discovered_vision),
+        }),
+        (None, Some(error)) => Err(libmir::Error::from(error).into()),
+        (None, None) => Ok(ResolvedSource::Directory(path.to_path_buf())),
+    }
 }
 
 impl Store {
@@ -22,13 +85,38 @@ impl Store {
         reference: &str,
         revision: &str,
         commit: &str,
-        path: std::path::PathBuf,
+        path: PathBuf,
+    ) -> Result<ModelConfig> {
+        self.save_hub_entry(reference, revision, commit, path, Vec::new(), None)
+    }
+
+    /// Records a downloaded GGUF variant pointing directly at its snapshot
+    /// `.gguf` text shard, with its owned snapshot-relative `files` and
+    /// optional `vision` projector path.
+    pub fn save_hub_variant(
+        &self,
+        reference: &str,
+        revision: &str,
+        commit: &str,
+        path: PathBuf,
+        files: Vec<String>,
+        vision: Option<PathBuf>,
+    ) -> Result<ModelConfig> {
+        self.save_hub_entry(reference, revision, commit, path, files, vision)
+    }
+
+    fn save_hub_entry(
+        &self,
+        reference: &str,
+        revision: &str,
+        commit: &str,
+        path: PathBuf,
+        files: Vec<String>,
+        vision: Option<PathBuf>,
     ) -> Result<ModelConfig> {
         let key = model_key(reference)?;
         self.paths.ensure_config_dirs()?;
         let _writes = super::store::config_writes();
-        // A legacy variant saved under this key moves to its own first.
-        self.migrate_variant_key(&self.model_config_path(&key)?)?;
         // A new snapshot of the repository keeps the saved defaults and context.
         let (generation, runtime) = self.load_model_config(&key).map_or_else(
             |_| (GenerationConfig::default(), super::model_runtime::ModelRuntimeConfig::default()),
@@ -42,6 +130,8 @@ impl Store {
                 repo_id: reference.to_owned(),
                 revision: revision.to_owned(),
                 commit: commit.to_owned(),
+                files,
+                vision,
             }),
             generation,
             runtime,
@@ -70,21 +160,7 @@ impl Store {
     }
 
     pub(super) fn load_model_config(&self, key: &str) -> Result<ModelConfig> {
-        self.model_config(key, Keys::Migrate)
-    }
-
-    fn model_config(&self, key: &str, keys: Keys) -> Result<ModelConfig> {
         let path = self.model_config_path(key)?;
-        // A variant downloaded before its key took `@` is saved under its
-        // legacy key, which may be this one, a namesake repository's: either
-        // moves to the variant's own key first.
-        if keys == Keys::Migrate {
-            if saved(&path) {
-                self.migrate_variant_key(&path)?;
-            } else if let Some(legacy) = legacy::legacy_key(key) {
-                self.migrate_variant_key(&self.model_config_path(&legacy)?)?;
-            }
-        }
         if !saved(&path) {
             return Err(Error::ModelNotFound(key.to_owned()));
         }
@@ -95,14 +171,6 @@ impl Store {
     pub(super) fn model_config_path(&self, key: &str) -> Result<PathBuf> {
         Ok(self.paths.models_dir.join(format!("{}.toml", config_id(key)?)))
     }
-}
-
-/// Whether a lookup moves legacy variant keys first, or its caller moved
-/// them and holds the UX state lock, which moving takes again.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::config) enum Keys {
-    Migrate,
-    Migrated,
 }
 
 /// Whether a configuration is saved at `path` under that very name: on a
@@ -154,7 +222,6 @@ pub(super) fn selector_key(selector: &str) -> Result<String> {
 }
 
 mod installed;
-mod legacy;
 mod listing;
 mod select;
 #[cfg(test)]

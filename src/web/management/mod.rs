@@ -45,11 +45,8 @@ pub async fn load(
     Json(request): Json<LoadRequest>,
 ) -> Result<Response, WebError> {
     state.sessions().authorize_mutation(&headers)?;
-    let hub = (!request.repo_id.is_empty()).then_some(HubModelConfig {
-        repo_id: request.repo_id,
-        revision: request.revision,
-        commit: request.commit,
-    });
+    let hub = (!request.repo_id.is_empty())
+        .then_some(HubModelConfig::new(request.repo_id, request.revision, request.commit));
     let defaults = ModelDefaults {
         generation: request.settings.map(Into::into),
         context: request.context.map(Into::into),

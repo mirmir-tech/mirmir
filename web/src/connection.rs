@@ -7,10 +7,7 @@ use wasm_bindgen_futures::spawn_local;
 use crate::{
     api,
     state::RuntimeState,
-    types::{
-        Activity, Bootstrap, History, HistorySample, Models, Overview, ServerMessage,
-        TelemetryPoint,
-    },
+    types::{Bootstrap, History, HistorySample, Models, Overview, ServerMessage, TelemetryPoint},
 };
 
 const SCHEMA_VERSION: u32 = 7;
@@ -99,7 +96,7 @@ fn apply(state: RuntimeState, message: ServerMessage) {
             state.configuration.set(Some(configuration));
         },
         ServerMessage::Activity { activity } => {
-            let refresh = model_activity(&activity) && terminal(&activity.state);
+            let refresh = activity.kind.changes_models() && activity.state.is_terminal();
             state.apply_activity(&activity);
             if refresh {
                 spawn_local(refresh_models(state));
@@ -119,14 +116,6 @@ async fn refresh_models(state: RuntimeState) {
         Ok(models) => apply_models(state, models),
         Err(error) => state.notify(format!("Could not refresh models: {error}"), true),
     }
-}
-
-fn model_activity(activity: &Activity) -> bool {
-    matches!(activity.kind.as_str(), "load" | "restore" | "unload" | "pull" | "remove")
-}
-
-fn terminal(state: &str) -> bool {
-    matches!(state, "completed" | "failed" | "cancelled")
 }
 
 fn socket_url() -> Result<String, String> {

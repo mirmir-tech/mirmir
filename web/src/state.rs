@@ -125,9 +125,9 @@ impl RuntimeState {
             items.sort_by_key(|item| std::cmp::Reverse(item.updated_at_unix_ms));
             items.truncate(80);
         });
-        let live = matches!(activity.state.as_str(), "queued" | "running" | "cancelling");
+        let live = activity.state.is_live();
         self.set_busy(&activity.target, live.then_some(activity.kind.as_str()));
-        if activity.state == "failed" {
+        if activity.state == crate::types::ActivityState::Failed {
             self.notify(format!("{}: {}", activity.target, activity.detail), true);
         }
     }

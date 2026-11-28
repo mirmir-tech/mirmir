@@ -1,4 +1,8 @@
-use super::{super::variant_size, *};
+use super::{
+    super::{CacheOrigin, CatalogVariantRow},
+    *,
+};
+use crate::catalog;
 
 fn row(id: &str, compatibility: &str, memory_fit: &str) -> proto::CatalogModel {
     proto::CatalogModel {
@@ -39,7 +43,7 @@ fn catalog_rows_rank_by_the_servers_typed_order() {
 #[test]
 fn catalog_fit_and_size_parse_the_servers_spellings() {
     let app = App::new(true);
-    let mut model = row("owner/m-GGUF", "unknown", "does_not_fit");
+    let mut model = CatalogRow::from(row("owner/m-GGUF", "unknown", "does_not_fit"));
     assert_eq!(app.catalog_fit(&model), catalog::MemoryFit::DoesNotFit);
     let variant = proto::CatalogVariant {
         name: "Q4_K_M".to_owned(),
@@ -48,21 +52,22 @@ fn catalog_fit_and_size_parse_the_servers_spellings() {
         memory_fit: "tight".to_owned(),
         ..Default::default()
     };
-    model.variants = vec![variant.clone()];
+    let parsed = CatalogVariantRow::from(variant.clone());
+    assert_eq!(parsed.size, catalog::VariantSize::Estimated(4));
+    model.variants = vec![parsed];
     model.default_variant = Some("Q4_K_M".to_owned());
     assert_eq!(app.catalog_fit(&model), catalog::MemoryFit::Tight);
-    assert_eq!(variant_size(&variant), catalog::VariantSize::Estimated(4));
-    let exact = proto::CatalogVariant {
+    let exact = CatalogVariantRow::from(proto::CatalogVariant {
         size_kind: "exact".to_owned(),
         ..variant.clone()
-    };
-    assert_eq!(variant_size(&exact), catalog::VariantSize::Exact(4));
-    let future = proto::CatalogVariant {
+    });
+    assert_eq!(exact.size, catalog::VariantSize::Exact(4));
+    let future = CatalogVariantRow::from(proto::CatalogVariant {
         size_kind: "someday".to_owned(),
         memory_fit: "someday".to_owned(),
         ..variant
-    };
-    assert_eq!(variant_size(&future), catalog::VariantSize::Unknown);
+    });
+    assert_eq!(future.size, catalog::VariantSize::Unknown);
     model.variants = vec![future];
     assert_eq!(app.catalog_fit(&model), catalog::MemoryFit::Unknown);
     let target = app.pull_target(&model).ok();
@@ -84,7 +89,7 @@ fn searched(variants: Vec<proto::CatalogVariant>) -> App {
     let mut app = App::new(true);
     app.search_query = "m-GGUF".to_owned();
     let downloaded = variants.iter().any(|variant| variant.name == "Q8_0" && variant.downloaded);
-    app.catalog.push(proto::CatalogModel {
+    app.catalog.push(CatalogRow::from(proto::CatalogModel {
         id: "owner/m-GGUF".to_owned(),
         compatibility: "supported".to_owned(),
         memory_fit: "fits".to_owned(),
@@ -98,7 +103,7 @@ fn searched(variants: Vec<proto::CatalogVariant>) -> App {
         .to_owned(),
         variants,
         ..Default::default()
-    });
+    }));
     app
 }
 
@@ -135,7 +140,7 @@ fn search_actions_take_the_chosen_variant() {
     app.cycle_variant(-1);
     app.open_remove_dialog();
     let dialog = app.remove_dialog.take().map(|dialog| (dialog.repo_id, dialog.source));
-    assert_eq!(dialog, Some(("owner/m-GGUF:Q4_K_M".to_owned(), "MIRMIR".to_owned())));
+    assert_eq!(dialog, Some(("owner/m-GGUF:Q4_K_M".to_owned(), CacheOrigin::Mirmir)));
     let target = app.load_target().map(|target| (target.selector, target.config_id));
     let expected = ("owner/m-GGUF:Q4_K_M".to_owned(), "owner--m-GGUF@Q4_K_M".to_owned());
     assert_eq!(target, Some(expected));
@@ -146,11 +151,11 @@ fn search_actions_take_the_chosen_variant() {
 #[test]
 fn a_repository_in_another_tools_cache_acts_whole() {
     let mut app = searched(vec![variant("Q4_K_M", "fits", false), variant("Q8_0", "fits", false)]);
-    "hf_cache".clone_into(&mut app.catalog[0].local_source);
+    app.catalog[0].local_source = LocalSource::HfCache;
     app.cycle_variant(-1);
     app.open_remove_dialog();
     let dialog = app.remove_dialog.take().map(|dialog| (dialog.repo_id, dialog.source));
-    assert_eq!(dialog, Some(("owner/m-GGUF".to_owned(), "HF CACHE".to_owned())));
+    assert_eq!(dialog, Some(("owner/m-GGUF".to_owned(), CacheOrigin::HfCache)));
     let target = app.load_target().map(|target| target.selector);
     assert_eq!(target.as_deref(), Some("owner/m-GGUF"));
     // The row says so whichever variant is chosen, and offers no download.
@@ -171,20 +176,20 @@ fn a_repository_in_another_tools_cache_acts_whole() {
 #[test]
 fn a_variant_change_keeps_the_repositorys_own_state() {
     let mut app = searched(vec![variant("Q4_K_M", "fits", true), variant("Q8_0", "fits", false)]);
-    "partial".clone_into(&mut app.catalog[0].local_source);
-    app.catalog.push(proto::CatalogModel {
+    app.catalog[0].local_source = LocalSource::Partial;
+    app.catalog.push(CatalogRow::from(proto::CatalogModel {
         id: "owner/whole".to_owned(),
         downloaded: true,
         local_source: "hf_cache".to_owned(),
         ..Default::default()
-    });
+    }));
     app.mark_downloaded("owner/m-GGUF:Q4_K_M", false);
     app.mark_downloaded("owner/whole:Q4_K_M", false);
     assert!(!app.catalog[0].variants[0].downloaded);
-    assert_eq!(app.catalog[0].local_source, "partial");
-    assert!(app.catalog[1].downloaded && app.catalog[1].local_source == "hf_cache");
+    assert_eq!(app.catalog[0].local_source, LocalSource::Partial);
+    assert!(app.catalog[1].downloaded && app.catalog[1].local_source == LocalSource::HfCache);
     app.mark_downloaded("owner/m-GGUF", false);
-    assert_eq!(app.catalog[0].local_source, "remote");
+    assert_eq!(app.catalog[0].local_source, LocalSource::Remote);
 }
 
 /// A checkpoint without variants that another tool's cache holds lists, in
@@ -195,19 +200,21 @@ fn a_variant_change_keeps_the_repositorys_own_state() {
 fn another_tools_cache_is_not_a_download_in_the_local_list() {
     use super::super::CatalogPresence;
     let snapshot = "/cache/models--Qwen--Test/snapshots/abc";
-    let cached = |repo_id: &str, managed: bool| proto::LocalModelInfo {
-        id: repo_id.replace('/', "--"),
-        repo_id: repo_id.to_owned(),
-        selector: snapshot.to_owned(),
-        state: "available".to_owned(),
-        loadable: true,
-        managed,
-        ..Default::default()
+    let cached = |repo_id: &str, managed: bool| {
+        LocalRow::from(proto::LocalModelInfo {
+            id: repo_id.replace('/', "--"),
+            repo_id: repo_id.to_owned(),
+            selector: snapshot.to_owned(),
+            state: "available".to_owned(),
+            loadable: true,
+            managed,
+            ..Default::default()
+        })
     };
     let mut app = App::new(true);
     app.search_query = "Qwen".to_owned();
-    app.catalog.push(row("Qwen/Test", "supported", "fits"));
-    "hf_cache".clone_into(&mut app.catalog[0].local_source);
+    app.catalog.push(CatalogRow::from(row("Qwen/Test", "supported", "fits")));
+    app.catalog[0].local_source = LocalSource::HfCache;
     app.local_models.push(cached("Qwen/Test", false));
     assert_eq!(app.catalog_presence(&app.catalog[0]), CatalogPresence::ExternalCache);
     let target = app.load_target().map(|target| target.selector);
@@ -216,7 +223,7 @@ fn another_tools_cache_is_not_a_download_in_the_local_list() {
     assert_eq!(app.catalog_presence(&app.catalog[0]), CatalogPresence::Downloaded);
 
     let mut app = searched(vec![variant("Q4_K_M", "fits", false), variant("Q8_0", "fits", false)]);
-    "hf_cache".clone_into(&mut app.catalog[0].local_source);
+    app.catalog[0].local_source = LocalSource::HfCache;
     app.local_models.push(cached("owner/m-GGUF", false));
     for step in [-1, 1] {
         app.cycle_variant(step);

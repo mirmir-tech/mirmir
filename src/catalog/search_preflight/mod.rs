@@ -3,7 +3,7 @@ use std::{collections::HashSet, future::Future, time::Duration};
 use futures_util::{StreamExt, stream};
 use libmir::{AdmissionStatus, WeightContainer};
 
-use super::{Catalog, CatalogModel, preflight};
+use super::{Catalog, CatalogModel, LocalSource, preflight};
 
 const CONCURRENCY: usize = 4;
 const SEARCH_BUDGET: Duration = Duration::from_secs(4);
@@ -20,7 +20,7 @@ async fn inspect_headers(catalog: &Catalog, models: &mut [CatalogModel]) {
         .iter()
         .enumerate()
         .filter(|(_, model)| {
-            model.local_source == "remote"
+            model.local_source == LocalSource::Remote
                 && model.compatibility == AdmissionStatus::Unknown
                 && model.container == Some(WeightContainer::SafeTensors)
         })

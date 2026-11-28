@@ -5,7 +5,7 @@ use crossterm::event::{
 use super::{App, Screen, rendered};
 use crate::{
     rpc::proto,
-    tui::app::{ContextChoice, ContextControl, LoadDialog, LoadStatus, LoadTarget},
+    tui::app::{ContextChoice, ContextControl, LoadDialog, LoadStatus, LoadTarget, LoadTask},
 };
 
 #[test]
@@ -28,7 +28,7 @@ fn renders_context_row_and_memory_for_the_chosen_context() -> Result<(), std::co
             revision: "main".to_owned(),
             commit: "abc123".to_owned(),
         },
-        task: "generation".to_owned(),
+        task: LoadTask::Generation,
         capabilities: None,
         status: LoadStatus::Editing,
         context: Some(context.clone()),
@@ -78,7 +78,7 @@ fn searching_with_load_dialog() -> App {
             revision: "main".to_owned(),
             commit: "abc".to_owned(),
         },
-        task: "generation".to_owned(),
+        task: LoadTask::Generation,
         capabilities: None,
         status: LoadStatus::Editing,
         context: None,

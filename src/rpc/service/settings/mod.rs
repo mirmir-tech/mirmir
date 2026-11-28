@@ -23,10 +23,12 @@ impl RuntimeService {
     }
 
     pub(super) fn prepare_load(&self, request: &proto::LoadModelRequest) -> Result<String, Status> {
-        let hub = (!request.repo_id.is_empty()).then(|| HubModelConfig {
-            repo_id: request.repo_id.clone(),
-            revision: request.revision.clone(),
-            commit: request.commit.clone(),
+        let hub = (!request.repo_id.is_empty()).then(|| {
+            HubModelConfig::new(
+                request.repo_id.clone(),
+                request.revision.clone(),
+                request.commit.clone(),
+            )
         });
         let defaults = ModelDefaults {
             generation: request.settings.as_ref().map(config).transpose()?,

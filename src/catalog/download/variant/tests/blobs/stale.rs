@@ -80,11 +80,10 @@ fn a_failed_listing_removes_nothing() -> Result<()> {
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))?;
     if let Some(failed) = failed {
         assert!(failed.is_err());
-        let view = store.paths().gguf_variants_dir.join(variant.key());
-        assert!(view.exists() && repo.join("snapshots/abc/m-Q4_0.gguf").exists());
-        assert!(directory.join("b1").exists());
+        let entry = repo.join("snapshots/abc/m-Q4_0.gguf");
+        assert!(entry.exists() && directory.join("b1").exists());
         assert_eq!(remove_files(&store, &variant, &mut blobs)?, 4);
-        assert!(!directory.join("b1").exists() && !view.exists());
+        assert!(!directory.join("b1").exists() && !entry.exists());
     }
     fs::remove_dir_all(root)?;
     Ok(())

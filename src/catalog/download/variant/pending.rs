@@ -80,19 +80,9 @@ fn repository_root(paths: &Paths, reference: &str) -> Result<PathBuf> {
         .join(format!("models--{}", model_key(repository.repository())?)))
 }
 
-/// `reference`'s marker. One written before a variant's key joined it to its
-/// repository with `@`, as `owner--name--VARIANT`, moves there first, so a
-/// download interrupted then still resumes, counts and removes as its own.
+/// `reference`'s marker, stored beside saved model configurations.
 fn marker(paths: &Paths, reference: &HubReference) -> PathBuf {
-    let key = reference.key();
-    let path = paths.gguf_variants_dir.join(format!("{key}.{EXTENSION}"));
-    let legacy = paths.gguf_variants_dir.join(format!("{}.{EXTENSION}", key.replace('@', "--")));
-    if !path.exists() {
-        // Most variants have no legacy marker; whichever move wins, the
-        // marker ends up at `path`.
-        drop(fs::rename(legacy, &path));
-    }
-    path
+    paths.models_dir.join(format!("{}.{EXTENSION}", reference.key()))
 }
 
 /// Records that `reference` is downloading `files` at `pinned`'s commit.
@@ -114,7 +104,7 @@ pub(super) fn begin(
             })
             .collect(),
     };
-    fs::create_dir_all(&store.paths().gguf_variants_dir)?;
+    fs::create_dir_all(&store.paths().models_dir)?;
     // Whole or not there: a removal reading it half-written would take it
     // for one that cannot be read.
     let path = marker(store.paths(), reference);
@@ -144,7 +134,7 @@ pub(in crate::catalog::download) fn end(store: &Store, reference: &HubReference)
 /// The variants whose download has not finished.
 #[must_use]
 pub fn pending_variants(paths: &Paths) -> Vec<HubReference> {
-    let Ok(entries) = fs::read_dir(&paths.gguf_variants_dir) else {
+    let Ok(entries) = fs::read_dir(&paths.models_dir) else {
         return Vec::new();
     };
     let mut pending = entries
@@ -157,12 +147,11 @@ pub fn pending_variants(paths: &Paths) -> Vec<HubReference> {
     pending
 }
 
-/// The variant the marker at `path` downloads: as recorded, or as an
-/// earlier version named it alone.
+/// The variant the marker at `path` downloads.
 fn read_marker(path: &Path) -> Option<HubReference> {
-    let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str::<Pending>(&text)
-        .map_or_else(|_| text.trim().to_owned(), |pending| pending.reference)
+    let pending: Pending = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+    pending
+        .reference
         .parse::<HubReference>()
         .ok()
         .filter(|reference| reference.variant().is_some())
@@ -176,7 +165,7 @@ pub(in crate::catalog::download) fn damaged_markers_of(
     paths: &Paths,
     reference: &HubReference,
 ) -> Result<Vec<PathBuf>> {
-    let Ok(entries) = fs::read_dir(&paths.gguf_variants_dir) else {
+    let Ok(entries) = fs::read_dir(&paths.models_dir) else {
         return Ok(Vec::new());
     };
     let mut own = Vec::new();

@@ -28,6 +28,20 @@ impl ActivityKind {
     }
 
     #[must_use]
+    pub fn from_protocol(value: &str) -> Option<Self> {
+        match value {
+            "pull" => Some(Self::Pull),
+            "generate" => Some(Self::Generate),
+            "load" => Some(Self::Load),
+            "unload" => Some(Self::Unload),
+            "restore" => Some(Self::Restore),
+            "recovery" => Some(Self::Recovery),
+            "remove" => Some(Self::Remove),
+            _ => None,
+        }
+    }
+
+    #[must_use]
     pub const fn changes_models(self) -> bool {
         matches!(self, Self::Pull | Self::Load | Self::Unload | Self::Restore | Self::Remove)
     }

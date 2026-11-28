@@ -7,7 +7,7 @@ use crate::{
     api,
     components::{FeaturePills, Icon, StatePill, TypePill},
     state::{Page, RuntimeState, bytes},
-    types::{Activity, Model, ModelState},
+    types::{Activity, ActivityState, Model, ModelState},
 };
 
 #[component]
@@ -16,8 +16,10 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     let ui = expect_context::<ModelUi>();
     let format = format_label(&model);
     let format_detail = format!("{} · {}", model.ecosystem, model.container);
-    let backends =
-        [("Metal", model.metal_compatibility.clone()), ("CUDA", model.cuda_compatibility.clone())];
+    let backends = [
+        ("Metal", model.metal_compatibility.as_str()),
+        ("CUDA", model.cuda_compatibility.as_str()),
+    ];
     let is_active = model.state == ModelState::Active;
     let id = StoredValue::new(model.id.clone());
     let selector = StoredValue::new(model.selector.clone());
@@ -33,16 +35,16 @@ pub fn LocalRow(model: Model) -> impl IntoView {
     let display_state = move || {
         operation().as_ref().map_or_else(
             || {
-                activity().filter(|item| item.state == "failed").map_or_else(
+                activity().filter(|item| item.state == ActivityState::Failed).map_or_else(
                     || {
                         busy_operation()
                             .as_deref()
-                            .map_or_else(|| model_state.clone(), operation_state)
+                            .map_or_else(|| model_state.clone(), busy_operation_state)
                     },
                     |_| "error".to_owned(),
                 )
             },
-            |item| operation_state(&item.kind),
+            |item| item.kind.operation_state().to_owned(),
         )
     };
     let detail = move || {
@@ -50,7 +52,7 @@ pub fn LocalRow(model: Model) -> impl IntoView {
             || {
                 busy_operation().map_or_else(
                     || model.load_unavailable_reason.clone(),
-                    |kind| format!("{} accepted", operation_state(&kind)),
+                    |kind| format!("{} accepted", busy_operation_state(&kind)),
                 )
             },
             |item| item.detail,
@@ -124,7 +126,7 @@ pub fn cancel(state: RuntimeState, operation_id: String) {
 
 fn activity_for(state: RuntimeState, id: &str, selector: &str, repo_id: &str) -> Option<Activity> {
     state.activities.get().into_iter().find(|item| {
-        model_operation(&item.kind)
+        item.kind.changes_models()
             && (item.target == id || item.target == selector || item.target == repo_id)
     })
 }
@@ -134,15 +136,11 @@ fn busy_for(state: RuntimeState, id: &str, selector: &str, repo_id: &str) -> Opt
     [id, selector, repo_id].into_iter().find_map(|target| busy.get(target).cloned())
 }
 
-fn live(activity: &Activity) -> bool {
-    matches!(activity.state.as_str(), "queued" | "running" | "cancelling")
+const fn live(activity: &Activity) -> bool {
+    activity.state.is_live()
 }
 
-fn model_operation(kind: &str) -> bool {
-    matches!(kind, "load" | "restore" | "unload" | "pull" | "remove")
-}
-
-fn operation_state(kind: &str) -> String {
+fn busy_operation_state(kind: &str) -> String {
     match kind {
         "pull" | "/models/pull" => "downloading",
         "unload" | "/models/unload" => "unloading",

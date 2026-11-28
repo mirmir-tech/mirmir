@@ -139,22 +139,6 @@ async fn a_repository_mirmir_holds_keeps_another_tools_cache() -> Result<()> {
     Ok(())
 }
 
-/// Removing a repository with only an orphaned variant view deletes the
-/// view and reports that something was removed.
-#[tokio::test]
-async fn an_orphaned_view_counts_as_removed() -> Result<()> {
-    let root = std::env::temp_dir().join(format!("mirmir-orphan-view-{}", std::process::id()));
-    drop(fs::remove_dir_all(&root));
-    let paths = Paths::from_roots(root.join("config"), root.join("state"), &root.join("run"));
-    let view = paths.gguf_variants_dir.join("owner--orphan-GGUF@Q4_0");
-    fs::create_dir_all(&view)?;
-    let catalog = Catalog::new(Store::new(paths));
-    assert!(catalog.remove("owner/orphan-GGUF").await?.removed);
-    assert!(!view.exists());
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
-
 /// Removing a repository reports every byte it freed once: each variant's
 /// text file and the vision tower they share, however many links name it.
 #[tokio::test]

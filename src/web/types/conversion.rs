@@ -1,10 +1,12 @@
 use super::{
-    Activity, CatalogModel, CatalogResults, CatalogVariant, Features, Model, ModelVariants,
-    Overview,
+    Activity, CatalogModel, CatalogResults, CatalogVariant, Model, ModelVariants, Overview,
 };
 use crate::{
     application, catalog,
-    model::format::{container_name, legacy_library},
+    protocol::{
+        catalog::{WireCatalogModel, WireCatalogVariant, WireModelVariants, WireSearchResults},
+        local::WireLocalModel,
+    },
 };
 
 impl From<application::TelemetrySnapshot> for Overview {
@@ -54,99 +56,31 @@ impl From<application::TelemetrySnapshot> for Overview {
 
 impl From<application::LocalModelInfo> for Model {
     fn from(model: application::LocalModelInfo) -> Self {
-        Self {
-            id: model.id,
-            repo_id: model.repo_id,
-            revision: model.revision,
-            commit: model.commit,
-            path: model.path,
-            state: model.state.as_str().to_owned(),
-            selector: model.selector,
-            managed: model.managed,
-            image_input: model.image_input,
-            image_unavailable_reason: model.image_unavailable_reason,
-            loadable: model.loadable,
-            load_unavailable_reason: model.load_unavailable_reason,
-            class: model.model_class,
-            library: legacy_library(model.container, &model.ecosystem).to_owned(),
-            ecosystem: model.ecosystem.name().to_owned(),
-            container: container_name(model.container).to_owned(),
-            encoding: model.encoding.known_label(),
-            metal_compatibility: model.metal_compatibility.as_str().to_owned(),
-            cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
-            size_bytes: model.size_bytes,
-            features: features(model.tool_use, model.thinking, model.vision),
-        }
+        WireLocalModel::from(model).into_web()
     }
 }
 
 impl From<catalog::SearchResults> for CatalogResults {
     fn from(response: catalog::SearchResults) -> Self {
-        Self {
-            models: response.models.into_iter().map(Into::into).collect(),
-            total_memory_bytes: response.memory.total,
-            available_memory_bytes: response.memory.available,
-            memory_source: response.memory.source.to_owned(),
-            next_cursor: response.next_cursor,
-        }
+        WireSearchResults::from(response).into_web()
     }
 }
 
 impl From<catalog::CatalogModel> for CatalogModel {
     fn from(model: catalog::CatalogModel) -> Self {
-        Self {
-            id: model.id,
-            downloads: model.downloads,
-            likes: model.likes,
-            gated: model.gated,
-            model_class: model.model_class,
-            compatibility: model.compatibility.as_str().to_owned(),
-            memory_fit: model.memory_fit.as_str().to_owned(),
-            estimated_required_bytes: model.required_bytes,
-            budget_bytes: model.budget_bytes,
-            confidence: model.confidence.as_str().to_owned(),
-            reason: model.reason,
-            downloaded: model.downloaded,
-            local_source: model.local_source.to_owned(),
-            estimated_weight_bytes: model.weight_bytes,
-            library: legacy_library(model.container, &model.ecosystem).to_owned(),
-            ecosystem: model.ecosystem.name().to_owned(),
-            container: container_name(model.container).to_owned(),
-            encoding: model.encoding.known_label(),
-            metal_compatibility: model.metal_compatibility.as_str().to_owned(),
-            cuda_compatibility: model.cuda_compatibility.as_str().to_owned(),
-            preflight_bytes: model.preflight_bytes,
-            preflight_error: model.preflight_error,
-            features: features(
-                model.features.tool_use,
-                model.features.thinking,
-                model.features.vision,
-            ),
-            variants: model.variants.into_iter().map(CatalogVariant::from).collect(),
-            default_variant: model.default_variant,
-        }
+        WireCatalogModel::from(model).into_web()
     }
 }
 
 impl From<catalog::CatalogVariant> for CatalogVariant {
     fn from(variant: catalog::CatalogVariant) -> Self {
-        Self {
-            name: variant.name,
-            size_kind: variant.size.kind().to_owned(),
-            weight_bytes: variant.size.bytes(),
-            required_bytes: variant.required_bytes,
-            memory_fit: variant.memory_fit.as_str().to_owned(),
-            downloaded: variant.downloaded,
-        }
+        WireCatalogVariant::from(variant).into_web()
     }
 }
 
 impl From<catalog::ModelVariants> for ModelVariants {
     fn from(listed: catalog::ModelVariants) -> Self {
-        Self {
-            variants: listed.variants.into_iter().map(CatalogVariant::from).collect(),
-            default_variant: listed.default_variant,
-        }
+        WireModelVariants::from(listed).into_web()
     }
 }
 
@@ -166,8 +100,4 @@ impl From<application::ActivityEvent> for Activity {
             total: progress.and_then(application::ActivityProgress::total),
         }
     }
-}
-
-const fn features(tool_use: bool, thinking: bool, vision: bool) -> Features {
-    Features { tool_use, thinking, vision }
 }

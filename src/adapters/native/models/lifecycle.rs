@@ -39,14 +39,13 @@ impl NativeRuntime {
             .store
             .resolve_model(selector)
             .map_err(|error| Error::InvalidModel(error.to_string()))?;
-        // The gate keeps the id; a legacy variant moved since is held too.
-        let _moved = (resolved.key != selected.key)
-            .then(|| self.lifecycle.begin_loading(&resolved.key, &selected.path))
-            .transpose()?;
+        let source = resolved.source().map_err(|error| Error::InvalidModel(error.to_string()))?;
+        let defaults = generation_defaults(&resolved.generation);
+        let descriptor =
+            libmir::ModelDescriptor::inspect_source(source.as_model_source(), defaults)?;
         loop {
             match self.preflight(
-                &resolved.path,
-                generation_defaults(&resolved.generation),
+                &descriptor,
                 &resolved.key,
                 resolved.runtime.load_options(force),
             )? {
@@ -56,11 +55,16 @@ impl NativeRuntime {
                 Check::Pressure { message, .. } => return Err(Error::MemoryPressure(message)),
             }
         }
-        let defaults = generation_defaults(&resolved.generation);
+        let mut pending_descriptor = Some(descriptor);
         let loaded = loop {
-            let attempt = self.library.load_with_options(
-                &resolved.path,
-                defaults,
+            let descriptor = match pending_descriptor.take() {
+                Some(descriptor) => descriptor,
+                None => {
+                    libmir::ModelDescriptor::inspect_source(source.as_model_source(), defaults)?
+                },
+            };
+            let attempt = self.library.load_admitted(
+                descriptor,
                 resolved.runtime.load_options(force),
                 progress,
             );

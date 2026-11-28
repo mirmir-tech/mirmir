@@ -1,15 +1,42 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use tokio::sync::mpsc;
 
-use super::App;
-use crate::rpc::{Client, proto};
+use super::{App, LocalRowState};
+use crate::{
+    application::LocalModelState,
+    catalog::LocalSource,
+    rpc::{Client, proto},
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheOrigin {
+    Mirmir,
+    HfCache,
+}
+
+impl CacheOrigin {
+    pub const fn from_managed(managed: bool) -> Self {
+        if managed {
+            Self::Mirmir
+        } else {
+            Self::HfCache
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Mirmir => "MIRMIR",
+            Self::HfCache => "HF CACHE",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoveDialog {
     pub id: String,
     pub repo_id: String,
     pub path: String,
-    pub source: String,
+    pub source: CacheOrigin,
 }
 
 impl App {
@@ -43,7 +70,7 @@ impl App {
         let model = self
             .selected_local_model()
             .ok_or_else(|| "no local model is selected".to_owned())?;
-        if model.state == "ready" {
+        if model.state.is_ready() {
             return Err("unload the model before removing it".to_owned());
         }
         if model.repo_id.is_empty() {
@@ -53,7 +80,7 @@ impl App {
             id: model.id.clone(),
             repo_id: model.repo_id.clone(),
             path: model.path.clone(),
-            source: source_name(model.managed),
+            source: CacheOrigin::from_managed(model.managed),
         })
     }
 
@@ -67,13 +94,13 @@ impl App {
             .catalog_local_target(model)
             .ok_or_else(|| "model is not downloaded".to_owned())?;
         let local = self.local_catalog_model(model);
-        if local.is_some_and(|model| model.state == "ready") {
+        if local.is_some_and(|model| model.state.is_ready()) {
             return Err("unload the model before removing it".to_owned());
         }
         // A variant is mirmir's own download; another tool's cache holds
         // repositories whole.
         let managed = target != model.id
-            || local.map_or(model.local_source == "mirmir", |local| local.managed);
+            || local.map_or(model.local_source == LocalSource::Mirmir, |local| local.managed);
         Ok(RemoveDialog {
             id: local.map_or_else(|| target.clone(), |local| local.id.clone()),
             repo_id: target,
@@ -81,12 +108,12 @@ impl App {
                 || "cache path will be resolved by the server".to_owned(),
                 |local| local.path.clone(),
             ),
-            source: source_name(managed),
+            source: CacheOrigin::from_managed(managed),
         })
     }
 
     fn start_removal(&mut self, client: &Client, target: RemoveDialog) {
-        self.set_local_state(&target.id, "removing");
+        self.set_local_state(&target.id, LocalRowState::Removing);
         let request = proto::RemoveModelRequest { repo_id: target.repo_id.clone() };
         let (sender, receiver) = mpsc::channel(1);
         let mut client = client.clone();
@@ -113,7 +140,7 @@ impl App {
             Ok(Err(error)) => {
                 if let Some(target) = self.pending_removal.as_ref() {
                     let id = target.id.clone();
-                    self.set_local_state(&id, "available");
+                    self.set_local_state(&id, LocalRowState::Server(LocalModelState::Available));
                 }
                 self.action_message = Some(error);
             },
@@ -148,15 +175,6 @@ impl App {
         let rows = self.visible_catalog_count().saturating_sub(1);
         self.catalog_selected = self.catalog_selected.min(rows);
     }
-}
-
-fn source_name(managed: bool) -> String {
-    if managed {
-        "MIRMIR"
-    } else {
-        "HF CACHE"
-    }
-    .to_owned()
 }
 
 #[cfg(test)]

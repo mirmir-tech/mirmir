@@ -75,11 +75,10 @@ fn model_runtime_section_is_optional_and_reaches_load_options() -> Result<()> {
     Ok(())
 }
 
-/// A GGUF variant that does not import fails to resolve with the import's
-/// error, not with a missing `config.json` later; its selector still names
-/// it.
+/// An unreadable GGUF file fails source resolution with a GGUF error, not a
+/// missing `config.json` later; its selector still names it.
 #[test]
-fn a_gguf_import_failure_surfaces_from_resolve() -> Result<()> {
+fn a_gguf_header_failure_surfaces_from_source() -> Result<()> {
     let unique = NEXT_STORE.fetch_add(1, Ordering::Relaxed);
     let root =
         std::env::temp_dir().join(format!("mirmir-gguf-resolve-{}-{unique}", std::process::id()));
@@ -92,7 +91,7 @@ fn a_gguf_import_failure_surfaces_from_resolve() -> Result<()> {
     fs::create_dir_all(&view)?;
     fs::write(view.join("m-Q4_0.gguf"), b"not a GGUF header")?;
     store.save_hub_model("owner/model-GGUF:Q4_0", "main", "abc", view)?;
-    let error = store.resolve_model("owner/model-GGUF:Q4_0").map(|model| model.path);
+    let error = store.resolve_model("owner/model-GGUF:Q4_0")?.source();
     assert!(
         error.as_ref().is_err_and(|error| error.to_string().contains("GGUF")),
         "{error:?}"
@@ -143,5 +142,3 @@ fn an_ownerless_variant_and_a_namesake_repository_stay_apart() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
-
-mod legacy;

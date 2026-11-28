@@ -3,7 +3,6 @@ mod editing;
 mod file;
 mod folder;
 mod generation;
-mod gguf;
 mod hub;
 mod model_runtime;
 mod models;
@@ -22,7 +21,7 @@ pub use folder::folder_key;
 pub use generation::ModelConfigChange;
 pub use hub::{CacheKind, HeldCache, HubReference, RemovalScope, RepositoryCache};
 pub use model_runtime::ModelRuntimeConfig;
-pub use models::model_key;
+pub use models::{model_key, resolve_source};
 pub use paths::{Paths, SocketAccess};
 pub use presentation::{ConfigPresentation, PresentedValue, SecretPresentation};
 pub use schema::{

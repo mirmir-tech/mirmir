@@ -1,21 +1,19 @@
 //! The quantization chosen for each GGUF repository in search results:
 //! its default until ←/→ picks another, and the `repo:VARIANT` it downloads.
 
-use super::App;
+use super::{App, CatalogRow, CatalogVariantRow};
 use crate::{
-    application::LocalModelState,
-    catalog::{MemoryFit, VariantSize},
+    catalog::{LocalSource, MemoryFit},
     config::HubReference,
     error::Result,
-    rpc::proto,
 };
 
 impl App {
     /// The variant a row downloads: the one picked, else its default.
     pub(crate) fn chosen_variant<'a>(
         &self,
-        model: &'a proto::CatalogModel,
-    ) -> Option<&'a proto::CatalogVariant> {
+        model: &'a CatalogRow,
+    ) -> Option<&'a CatalogVariantRow> {
         let name = self.catalog_variants.get(&model.id).or(model.default_variant.as_ref())?;
         model.variants.iter().find(|variant| &variant.name == name)
     }
@@ -41,7 +39,7 @@ impl App {
     }
 
     /// What a row's download pulls: `repo:VARIANT` for a GGUF repository.
-    pub(crate) fn pull_target(&self, model: &proto::CatalogModel) -> Result<String> {
+    pub(crate) fn pull_target(&self, model: &CatalogRow) -> Result<String> {
         let reference = model.id.parse::<HubReference>()?;
         let target = match self.chosen_variant(model) {
             Some(variant) => reference.with_variant(&variant.name)?,
@@ -53,34 +51,33 @@ impl App {
     /// Whether the row's chosen download is on this server: as the search
     /// found it, or in the local list since; for a row without variants,
     /// also as another tool's cache holds it.
-    pub(crate) fn catalog_downloaded(&self, model: &proto::CatalogModel) -> bool {
+    pub(crate) fn catalog_downloaded(&self, model: &CatalogRow) -> bool {
         self.catalog_own(model)
-            || (self.chosen_variant(model).is_none() && model.local_source == "hf_cache")
+            || (self.chosen_variant(model).is_none() && model.local_source == LocalSource::HfCache)
     }
 
     /// Whether mirmir itself holds the row's chosen download.
-    fn catalog_own(&self, model: &proto::CatalogModel) -> bool {
+    fn catalog_own(&self, model: &CatalogRow) -> bool {
         let target = self.pull_target(model).ok();
         // In mirmir's own cache and on disk, as the server counts a
         // download, loadable or not; another tool's cache is not mirmir's.
         let listed = self.local_models.iter().any(|local| {
             target.as_deref().is_some_and(|target| same_model(&local.repo_id, target))
                 && local.managed
-                && LocalModelState::from_protocol(&local.state)
-                    .is_some_and(LocalModelState::on_disk)
+                && local.state.on_disk()
         });
         listed
             || self.chosen_variant(model).map_or_else(
-                || model.downloaded || model.local_source == "mirmir",
+                || model.downloaded || model.local_source == LocalSource::Mirmir,
                 |variant| variant.downloaded,
             )
     }
 
     /// Where the row's chosen download is, as the results show it.
-    pub(crate) fn catalog_presence(&self, model: &proto::CatalogModel) -> CatalogPresence {
+    pub(crate) fn catalog_presence(&self, model: &CatalogRow) -> CatalogPresence {
         if self.catalog_own(model) {
             CatalogPresence::Downloaded
-        } else if model.local_source == "hf_cache" {
+        } else if model.local_source == LocalSource::HfCache {
             CatalogPresence::ExternalCache
         } else {
             CatalogPresence::Remote
@@ -91,22 +88,22 @@ impl App {
     /// it is on this server, else the whole repository another tool's cache
     /// holds, which holds a repository whole whichever variant is chosen;
     /// `None` for a row to download first.
-    pub(crate) fn catalog_local_target(&self, model: &proto::CatalogModel) -> Option<String> {
+    pub(crate) fn catalog_local_target(&self, model: &CatalogRow) -> Option<String> {
         if self.catalog_downloaded(model) {
             return self.pull_target(model).ok();
         }
-        (model.local_source == "hf_cache").then(|| model.id.clone())
+        (model.local_source == LocalSource::HfCache).then(|| model.id.clone())
     }
 
     /// Whether the row stays listed under the compatible filter: a download
     /// it offers fits, whichever variant is chosen, so choosing another
     /// never hides the row being looked at.
-    pub(crate) fn catalog_row_fits(model: &proto::CatalogModel) -> bool {
-        let fits = |fit: &str| MemoryFit::from_protocol(fit) != Some(MemoryFit::DoesNotFit);
+    pub(crate) fn catalog_row_fits(model: &CatalogRow) -> bool {
+        let fits = |fit: Option<MemoryFit>| fit != Some(MemoryFit::DoesNotFit);
         if model.variants.is_empty() {
-            fits(&model.memory_fit)
+            fits(model.memory_fit)
         } else {
-            model.variants.iter().any(|variant| fits(&variant.memory_fit))
+            model.variants.iter().any(|variant| fits(variant.memory_fit))
         }
     }
 
@@ -150,20 +147,19 @@ impl App {
             // A partial download or another tool's cache stays, but for the
             // repository's own removal, which takes them.
             if model.downloaded {
-                "mirmir".clone_into(&mut model.local_source);
-            } else if whole || model.local_source == "mirmir" {
-                "remote".clone_into(&mut model.local_source);
+                model.local_source = LocalSource::Mirmir;
+            } else if whole || model.local_source == LocalSource::Mirmir {
+                model.local_source = LocalSource::Remote;
             }
         }
     }
 
     /// The memory fit of the row's chosen download; unknown for a fit this
     /// client does not know.
-    pub(crate) fn catalog_fit(&self, model: &proto::CatalogModel) -> MemoryFit {
-        let fit = self
-            .chosen_variant(model)
-            .map_or(&model.memory_fit, |variant| &variant.memory_fit);
-        MemoryFit::from_protocol(fit).unwrap_or(MemoryFit::Unknown)
+    pub(crate) fn catalog_fit(&self, model: &CatalogRow) -> MemoryFit {
+        self.chosen_variant(model)
+            .map_or(model.memory_fit, |variant| variant.memory_fit)
+            .unwrap_or(MemoryFit::Unknown)
     }
 }
 
@@ -183,11 +179,6 @@ pub(super) fn removes(removed: &str, other: &str) -> bool {
         (Ok(removed), Ok(other)) if removed.variant().is_none() => removed.same_repository(&other),
         _ => same_model(removed, other),
     }
-}
-
-/// A variant's size as the server spelled its kind.
-pub fn variant_size(variant: &proto::CatalogVariant) -> VariantSize {
-    VariantSize::from_protocol(&variant.size_kind, variant.weight_bytes)
 }
 
 /// Where a search result's chosen download is.

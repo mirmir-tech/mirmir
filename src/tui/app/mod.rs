@@ -22,16 +22,19 @@ pub use chat::{
 pub use configuration::{ConfigurationEdit, ConfigurationTarget};
 #[cfg(test)]
 pub use load::LoadTarget;
-pub use load::{ContextChoice, ContextControl, LoadDialog, LoadRow, LoadStatus};
+pub use load::{ContextChoice, ContextControl, LoadDialog, LoadRow, LoadStatus, LoadTask};
+pub use models::row::{
+    ActivityRow, ActivityRowState, CatalogRow, CatalogVariantRow, LocalRow, LocalRowState,
+};
 pub use navigation::{NavigationState, WORKSPACE_PREFIX, WORKSPACE_TABS};
-pub use removal::RemoveDialog;
+pub use removal::{CacheOrigin, RemoveDialog};
 pub(super) use telemetry::RefreshSnapshot;
 pub use telemetry::TelemetryPoint;
 use tokio::sync::mpsc;
-pub use variants::{CatalogPresence, variant_size};
+pub use variants::CatalogPresence;
 pub use viewport::ListView;
 
-use crate::{media::AttachedImage, rpc::proto};
+use crate::{application::TransferPhase, media::AttachedImage, rpc::proto};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -89,12 +92,12 @@ pub struct App {
     pub endpoint: Option<crate::instance::Endpoint>,
     pub protocol_version: String,
     pub models: Vec<proto::ModelInfo>,
-    pub local_models: Vec<proto::LocalModelInfo>,
+    pub local_models: Vec<LocalRow>,
     pub local_selected: usize,
     pub last_error: Option<String>,
     pub search_query: String,
     pub editing_search: bool,
-    pub catalog: Vec<proto::CatalogModel>,
+    pub catalog: Vec<CatalogRow>,
     pub catalog_selected: usize,
     pub catalog_filter: CatalogFilter,
     /// Variants picked with ←/→, by repository; others use their default.
@@ -105,7 +108,7 @@ pub struct App {
     pub total_memory_bytes: Option<u64>,
     pub available_memory_bytes: Option<u64>,
     pub transfer_repo: Option<String>,
-    pub transfer_phase: Option<String>,
+    pub transfer_phase: Option<TransferPhase>,
     pub transfer_downloaded_bytes: u64,
     pub transfer_total_bytes: Option<u64>,
     pub action_message: Option<String>,
@@ -124,7 +127,7 @@ pub struct App {
     pub chat_operation_id: Option<String>,
     pub chat_parameters: Option<ChatParameters>,
     pub chat_settings_dialog: Option<ChatSettingsDialog>,
-    pub activities: Vec<proto::ActivityEvent>,
+    pub activities: Vec<ActivityRow>,
     pub activity_selected: usize,
     pub activity_error: Option<String>,
     pub telemetry: Option<proto::TelemetrySnapshot>,

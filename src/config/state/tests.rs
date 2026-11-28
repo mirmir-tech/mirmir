@@ -118,46 +118,6 @@ fn quarantines_corrupt_managed_state_and_resets_it() -> Result<()> {
     Ok(())
 }
 
-/// Resolving the active selections, under the UX state lock, never takes
-/// that lock again, even for a selection whose configuration still needs
-/// moving, as a selection's other spelling on a case-insensitive file
-/// system once did: the restoration finishes and the next operation too.
-#[test]
-fn resolving_active_models_never_waits_on_its_own_lock() -> Result<()> {
-    let (store, root) = test_store("active-lock");
-    let view = store.paths.gguf_variants_dir.join("m--Q8");
-    fs::create_dir_all(&view)?;
-    fs::create_dir_all(&store.paths.models_dir)?;
-    fs::write(
-        store.paths.models_dir.join("m--Q8.toml"),
-        format!(
-            "schema_version = 1\nid = \"m--Q8\"\npath = \"{}\"\n\n[hub]\nrepo_id = \"m:Q8\"\n\
-             revision = \"main\"\ncommit = \"abc\"\n",
-            view.canonicalize()?.display()
-        ),
-    )?;
-    fs::write(
-        &store.paths.ux_state_file,
-        "schema_version = 1\nrecent_models = []\nactive_models = [\"m--Q8\"]\n",
-    )?;
-    let store = std::sync::Arc::new(store);
-    let guard = store.ux_state_guard()?;
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let resolving = std::sync::Arc::clone(&store);
-    let worker = std::thread::spawn(move || {
-        let mut state = resolving.load_ux_state().expect("state should load");
-        resolving.normalize_active_models(&mut state);
-        drop(sender.send(state.active_models));
-    });
-    let resolved = receiver.recv_timeout(std::time::Duration::from_secs(5));
-    drop(guard);
-    worker.join().expect("resolution should not panic");
-    assert_eq!(resolved.expect("resolution should not wait on the held lock"), ["m--Q8"]);
-    assert_eq!(store.active_models()?, ["m@Q8"]);
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
-
 /// The reviewer's case on a case-insensitive file system (macOS APFS): an
 /// installed `owner/model-GGUF:Q4_0` and an active selection spelled
 /// `owner/model-GGUF:q4_0`, whose key names the same configuration file
@@ -167,9 +127,18 @@ fn resolving_active_models_never_waits_on_its_own_lock() -> Result<()> {
 #[test]
 fn an_active_selection_spelled_another_way_resolves_without_waiting() -> Result<()> {
     let (store, root) = test_store("active-spelling");
-    let view = store.paths.gguf_variants_dir.join("owner--model-GGUF@Q4_0");
-    fs::create_dir_all(&view)?;
-    store.save_hub_model("owner/model-GGUF:Q4_0", "main", "abc", view.canonicalize()?)?;
+    let snapshot = store.paths.hub_cache_dir.join("models--owner--model-GGUF/snapshots/abc");
+    fs::create_dir_all(&snapshot)?;
+    let file = snapshot.join("m-Q4_0.gguf");
+    fs::write(&file, b"GGUF")?;
+    store.save_hub_variant(
+        "owner/model-GGUF:Q4_0",
+        "main",
+        "abc",
+        file.clone(),
+        vec!["m-Q4_0.gguf".to_owned()],
+        None,
+    )?;
     let saved = store.paths.models_dir.join("owner--model-GGUF@Q4_0.toml");
     fs::write(
         &store.paths.ux_state_file,
@@ -188,10 +157,11 @@ fn an_active_selection_spelled_another_way_resolves_without_waiting() -> Result<
     worker.join().expect("listing should not panic");
     assert!(saved.exists(), "the installed variant's configuration went");
     assert!(store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
-    // Restored as the installed variant, which loads from its view.
+    // Restored as the installed variant, which loads directly from its snapshot
+    // file.
     let active = store.active_models()?;
     assert_eq!(active, ["owner--model-GGUF@Q4_0"]);
-    assert_eq!(store.resolve_model(&active[0])?.path, view.canonicalize()?);
+    assert_eq!(store.resolve_model(&active[0])?.path, file);
     fs::remove_dir_all(root)?;
     Ok(())
 }

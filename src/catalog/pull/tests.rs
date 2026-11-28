@@ -134,9 +134,18 @@ async fn a_queued_pull_rechecks_the_installation() -> Result<()> {
         // The pull is queued once it says so.
         let queued = received.recv().await.map(|update| update.phase);
         assert_eq!(queued, Some(TransferPhase::Queued));
-        let view = catalog.store.paths().gguf_variants_dir.join("owner--m@Q4_K_M");
-        std::fs::create_dir_all(&view)?;
-        catalog.store.save_hub_model("owner/m:Q4_K_M", "main", "abc", view)?;
+        let snapshot = catalog.store.paths().hub_cache_dir.join("models--owner--m/snapshots/abc");
+        std::fs::create_dir_all(&snapshot)?;
+        let file = snapshot.join("m-Q4_K_M.gguf");
+        std::fs::write(&file, b"GGUF")?;
+        catalog.store.save_hub_variant(
+            "owner/m:Q4_K_M",
+            "main",
+            "abc",
+            file,
+            vec!["m-Q4_K_M.gguf".to_owned()],
+            None,
+        )?;
         drop(slot);
         Ok::<_, crate::error::Error>(())
     };

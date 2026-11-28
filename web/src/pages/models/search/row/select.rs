@@ -62,7 +62,7 @@ pub(super) fn VariantSelect(repo: String, quantizations: RwSignal<Quantizations>
     let options = move || quantizations.with(Quantizations::options);
     view! {
         <select class="variant-select" aria-label="Quantization" aria-busy=move || listing().to_string() data-tooltip="Quantization to download" on:focus=list on:change=move |event| quantizations.update(|item| item.pick(&event_target_value(&event)))>
-            <For each=options key=|option| (option.variant.name.clone(), option.variant.size_kind.clone(), option.variant.weight_bytes, option.offered) children=move |option| {
+            <For each=options key=|option| (option.variant.name.clone(), option.variant.size_kind, option.variant.weight_bytes, option.offered) children=move |option| {
                 let Choice { variant, offered } = option;
                 let target = format!("{repo}:{}", variant.name);
                 let withdrawn = if offered { "" } else { " · not offered" };

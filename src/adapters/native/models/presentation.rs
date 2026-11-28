@@ -6,7 +6,7 @@ use libmir::{
 use serde_json::Value;
 
 use crate::{
-    config::GenerationConfig,
+    config::{GenerationConfig, resolve_source},
     model::{
         class,
         format::{Ecosystem, ModelEncoding, ModelFormat},
@@ -32,9 +32,11 @@ pub(super) struct Features {
     pub vision: bool,
 }
 
-pub(super) fn inspect(path: &Path, generation: GenerationConfig) -> ModelPresentation {
-    let config = json(path.join("config.json"));
-    let template = template(path);
+pub(super) fn inspect(
+    path: &Path,
+    vision: Option<&Path>,
+    generation: GenerationConfig,
+) -> ModelPresentation {
     let overrides = GenerationOverrides {
         max_tokens: generation.max_tokens,
         min_tokens: None,
@@ -44,28 +46,26 @@ pub(super) fn inspect(path: &Path, generation: GenerationConfig) -> ModelPresent
         top_k: generation.top_k,
         repetition_penalty: generation.repetition_penalty,
     };
-    match ModelDescriptor::inspect(path, overrides) {
-        Ok(descriptor) => present(&config, template.as_deref(), path, &descriptor),
-        Err(error) => unavailable(&config, template.as_deref(), path, error.to_string()),
+    let inspected = resolve_source(path, vision).and_then(|source| {
+        ModelDescriptor::inspect_source(source.as_model_source(), overrides).map_err(Into::into)
+    });
+    match inspected {
+        Ok(descriptor) => present(path, &descriptor),
+        Err(error) => {
+            let config = json(path.join("config.json"));
+            let template = template_from_dir(path);
+            unavailable(&config, template.as_deref(), path, vision, error.to_string())
+        },
     }
 }
 
-/// A GGUF model whose import failed, unloadable for that `error`.
-pub(super) fn unimported(path: &Path, error: &crate::error::Error) -> ModelPresentation {
-    let config = json(path.join("config.json"));
-    unavailable(&config, template(path).as_deref(), path, format!("GGUF import failed: {error}"))
-}
-
-fn present(
-    config: &Value,
-    template: Option<&str>,
-    path: &Path,
-    descriptor: &ModelDescriptor,
-) -> ModelPresentation {
-    let format = ModelFormat::local(path, config, Some(descriptor));
+fn present(path: &Path, descriptor: &ModelDescriptor) -> ModelPresentation {
+    let config = descriptor.layout().read_config().unwrap_or(Value::Null);
+    let template = template_from_layout(descriptor);
+    let format = ModelFormat::local(path, &config, Some(descriptor));
     let kind = descriptor.template().kind();
     ModelPresentation {
-        class: model_class(config),
+        class: model_class(&config),
         ecosystem: format.ecosystem,
         container: format.container,
         encoding: format.encoding,
@@ -73,9 +73,9 @@ fn present(
         cuda_compatibility: format.cuda,
         size_bytes: descriptor.layout().weights.iter().map(|weight| weight.bytes).sum(),
         features: Features {
-            tool_use: has_tools(template),
+            tool_use: has_tools(template.as_deref()),
             thinking: matches!(kind, TemplateKind::QwenChatMl | TemplateKind::Gemma4)
-                || has_thinking(template),
+                || has_thinking(template.as_deref()),
             vision: descriptor.vision().is_some(),
         },
         loadable: true,
@@ -87,6 +87,7 @@ fn unavailable(
     config: &Value,
     template: Option<&str>,
     path: &Path,
+    vision: Option<&Path>,
     error: String,
 ) -> ModelPresentation {
     let format = ModelFormat::local(path, config, None);
@@ -97,11 +98,12 @@ fn unavailable(
         encoding: format.encoding,
         metal_compatibility: format.metal,
         cuda_compatibility: format.cuda,
-        size_bytes: weight_size(path),
+        size_bytes: weight_size(path, vision),
         features: Features {
             tool_use: has_tools(template),
             thinking: has_thinking(template),
-            vision: config.get("vision_config").is_some_and(|value| !value.is_null()),
+            vision: vision.is_some()
+                || config.get("vision_config").is_some_and(|value| !value.is_null()),
         },
         loadable: false,
         error,
@@ -115,22 +117,34 @@ fn json(path: impl AsRef<Path>) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn template(path: &Path) -> Option<String> {
-    fs::read_to_string(path.join("chat_template.jinja")).ok().or_else(|| {
-        let config = json(path.join("tokenizer_config.json"));
-        let value = config.get("chat_template")?;
-        value.as_str().map(str::to_owned).or_else(|| {
-            value
-                .as_array()?
-                .iter()
-                .find_map(|entry| entry.get("template").and_then(Value::as_str).map(str::to_owned))
-        })
+fn template_from_layout(descriptor: &ModelDescriptor) -> Option<String> {
+    if let Some(path) = &descriptor.layout().chat_template_path
+        && let Ok(text) = fs::read_to_string(path)
+    {
+        return Some(text);
+    }
+    let config = descriptor.layout().read_tokenizer_config().ok().flatten()?;
+    extract_chat_template(&config)
+}
+
+fn template_from_dir(path: &Path) -> Option<String> {
+    fs::read_to_string(path.join("chat_template.jinja"))
+        .ok()
+        .or_else(|| extract_chat_template(&json(path.join("tokenizer_config.json"))))
+}
+
+fn extract_chat_template(config: &Value) -> Option<String> {
+    let value = config.get("chat_template")?;
+    value.as_str().map(str::to_owned).or_else(|| {
+        value
+            .as_array()?
+            .iter()
+            .find_map(|entry| entry.get("template").and_then(Value::as_str).map(str::to_owned))
     })
 }
 
 /// The configuration's `architectures`, else its `model_type`: a GGUF
-/// import's configuration, derived from the file's metadata, names only the
-/// latter.
+/// checkpoint's derived configuration names only the latter.
 fn model_class(config: &Value) -> String {
     let architectures = config.get("architectures").and_then(Value::as_array);
     class::name(
@@ -139,7 +153,18 @@ fn model_class(config: &Value) -> String {
     )
 }
 
-fn weight_size(path: &Path) -> u64 {
+fn weight_size(path: &Path, vision: Option<&Path>) -> u64 {
+    if path.is_file() {
+        let shards = libmir::gguf::shard_paths(path).unwrap_or_else(|_| vec![path.to_path_buf()]);
+        let text_bytes: u64 = shards
+            .iter()
+            .filter_map(|shard| fs::metadata(shard).ok().map(|metadata| metadata.len()))
+            .sum();
+        let vision_bytes = vision
+            .and_then(|vision| fs::metadata(vision).ok().map(|metadata| metadata.len()))
+            .unwrap_or(0);
+        return text_bytes.saturating_add(vision_bytes);
+    }
     fs::read_dir(path).map_or(0, |entries| {
         entries
             .filter_map(Result::ok)

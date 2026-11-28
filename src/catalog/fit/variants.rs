@@ -35,11 +35,11 @@ impl VariantSize {
     /// unknown for a kind this build does not know or without bytes.
     #[must_use]
     pub fn from_protocol(kind: &str, bytes: Option<u64>) -> Self {
-        bytes
-            .into_iter()
-            .flat_map(|bytes| [Self::Exact(bytes), Self::Estimated(bytes)])
-            .find(|size| size.kind() == kind)
-            .unwrap_or(Self::Unknown)
+        match (kind, bytes) {
+            ("exact", Some(bytes)) => Self::Exact(bytes),
+            ("estimated", Some(bytes)) => Self::Estimated(bytes),
+            _ => Self::Unknown,
+        }
     }
 
     #[must_use]

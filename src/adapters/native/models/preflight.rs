@@ -1,6 +1,4 @@
-use std::path::Path;
-
-use libmir::{GenerationOverrides, ModelDescriptor};
+use libmir::ModelDescriptor;
 
 use super::super::NativeRuntime;
 use crate::application::{
@@ -10,14 +8,12 @@ use crate::application::{
 impl NativeRuntime {
     pub(super) fn preflight(
         &self,
-        path: &Path,
-        overrides: GenerationOverrides,
+        descriptor: &ModelDescriptor,
         selector: &str,
         options: libmir::ModelLoadOptions,
     ) -> Result<Check> {
         let force = options.allow_memory_overcommit;
-        let descriptor = ModelDescriptor::inspect(path, overrides)?;
-        let report = self.memory_report(&descriptor, options, None)?;
+        let report = self.memory_report(descriptor, options, None)?;
         let estimate = report.estimate;
         tracing::info!(
             model = selector,

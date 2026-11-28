@@ -1,7 +1,10 @@
-use std::fs;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use super::{remove::siblings, *};
-use crate::config::Paths;
+use crate::config::{HubReference, Paths, Store};
 
 fn pinned() -> crate::catalog::resumable::Pinned {
     crate::catalog::resumable::Pinned {
@@ -34,16 +37,25 @@ fn cache(label: &str) -> Result<(Store, PathBuf, PathBuf)> {
     Ok((store, repo, root))
 }
 
-/// Links `files` in the variant's directory and records it downloaded.
+/// Records `files` in `snapshot` directly as a downloaded GGUF variant.
 fn downloaded(
     store: &Store,
     reference: &HubReference,
     snapshot: &Path,
     files: &[&str],
 ) -> Result<()> {
+    let commit = snapshot.file_name().and_then(|name| name.to_str()).unwrap_or("abc");
+    let text = files
+        .iter()
+        .find(|file| !file.to_ascii_lowercase().contains("mmproj"))
+        .or_else(|| files.first())
+        .map_or_else(|| snapshot.to_path_buf(), |file| snapshot.join(file));
+    let vision = files
+        .iter()
+        .find(|file| file.to_ascii_lowercase().contains("mmproj"))
+        .map(|file| snapshot.join(file));
     let files = files.iter().map(|&file| file.to_owned()).collect::<Vec<_>>();
-    let view = link(store, reference, snapshot, &files)?;
-    store.save_hub_model(&reference.to_string(), "main", "abc", view)?;
+    store.save_hub_variant(&reference.to_string(), "main", commit, text, files, vision)?;
     Ok(())
 }
 
@@ -104,33 +116,6 @@ fn removing_a_variant_keeps_the_base_snapshot() -> Result<()> {
     Ok(())
 }
 
-/// A variant saved under its legacy key, removed before anything listed
-/// it, is removed with its view.
-#[tokio::test]
-async fn a_legacy_variant_is_removed_as_the_first_operation() -> Result<()> {
-    let (store, _, root) = cache("legacy-remove")?;
-    let variants = &store.paths().gguf_variants_dir;
-    let (old, view) = (
-        variants.join("owner--model-GGUF--Q4_0"),
-        variants.join("owner--model-GGUF@Q4_0"),
-    );
-    fs::rename(&view, &old)?;
-    let models = &store.paths().models_dir;
-    let config = fs::read_to_string(models.join("owner--model-GGUF@Q4_0.toml"))?;
-    fs::remove_file(models.join("owner--model-GGUF@Q4_0.toml"))?;
-    fs::write(
-        models.join("owner--model-GGUF--Q4_0.toml"),
-        config.replace("owner--model-GGUF@Q4_0", "owner--model-GGUF--Q4_0"),
-    )?;
-    let scope = crate::catalog::download::removal_scope(&store, &"owner/model-GGUF:Q4_0".parse()?)?;
-    let removal = crate::catalog::download::remove(&store, &scope).await?.removal;
-    assert!(removal.removed && removal.freed_bytes > 0);
-    assert!(!old.exists() && !view.exists());
-    assert!(!store.hub_model_downloaded("owner/model-GGUF:Q4_0")?);
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
-
 /// A variant downloading into the shared cache is pending until its
 /// configuration is saved; removing it forgets it as well.
 #[test]
@@ -141,26 +126,6 @@ fn a_downloading_variant_is_pending_until_it_finishes() -> Result<()> {
     pending::begin(&store, &variant, &pinned(), &[])?;
     assert_eq!(pending_variants(store.paths()), std::slice::from_ref(&variant));
     end_pending(&store, &variant)?;
-    end_pending(&store, &variant)?;
-    assert!(pending_variants(store.paths()).is_empty());
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
-
-/// A download interrupted before variant keys took `@` left its marker at
-/// `owner--name--VARIANT`: it still counts its bytes and removing the
-/// variant forgets it.
-#[test]
-fn a_legacy_pending_marker_is_the_variants_own() -> Result<()> {
-    let (store, _, root) = cache("legacy-pending")?;
-    let variant = "owner/model-GGUF:Q6_K".parse::<HubReference>()?;
-    pending::begin(&store, &variant, &pinned(), &[])?;
-    let variants = &store.paths().gguf_variants_dir;
-    let legacy = variants.join("owner--model-GGUF--Q6_K.pending");
-    fs::rename(variants.join("owner--model-GGUF@Q6_K.pending"), &legacy)?;
-    assert_eq!(pending_variants(store.paths()), std::slice::from_ref(&variant));
-    assert_eq!(pending::pending_bytes(store.paths(), &variant), Some(0));
-    assert!(!legacy.exists());
     end_pending(&store, &variant)?;
     assert!(pending_variants(store.paths()).is_empty());
     fs::remove_dir_all(root)?;

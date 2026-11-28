@@ -45,7 +45,7 @@ async fn fetches_only_safetensors_prefix_and_header()
     server.abort();
 
     assert_eq!(result.catalog.len(), 1);
-    assert_eq!(result.catalog.tensors[0].dtype, "BF16");
+    assert_eq!(result.catalog.tensors[0].dtype, libmir::DenseDType::Bf16);
     assert_eq!(result.fetched_bytes, u64::try_from(8 + header.len())?);
     assert_eq!(result.files, vec!["model.safetensors"]);
     assert_eq!(result.revision, "revision");

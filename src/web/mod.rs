@@ -7,7 +7,7 @@ mod management;
 mod operations;
 mod session;
 mod socket;
-mod types;
+pub mod types;
 
 pub use activity::activity;
 pub use api::{create_session, delete_session, models, overview, telemetry_history};
